@@ -188,6 +188,15 @@ def init_db() -> None:
                 khoa TEXT PRIMARY KEY,
                 gia_tri TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS violations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT,
+                license_plate TEXT,
+                camera_id TEXT,
+                image_path TEXT,
+                time TEXT
+            );
             """
         )
 

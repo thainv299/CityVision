@@ -100,6 +100,22 @@ class TrafficAlertManager:
             caption = "CẢNH BÁO ⚠️: Giao thông đang RẤT ĐÔNG (Mức 2)."
         elif level == 3:
             caption = "BÁO ĐỘNG 🚨: TẮC NGHẼN nghiêm trọng (Mức 3)!"  
+        # --- ĐOẠN CODE KẾT NỐI CHUÔNG THÔNG BÁO ---
+            import sqlite3
+            from datetime import datetime
+            try:
+                # Lưu ý: Kiểm tra file database trong thư mục gốc tên là gì để thay cho đúng
+                conn = sqlite3.connect('cityvision.db') 
+                cursor = conn.cursor()
+                # Ghi nội dung cảnh báo từ Telegram vào bảng violations để cái chuông trên Web hiển thị
+                cursor.execute(
+                    "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                    ("CanhBao", caption, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print("Lỗi đồng bộ chuông thông báo:", e)
         # Gửi sang Bot Telegram có đính kèm Nút nhấn tương tác
         send_alert_with_button(img_path, caption, level)
 

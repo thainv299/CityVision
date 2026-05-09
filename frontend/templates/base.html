@@ -110,21 +110,31 @@
                             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
-                        <span class="icon-badge">3</span>
+        
+                        {# CHỖ NÀY: Chỉ hiện vòng tròn đỏ nếu số thông báo > 0 #}
+                        {% if stats and stats.unread_notifications and stats.unread_notifications > 0 %}
+                            <span class="icon-badge" id="notif-count">{{ stats.unread_notifications }}</span>
+                        {% endif %}
                         
                         <div id="notif-dropdown" style="display: none; position: absolute; top: 45px; right: 0; width: 280px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 9999; padding: 10px 0;">
                             <div style="padding: 0 15px 10px; border-bottom: 1px solid var(--border); font-weight: 700; color: #1E293B; font-size: 14px;">Thông báo vi phạm</div>
                             
                             <div style="max-height: 250px; overflow-y: auto;">
-                                <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                    <div style="font-size: 12px; font-weight: 600; color: #EF4444;">⚠️ Xe đỗ sai quy định</div>
-                                    <div style="font-size: 11px; color: #64748B;">Camera 01 - BKS: 15A-999.xx</div>
-                                </div>
-                                <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #F59E0B;">🟠 Cảnh báo ùn tắc</div>
-                                    <div style="font-size: 11px; color: #64748B;">Nút giao Phố Lạch Tray (75%)</div>
-                                </div>
+                                {# CHỖ NÀY: Vòng lặp để hiện thông báo thật từ Database #}
+                                {% if stats and stats.latest_violations %}
+                                    {% for v in stats.latest_violations %}
+                                    <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                        <div style="font-size: 12px; font-weight: 600; color: #EF4444;">⚠️ {{ v.license_plate }}</div>
+                                        <div style="font-size: 11px; color: #64748B;">{{ v.camera_id }} - {{ v.time }}</div>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <div style="padding: 20px 15px; text-align: center; color: #64748B; font-size: 12px;">
+                                        Không có thông báo mới
+                                    </div>
+                                {% endif %}
                             </div>
+
                             <div style="padding: 10px 15px 0; text-align: center; font-size: 11px; color: #4379EE; font-weight: 600; cursor: pointer;">
                                 <a href="{{ url_for('vehicles.vehicles_page') }}" style="font-size: 11px; color: #4379EE; font-weight: 600; text-decoration: none;">Xem tất cả nhật ký</a>
                             </div>
