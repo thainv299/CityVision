@@ -19,13 +19,37 @@ async def index(request: Request):
 async def dashboard_page(request: Request, period: str = "all", user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
+    
+    import sqlite3
+    from backend.core.config import DATABASE_PATH
+    
+    latest_violations = []
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        # Lấy từ bảng violations có cột 'type' để file base.html của mày chạy được
+        rows = cursor.execute(
+            "SELECT type, license_plate, camera_id, time FROM violations ORDER BY time DESC LIMIT 5"
+        ).fetchall()
+        latest_violations = [dict(row) for row in rows]
+        conn.close()
+    except Exception as e:
+        print("Lỗi lấy thông báo chuông:", e)
+    
+    # Lấy thống kê cũ của mày
+    stats = container.dashboard_use_cases.get_dashboard_stats(period)
+    
+    # Ghi đè dữ liệu thông báo mới vào biến stats để gửi sang HTML
+    stats["latest_violations"] = latest_violations
+    stats["unread_notifications"] = len(latest_violations)
         
     return container.render_template(
         request,
         "dashboard.html",
         {
             "page": "dashboard",
-            "stats": container.dashboard_use_cases.get_dashboard_stats(period),
+            "stats": stats,
         }
     )
 

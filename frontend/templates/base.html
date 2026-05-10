@@ -120,16 +120,41 @@
                             <div style="padding: 0 15px 10px; border-bottom: 1px solid var(--border); font-weight: 700; color: #1E293B; font-size: 14px;">Thông báo vi phạm</div>
                             
                             <div style="max-height: 250px; overflow-y: auto;">
-                                {# CHỖ NÀY: Vòng lặp để hiện thông báo thật từ Database #}
                                 {% if stats and stats.latest_violations %}
                                     {% for v in stats.latest_violations %}
-                                    <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                        <div style="font-size: 12px; font-weight: 600; color: #EF4444;">⚠️ {{ v.license_plate }}</div>
-                                        <div style="font-size: 11px; color: #64748B;">{{ v.camera_id }} - {{ v.time }}</div>
+                                    <div style="padding: 10px 15px; border-bottom: 1px solid #f1f5f9; cursor: pointer;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='white'">
+                                        
+                                        <div style="display: flex; align-items: start; gap: 10px;">
+                                            {# NHẬN DIỆN LOẠI VI PHẠM ĐỂ HIỆN ICON #}
+                                            {% if v.type == 'Congestion' %}
+                                                <span style="font-size: 16px;">🟠</span>
+                                                <div style="flex: 1;">
+                                                    <div style="font-size: 12px; font-weight: 700; color: #b45309;">Ùn tắc giao thông</div>
+                                                    <div style="font-size: 11px; color: #64748b;">{{ v.license_plate }}</div>
+                                                </div>
+                                            {% elif v.type == 'Parking' %}
+                                                <span style="font-size: 16px;">🚫</span>
+                                                <div style="flex: 1;">
+                                                    <div style="font-size: 12px; font-weight: 700; color: #dc2626;">Vi phạm dừng đỗ</div>
+                                                    <div style="font-size: 11px; color: #64748b;">Xe BKS: {{ v.license_plate }}</div>
+                                                </div>
+                                            {% else %}
+                                                <span style="font-size: 16px;">🔔</span>
+                                                <div style="flex: 1;">
+                                                    <div style="font-size: 12px; font-weight: 700; color: #1e293b;">Thông báo mới</div>
+                                                    <div style="font-size: 11px; color: #64748b;">{{ v.license_plate }}</div>
+                                                </div>
+                                            {% endif %}
+                                        </div>
+
+                                        <div style="display: flex; justify-content: space-between; margin-top: 5px; font-size: 9px; color: #94a3b8;">
+                                            <span>📍 {{ v.camera_id }}</span>
+                                            <span>🕒 {{ v.time }}</span>
+                                        </div>
                                     </div>
                                     {% endfor %}
                                 {% else %}
-                                    <div style="padding: 20px 15px; text-align: center; color: #64748B; font-size: 12px;">
+                                    <div style="padding: 20px 15px; text-align: center; color: #94a3b8; font-size: 12px;">
                                         Không có thông báo mới
                                     </div>
                                 {% endif %}

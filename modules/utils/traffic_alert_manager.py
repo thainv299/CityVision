@@ -1,6 +1,8 @@
+import datetime
 import time
 import os
 import cv2
+from backend.core.config import DATABASE_PATH
 from modules.utils.interactive_telegram_bot import send_alert_with_button
 
 class TrafficAlertManager:
@@ -84,38 +86,73 @@ class TrafficAlertManager:
             print(f"[INFO] Telegram ACK Mức {acked_level}, nhưng {snooze_duration}s đã hết hạn. Không kích hoạt Snooze.")
 
     def _trigger_alert(self, level, frame):
-        # Nếu có io_worker, đẩy vào queue (không blocking)
-        if self.io_worker is not None:
-            self.io_worker.enqueue_traffic_alert(level, frame)
-            return
-
-        # Fallback: gọi đồng bộ (legacy, cho desktop GUI)
+        # 1. Lưu ảnh để hiển thị
         img_path = "logs/traffic_alert.jpg"
         cv2.imwrite(img_path, frame)
         
-        caption = ""
-        if level == 1:
-            caption = "CẢNH BÁO ⚠️: Giao thông đang Bắt Đầu Đông (Mức 1)."
-        elif level == 2:
-            caption = "CẢNH BÁO ⚠️: Giao thông đang RẤT ĐÔNG (Mức 2)."
-        elif level == 3:
-            caption = "BÁO ĐỘNG 🚨: TẮC NGHẼN nghiêm trọng (Mức 3)!"  
-        # --- ĐOẠN CODE KẾT NỐI CHUÔNG THÔNG BÁO ---
-            import sqlite3
-            from datetime import datetime
-            try:
-                # Lưu ý: Kiểm tra file database trong thư mục gốc tên là gì để thay cho đúng
-                conn = sqlite3.connect('cityvision.db') 
-                cursor = conn.cursor()
-                # Ghi nội dung cảnh báo từ Telegram vào bảng violations để cái chuông trên Web hiển thị
-                cursor.execute(
-                    "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
-                    ("CanhBao", caption, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-                )
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                print("Lỗi đồng bộ chuông thông báo:", e)
-        # Gửi sang Bot Telegram có đính kèm Nút nhấn tương tác
+        # 2. Định nghĩa nội dung chi tiết theo mức độ
+        messages = {
+            1: "Mức độ 1: Giao thông ổn dịnh",
+            2: "Mức độ 2: Giao thông đông đúc",
+            3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
+        }
+        detail = messages.get(level, f"Mức độ {level}")
+        caption = f"CẢNH BÁO ⚠️: {detail}"
+
+        # 3. --- LƯU VÀO DATABASE (Dùng đúng đường dẫn hệ thống) ---
+        import sqlite3
+        from datetime import datetime
+        # Import DATABASE_PATH từ config của mày để ghi đúng vào portal.db
+        from backend.core.config import DATABASE_PATH 
+        
+        try:
+            conn = sqlite3.connect(DATABASE_PATH) 
+            cursor = conn.cursor()
+            
+            # Ghi vào bảng 'violations' (bảng này đã có sẵn trong init_db của mày)
+            # type="Congestion" để Web hiện màu cam 🟠
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu database AI:", e)
+
+        # 4. Gửi thông báo sang Telegram
         send_alert_with_button(img_path, caption, level)
+    # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
+    def save_congestion(self, level, img_path):
+        messages = {
+            1: "Mức độ 1: Giao thông ổn định",
+            2: "Mức độ 2: Giao thông đông đúc",
+            3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
+        }
+        detail = messages.get(level, f"Mức độ {level}")
+        
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu tắc nghẽn:", e)
+
+    def save_parking(self, plate_number, img_path):
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Parking", plate_number, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu dừng đỗ:", e)
 
