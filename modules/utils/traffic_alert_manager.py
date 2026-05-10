@@ -2,6 +2,8 @@ import datetime
 import time
 import os
 import cv2
+# import pyttsx3
+# import threading
 from backend.core.config import DATABASE_PATH
 from modules.utils.interactive_telegram_bot import send_alert_with_button
 
@@ -77,8 +79,6 @@ class TrafficAlertManager:
         current_time = time.time()
         self.is_acknowledged = True
         
-        # Only update the global snooze_until if the calculated end time is in the future
-        # and it pushes the current snooze_until further out.
         if calculated_snooze_end > current_time:
             self.snooze_until = max(self.snooze_until, calculated_snooze_end)
             print(f"[INFO] Telegram ACK Mức {acked_level}. Snoozing until {time.strftime('%H:%M:%S', time.localtime(self.snooze_until))}.")
@@ -92,25 +92,30 @@ class TrafficAlertManager:
         
         # 2. Định nghĩa nội dung chi tiết theo mức độ
         messages = {
-            1: "Mức độ 1: Giao thông ổn dịnh",
-            2: "Mức độ 2: Giao thông đông đúc",
+            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
+            2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
             3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
         }
         detail = messages.get(level, f"Mức độ {level}")
         caption = f"CẢNH BÁO ⚠️: {detail}"
+        
+        voice_messages = {
+            1: "Giao thông đang bắt đầu đông đúc",
+            2: "Giao thông đang rất đông đúc, phụ huynh nhanh chóng di chuyển",
+            3: "Giao thông đang tắc nghẽn nghiêm trọng, nhắc lại, phụ huynh nhanh chóng di chuyển"
+        }
+        speech_text = voice_messages.get(level)
+        # if speech_text:
+        #     self._speak_alert(speech_text)
 
-        # 3. --- LƯU VÀO DATABASE (Dùng đúng đường dẫn hệ thống) ---
         import sqlite3
         from datetime import datetime
-        # Import DATABASE_PATH từ config của mày để ghi đúng vào portal.db
         from backend.core.config import DATABASE_PATH 
         
         try:
             conn = sqlite3.connect(DATABASE_PATH) 
             cursor = conn.cursor()
             
-            # Ghi vào bảng 'violations' (bảng này đã có sẵn trong init_db của mày)
-            # type="Congestion" để Web hiện màu cam 🟠
             cursor.execute(
                 "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
                 ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -125,8 +130,8 @@ class TrafficAlertManager:
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):
         messages = {
-            1: "Mức độ 1: Giao thông ổn định",
-            2: "Mức độ 2: Giao thông đông đúc",
+            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
+            2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
             3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
         }
         detail = messages.get(level, f"Mức độ {level}")
@@ -155,4 +160,33 @@ class TrafficAlertManager:
             conn.close()
         except Exception as e:
             print("Lỗi lưu dừng đỗ:", e)
+    
+    # def _speak_alert(self, text):
+    #     """"""
+    #     return
+    #     def run_tts():
+    #         try:
+    #             engine = pyttsx3.init()
+                
+    #             # --- TÌM GIỌNG TIẾNG VIỆT TRONG MÁY ---
+    #             voices = engine.getProperty('voices')
+    #             vietnamese_voice_id = None
+    #             for voice in voices:
+    #                 # Tìm giọng nào có chữ "vietnamese" hoặc "vi-vn"
+    #                 if "vietnamese" in voice.name.lower() or "vi-vn" in voice.id.lower():
+    #                     vietnamese_voice_id = voice.id
+    #                     break
+                
+    #             if vietnamese_voice_id:
+    #                 engine.setProperty('voice', vietnamese_voice_id)
+    #             else:
+    #                 print("[CẢNH BÁO] Máy chưa cài giọng Tiếng Việt, sẽ dùng giọng mặc định.")
+
+    #             engine.setProperty('rate', 150) # Tốc độ nói chậm lại tí cho dễ nghe
+    #             engine.say(text)
+    #             engine.runAndWait()
+    #         except Exception as e:
+    #             print(f"[Lỗi Loa] {e}")
+
+    #     threading.Thread(target=run_tts, daemon=True).start()
 
