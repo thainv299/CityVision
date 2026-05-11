@@ -353,19 +353,24 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
         connection.commit()
 
 
-def get_detected_license_plates(limit: int = 100) -> list:
-    """Lấy danh sách biển số được phát hiện"""
+def get_detected_license_plates(limit: int = 100, license_plate: str = None) -> list:
+    """Lấy danh sách biển số được phát hiện, có hỗ trợ lọc theo biển số"""
+    query = """
+        SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
+               so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
+        FROM bien_so_phat_hien
+    """
+    params = []
+    
+    if license_plate:
+        query += " WHERE bien_so LIKE ?"
+        params.append(f"%{license_plate}%")
+        
+    query += " ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC LIMIT ?"
+    params.append(limit)
+    
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
-                   so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
-            FROM bien_so_phat_hien
-            ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC
-            LIMIT ?
-            """,
-            (limit,)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -424,10 +429,11 @@ def update_system_settings(settings: dict) -> None:
 
 
 def global_search(query: str) -> dict:
-    """Tìm kiếm camera và biển số xe"""
+    """Tìm kiếm camera, biển số xe (kèm trạng thái vi phạm) và vi phạm trực tiếp"""
     results = {
         "cameras": [],
-        "plates": []
+        "plates": [],
+        "violations": []
     }
     if not query:
         return results
@@ -441,17 +447,32 @@ def global_search(query: str) -> dict:
         ).fetchall()
         results["cameras"] = [dict(row) for row in cam_rows]
         
-        # 2. Tìm biển số
+        # 2. Tìm biển số và đếm số vi phạm chưa xử lý
         plate_rows = connection.execute(
             """
-            SELECT bien_so as license_plate, ngay_phat_hien as detected_date, duong_dan_anh as image_paths 
-            FROM bien_so_phat_hien 
-            WHERE bien_so LIKE ? 
-            ORDER BY ngay_cap_nhat DESC LIMIT 5
+            SELECT b.bien_so as license_plate, b.ngay_phat_hien as detected_date, b.duong_dan_anh as image_paths,
+                   (SELECT COUNT(*) FROM vi_pham_do_xe v WHERE v.bien_so = b.bien_so AND v.da_giai_quyet = 0) as active_violations
+            FROM bien_so_phat_hien b
+            WHERE b.bien_so LIKE ? 
+            ORDER BY b.ngay_cap_nhat DESC LIMIT 5
             """,
             (q,)
         ).fetchall()
         results["plates"] = [dict(row) for row in plate_rows]
+        
+        # 3. Tìm các bản ghi vi phạm chi tiết
+        violation_rows = connection.execute(
+            """
+            SELECT pv.id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time, 
+                   c.ten_camera as camera_name, pv.da_giai_quyet as is_resolved
+            FROM vi_pham_do_xe pv
+            LEFT JOIN camera c ON pv.id_camera = c.id
+            WHERE pv.bien_so LIKE ? 
+            ORDER BY pv.thoi_gian_vi_pham DESC LIMIT 3
+            """,
+            (q,)
+        ).fetchall()
+        results["violations"] = [dict(row) for row in violation_rows]
         
     return results
 

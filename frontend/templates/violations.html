@@ -54,8 +54,26 @@
 <script>
 async function loadViolations() {
     try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const filterPlate = urlParams.get('plate');
+        
         const response = await portalApi.get('/api/violations');
-        displayViolations(response.violations || []);
+        let violations = response.violations || [];
+        
+        if (filterPlate) {
+            // Lọc danh sách theo biển số (không phân biệt hoa thường)
+            violations = violations.filter(v => 
+                v.license_plate && v.license_plate.toUpperCase().includes(filterPlate.toUpperCase())
+            );
+        }
+        
+        displayViolations(violations);
+        
+        if (filterPlate && violations.length > 0) {
+            portalApi.showToast(`Đang hiển thị vi phạm của xe: ${filterPlate}`, 'info');
+        } else if (filterPlate && violations.length === 0) {
+            portalApi.showToast(`Không có vi phạm nào cho xe: ${filterPlate}`, 'warning');
+        }
     } catch (error) {
         portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
         console.error(error);

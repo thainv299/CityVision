@@ -24,13 +24,11 @@ async def vehicles_page(request: Request, user=Depends(login_required)):
 async def api_vehicles(
     user=Depends(login_required),
     limit: int = 100,
+    plate: str = None,
 ):
     """Lấy danh sách phương tiện/biển số được phát hiện"""
-    if isinstance(user, RedirectResponse):
-        return user
-    
     from database.sqlite_db import get_detected_license_plates
-    plates = get_detected_license_plates(limit)
+    plates = get_detected_license_plates(limit, license_plate=plate)
     return {
         "ok": True,
         "total": len(plates),

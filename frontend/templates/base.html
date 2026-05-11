@@ -176,11 +176,11 @@
 
                                 try {
                                     const resp = await portalApi.get(`/api/search?q=${encodeURIComponent(query)}`);
-                                    const { cameras, plates } = resp.results;
+                                    const { cameras, plates, violations } = resp.results;
                                     
                                     let html = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">KẾT QUẢ TÌM KIẾM</div>';
                                     
-                                    if (cameras.length === 0 && plates.length === 0) {
+                                    if (cameras.length === 0 && plates.length === 0 && (!violations || violations.length === 0)) {
                                         html += '<div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Không tìm thấy kết quả phù hợp.</div>';
                                     }
 
@@ -199,16 +199,39 @@
 
                                     // Hiển thị biển số
                                     plates.forEach(p => {
+                                        const violationBadge = p.active_violations > 0 
+                                            ? `<span style="font-size: 10px; background: #EF4444; color: white; padding: 1px 6px; border-radius: 4px; margin-left: 8px; font-weight: 700;">${p.active_violations} VI PHẠM</span>` 
+                                            : '';
+                                            
                                         html += `
-                                            <div class="search-item" onclick="location.href='/vehicles'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                                <div style="color: #EF4444;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
-                                                <div>
-                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
+                                            <div class="search-item" onclick="location.href='/vehicles?plate=${encodeURIComponent(p.license_plate)}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                <div style="color: #6366f1;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
+                                                <div style="flex-grow: 1;">
+                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B; display: flex; align-items: center; justify-content: space-between;">
+                                                        <span>Biển số: ${p.license_plate}</span>
+                                                        ${violationBadge}
+                                                    </div>
                                                     <div style="font-size: 11px; color: #64748B;">Ngày phát hiện: ${p.detected_date}</div>
                                                 </div>
                                             </div>
                                         `;
                                     });
+
+                                    // Hiển thị vi phạm
+                                    if (violations && violations.length > 0) {
+                                        violations.forEach(v => {
+                                            const time = v.violation_time.replace('T', ' ').split('.')[0];
+                                            html += `
+                                                <div class="search-item" onclick="location.href='/violations?plate=${encodeURIComponent(v.license_plate)}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#FFF1F2'" onmouseout="this.style.background='white'">
+                                                    <div style="color: #EF4444;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></div>
+                                                    <div>
+                                                        <div style="font-size: 13px; font-weight: 600; color: #991B1B;">⚠️ Vi phạm: ${v.license_plate}</div>
+                                                        <div style="font-size: 11px; color: #64748B;">${time} - ${v.camera_name}</div>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        });
+                                    }
 
                                     searchResultsContent.innerHTML = html;
                                 } catch (e) {

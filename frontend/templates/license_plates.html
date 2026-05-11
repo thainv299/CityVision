@@ -23,8 +23,7 @@
             <span>Chọn Ngày</span>
             <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 8px;">
         </label>
-        <button class="button primary" onclick="filterByDate()">🔍 Tìm kiếm</button>
-        <button class="button secondary" onclick="loadLatestPlates()">📊 Mới nhất</button>
+        <button class="button primary" onclick="filterByDate()">Tìm kiếm</button>
     </div>
 </section>
 
@@ -34,14 +33,13 @@
             <p class="eyebrow">Bảng Dữ liệu</p>
             <h3>Danh Sách Phương Tiện</h3>
         </div>
+        <button class="button secondary" onclick="location.href='/vehicles'">📋 Tất cả phương tiện</button>
     </div>
 
     <div id="platesList" style="display: grid; gap: 16px;">
         <div class="empty-state">
             <span class="empty-icon">📋</span>
             <p class="muted">Đang tải dữ liệu...</p>
-        </div>
-    </div>
         </div>
     </div>
 </section>
@@ -70,15 +68,27 @@
 </style>
 
 <script>
-async function loadLatestPlates() {
-    try {
-        const response = await portalApi.get('/api/vehicles?limit=100');
-        displayPlates(response.plates || []);
-    } catch (error) {
-        portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
-        console.error(error);
+    async function loadLatestPlates() {
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const filterPlate = urlParams.get('plate');
+            
+            let url = '/api/vehicles?limit=100';
+            if (filterPlate) {
+                url += `&plate=${encodeURIComponent(filterPlate)}`;
+            }
+            
+            const response = await portalApi.get(url);
+            displayPlates(response.plates || []);
+            
+            if (filterPlate && response.plates && response.plates.length > 0) {
+                portalApi.showToast(`Đang hiển thị lịch sử cho biển số: ${filterPlate}`, 'info');
+            }
+        } catch (error) {
+            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+            console.error(error);
+        }
     }
-}
 
 async function filterByDate() {
     const date = document.getElementById('filterDate').value;
