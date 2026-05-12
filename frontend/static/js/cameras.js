@@ -571,5 +571,18 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", saveCamera);
 
     setForm();
-    loadCameras();
+    loadCameras().then(() => {
+        // Tự động mở camera theo ID từ URL (được truyền từ thanh tìm kiếm global)
+        const params = new URLSearchParams(window.location.search);
+        const editId = params.get('id');
+        if (editId) {
+            const camId = Number(editId);
+            const camera = state.cameras.find(c => c.id === camId);
+            if (camera) {
+                setForm(camera);
+                // Xóa param khỏi URL để tránh refresh lại bị dính
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+    });
 });

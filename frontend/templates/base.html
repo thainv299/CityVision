@@ -322,6 +322,23 @@
                         });
 
                         // Logic Search AJAX
+                        const SYSTEM_FEATURES = [
+                            { name: "Tổng quan Dashboard", keywords: "dashboard tong quan thong ke", url: "/", icon: "fa-chart-pie", color: "#6366f1" },
+                            { name: "Quản lý Camera", keywords: "camera cau hinh thiet bi them moi", url: "/cameras", icon: "fa-video", color: "#3b82f6" },
+                            { name: "Phương tiện: Phát hiện biển số", keywords: "phuong tien bien so co", url: "/vehicles?filter=has_plate", icon: "fa-car", color: "#10b981" },
+                            { name: "Phương tiện: Không biển số", keywords: "phuong tien khong bien so", url: "/vehicles?filter=no_plate", icon: "fa-car-side", color: "#ef4444" },
+                            { name: "Tìm kiếm Phương tiện", keywords: "tim kiem phuong tien search", url: "/search", icon: "fa-search", color: "#8b5cf6" },
+                            { name: "Vi phạm: Phát hiện biển số", keywords: "vi pham do xe sai quy dinh co bien so", url: "/violations?filter=has_plate", icon: "fa-parking", color: "#f59e0b" },
+                            { name: "Vi phạm: Không biển số", keywords: "vi pham do xe sai quy dinh khong bien so", url: "/violations?filter=no_plate", icon: "fa-exclamation-triangle", color: "#ef4444" },
+                            { name: "Tìm kiếm Vi phạm", keywords: "tim kiem vi pham do xe search", url: "/violations/search", icon: "fa-search", color: "#f59e0b" },
+                            { name: "Ùn tắc: Mức 1 (Đông đúc)", keywords: "un tac muc 1 dong duc", url: "/congestion?level=1", icon: "fa-traffic-light", color: "#3b82f6" },
+                            { name: "Ùn tắc: Mức 2 (Rất đông)", keywords: "un tac muc 2 rat dong", url: "/congestion?level=2", icon: "fa-traffic-light", color: "#f59e0b" },
+                            { name: "Ùn tắc: Mức 3 (Tắc nghẽn)", keywords: "un tac muc 3 tac nghen ket xe", url: "/congestion?level=3", icon: "fa-traffic-light", color: "#ef4444" },
+                            { name: "Tìm kiếm Ùn tắc", keywords: "tim kiem un tac search", url: "/congestion/search", icon: "fa-search", color: "#ef4444" },
+                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/test-video", icon: "fa-play-circle", color: "#14b8a6" },
+                            { name: "Cài đặt hệ thống", keywords: "cai dat he thong settings telegram bot", url: "/settings", icon: "fa-cog", color: "#64748b" }
+                        ];
+
                         const globalSearchInput = document.getElementById('global-search');
                         const searchResultsDropdown = document.getElementById('search-results');
                         const searchResultsContent = document.getElementById('search-results-content');
@@ -331,8 +348,8 @@
                             const query = this.value.trim();
                             clearTimeout(searchTimeout);
                             
-                            if (query.length < 2) {
-                                searchResultsContent.innerHTML = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">GỢI Ý TÌM KIẾM NHANH</div><div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Nhập ít nhất 2 ký tự...</div>';
+                            if (query.length < 1) {
+                                searchResultsContent.innerHTML = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">GỢI Ý TÌM KIẾM NHANH</div><div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Nhập chức năng, biển số hoặc tên camera...</div>';
                                 return;
                             }
 
@@ -340,24 +357,58 @@
                                 searchResultsContent.innerHTML = '<div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Đang tìm kiếm...</div>';
                                 searchResultsDropdown.style.display = 'block';
 
+                                // Tìm kiếm chức năng (client-side)
+                                const normalizedQuery = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                const matchedFeatures = SYSTEM_FEATURES.filter(f => {
+                                    const normName = f.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                    const normKw = f.keywords.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                    return normName.includes(normalizedQuery) || normKw.includes(normalizedQuery);
+                                }).slice(0, 4); // Lấy tối đa 4 chức năng
+
                                 try {
                                     const resp = await portalApi.get(`/api/search?q=${encodeURIComponent(query)}`);
                                     const { cameras, plates } = resp.results;
                                     
-                                    let html = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">KẾT QUẢ TÌM KIẾM</div>';
+                                    let html = '';
+
+                                    // Hiển thị chức năng
+                                    if (matchedFeatures.length > 0) {
+                                        html += '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">CHỨC NĂNG HỆ THỐNG</div>';
+                                        matchedFeatures.forEach(f => {
+                                            html += `
+                                                <div class="search-item" onclick="location.href='${f.url}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 12px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                    <div style="width: 24px; height: 24px; border-radius: 6px; background: ${f.color}15; color: ${f.color}; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                        <i class="fas ${f.icon}"></i>
+                                                    </div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${f.name}</div>
+                                                    <div style="margin-left: auto; color: #94A3B8; font-size: 10px;"><i class="fas fa-arrow-right"></i></div>
+                                                </div>
+                                            `;
+                                        });
+                                    }
+
+                                    if (cameras.length > 0 || plates.length > 0) {
+                                        html += '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px; margin-top: ${matchedFeatures.length > 0 ? "10px" : "0"};">DỮ LIỆU TÌM THẤY</div>';
+                                    }
                                     
-                                    if (cameras.length === 0 && plates.length === 0) {
+                                    if (cameras.length === 0 && plates.length === 0 && matchedFeatures.length === 0) {
                                         html += '<div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Không tìm thấy kết quả phù hợp.</div>';
                                     }
+
 
                                     // Hiển thị camera
                                     cameras.forEach(cam => {
                                         html += `
-                                            <div class="search-item" onclick="location.href='/cameras'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                                <div style="color: #4379EE;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></div>
-                                                <div>
-                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${cam.ten_camera}</div>
-                                                    <div style="font-size: 11px; color: ${cam.trang_thai_hoat_dong ? '#10B981' : '#EF4444'};">${cam.trang_thai_hoat_dong ? '● Đang hoạt động' : '○ Tắt'}</div>
+                                            <div class="search-item" onclick="location.href='/cameras?id=${cam.id}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <div style="color: #4379EE; min-width: 14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></div>
+                                                    <div>
+                                                        <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${cam.ten_camera}</div>
+                                                        <div style="font-size: 11px; color: ${cam.trang_thai_hoat_dong ? '#10B981' : '#EF4444'};">${cam.trang_thai_hoat_dong ? '● Đang hoạt động' : '○ Tắt'}</div>
+                                                    </div>
+                                                </div>
+                                                <div style="width: 40px; height: 30px; background: #e2e8f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fas fa-video" style="color: #94a3b8; font-size: 12px;"></i>
                                                 </div>
                                             </div>
                                         `;
@@ -365,13 +416,21 @@
 
                                     // Hiển thị biển số
                                     plates.forEach((p, index) => {
+                                        let imgPath = p.image_paths ? p.image_paths.split(',')[0].replace(/^\/+/, '') : '';
                                         html += `
-                                            <div class="search-item staggered-item" onclick="location.href='/vehicles'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; animation-delay: ${index * 0.05}s;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                                <div style="color: #EF4444;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
-                                                <div>
-                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
-                                                    <div style="font-size: 11px; color: #64748B;">Ngày phát hiện: ${p.detected_date}</div>
+                                            <div class="search-item staggered-item" onclick="location.href='/vehicles?search=${encodeURIComponent(p.license_plate)}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; animation-delay: ${index * 0.05}s;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <div style="color: #EF4444; min-width: 14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
+                                                    <div>
+                                                        <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
+                                                        <div style="font-size: 11px; color: #64748B;">Ngày phát hiện: ${p.detected_date}</div>
+                                                    </div>
                                                 </div>
+                                                ${imgPath ? `
+                                                    <div style="width: 50px; height: 30px; border-radius: 4px; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8f0;">
+                                                        <img src="/${imgPath}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
+                                                    </div>
+                                                ` : ''}
                                             </div>
                                         `;
                                     });
