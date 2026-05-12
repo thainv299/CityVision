@@ -1,6 +1,7 @@
 import telebot
 import os
 import threading
+import time
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
@@ -76,11 +77,13 @@ def start_bot_thread(manager_instance):
     _is_polling_started = True
     
     def run_polling():
-        try:
-            # Use shorter timeouts to avoid hanging too long
-            bot.infinity_polling(timeout=10, long_polling_timeout=5)
-        except Exception as e:
-            print(f"[Telegram Bot] Không thể kết nối polling (Có thể do mạng): {e}")
+        while True:
+            try:
+                # Tăng timeout để ổn định hơn khi mạng yếu (tránh ReadTimeout)
+                bot.infinity_polling(timeout=60, long_polling_timeout=30)
+            except Exception:
+                # Tự động kết nối lại sau 15 giây nếu có lỗi mạng nghiêm trọng
+                time.sleep(15)
             
     polling_thread = threading.Thread(target=run_polling, daemon=True)
     polling_thread.start()
