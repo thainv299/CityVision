@@ -119,8 +119,8 @@
                             </td>
                             <td style="text-align: center;">
                                 ${log.image_path ? `
-                                    <div class="evidence-thumb" onclick="viewEvidence('${log.image_path}')">
-                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 40px; height: 30px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid var(--border);">
+                                    <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
+                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border); transition: transform 0.2s;">
                                     </div>
                                 ` : '<span class="muted">—</span>'}
                             </td>
@@ -139,34 +139,6 @@
             </table>
         </div>
     `;
-    }
-
-    function viewEvidence(path) {
-        // Tạo modal đơn giản để xem ảnh
-        const modal = document.createElement('div');
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.width = '100%';
-        modal.style.height = '100%';
-        modal.style.backgroundColor = 'rgba(0,0,0,0.85)';
-        modal.style.display = 'flex';
-        modal.style.flexDirection = 'column';
-        modal.style.alignItems = 'center';
-        modal.style.justifyContent = 'center';
-        modal.style.zIndex = '9999';
-        modal.style.cursor = 'zoom-out';
-        
-        modal.innerHTML = `
-            <div style="position: relative; max-width: 90%; max-height: 90%;">
-                <img src="/${path}" style="max-width: 100%; max-height: 100%; border: 3px solid white; border-radius: 8px;">
-                <p style="color: white; margin-top: 15px; text-align: center; font-family: sans-serif;">Bằng chứng ùn tắc giao thông</p>
-                <button style="position: absolute; top: -40px; right: 0; background: none; border: none; color: white; font-size: 30px; cursor: pointer;">&times;</button>
-            </div>
-        `;
-        
-        modal.onclick = () => document.body.removeChild(modal);
-        document.body.appendChild(modal);
     }
 
     // Load dữ liệu khi trang mở

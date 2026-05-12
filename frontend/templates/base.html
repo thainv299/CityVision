@@ -28,6 +28,19 @@
     data-uactive="{{ '1' if current_user['is_active'] else '0' }}"
     {% endif %}
 >
+    <!-- Shared Image Preview Modal -->
+    <div id="image-preview-modal" class="image-modal-overlay">
+        <button class="image-modal-close" id="close-image-modal">&times;</button>
+        <div class="image-modal-container" id="image-zoom-container">
+            <img src="" id="image-preview-img" alt="Xem ảnh lớn">
+        </div>
+        <div class="image-modal-info" id="image-modal-caption">Thông tin hình ảnh</div>
+        <div class="zoom-controls">
+            <button class="zoom-btn" id="zoom-out-btn"><i class="fas fa-search-minus"></i></button>
+            <button class="zoom-btn" id="zoom-reset-btn"><i class="fas fa-sync-alt"></i></button>
+            <button class="zoom-btn" id="zoom-in-btn"><i class="fas fa-search-plus"></i></button>
+        </div>
+    </div>
 
     {% if current_user %}
     <div class="notification-container" id="notificationContainer"></div>
@@ -311,6 +324,127 @@
         })();
     </script>
     <script src="{{ url_for('static', filename='js/common.js') }}?v=3.0"></script>
+    <script>
+        // Logic xem trước ảnh toàn cục (Smart Zoom & Pan)
+        (function() {
+            const modal = document.getElementById('image-preview-modal');
+            const img = document.getElementById('image-preview-img');
+            const container = document.getElementById('image-zoom-container');
+            const closeBtn = document.getElementById('close-image-modal');
+            const caption = document.getElementById('image-modal-caption');
+            
+            // Các biến trạng thái
+            let zoomScale = 1;
+            let posX = 0, posY = 0; // Vị trí hiện tại của ảnh
+            let isDragging = false;
+            let startX, startY;     // Điểm bắt đầu kéo
+            
+            const ZOOM_STEP = 0.2;
+            const MAX_ZOOM = 5;
+            const MIN_ZOOM = 0.5;
+
+            // Hàm mở Modal xem ảnh
+            window.portalApi.previewImage = function(src, title = "Xem ảnh lớn") {
+                img.src = src;
+                caption.textContent = title;
+                modal.style.display = 'flex';
+                resetZoom();
+                document.body.style.overflow = 'hidden'; // Khóa cuộn trang web
+            };
+
+            // Reset ảnh về trạng thái ban đầu
+            function resetZoom() {
+                zoomScale = 1;
+                posX = 0;
+                posY = 0;
+                updateTransform();
+            }
+
+            // Cập nhật hiển thị ảnh (Scale + Translate)
+            function updateTransform() {
+                img.style.transform = `translate(${posX}px, ${posY}px) scale(${zoomScale})`;
+                if (zoomScale > 1) {
+                    container.classList.add('zoomed');
+                } else {
+                    container.classList.remove('zoomed');
+                }
+            }
+
+            closeBtn.onclick = closeModal;
+            modal.onclick = (e) => { if (e.target === modal) closeModal(); };
+
+            function closeModal() {
+                modal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+
+            // Logic Zoom bằng nút bấm
+            document.getElementById('zoom-in-btn').onclick = (e) => {
+                e.stopPropagation();
+                if (zoomScale < MAX_ZOOM) { zoomScale += ZOOM_STEP; updateTransform(); }
+            };
+            document.getElementById('zoom-out-btn').onclick = (e) => {
+                e.stopPropagation();
+                if (zoomScale > MIN_ZOOM) { zoomScale -= ZOOM_STEP; updateTransform(); }
+            };
+            document.getElementById('zoom-reset-btn').onclick = (e) => {
+                e.stopPropagation();
+                resetZoom();
+            };
+
+            // Zoom theo con trỏ chuột (Mouse Wheel)
+            container.onwheel = (e) => {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 1 : -1;
+                const prevScale = zoomScale;
+                
+                // Giới hạn zoom
+                if (delta > 0 && zoomScale < MAX_ZOOM) zoomScale += ZOOM_STEP;
+                if (delta < 0 && zoomScale > MIN_ZOOM) zoomScale -= ZOOM_STEP;
+
+                // Tính toán để zoom trúng vị trí con trỏ
+                if (prevScale !== zoomScale) {
+                    const rect = container.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left - rect.width / 2;
+                    const mouseY = e.clientY - rect.top - rect.height / 2;
+                    
+                    // Điều chỉnh vị trí để giữ tâm zoom tại con trỏ
+                    const ratio = (zoomScale / prevScale) - 1;
+                    posX -= (mouseX - posX) * ratio;
+                    posY -= (mouseY - posY) * ratio;
+                    
+                    updateTransform();
+                }
+            };
+
+            // Logic Kéo di chuyển ảnh (Panning)
+            container.onmousedown = (e) => {
+                if (e.button !== 0) return; // Chỉ cho phép chuột trái
+                e.preventDefault();
+                isDragging = true;
+                startX = e.clientX - posX;
+                startY = e.clientY - posY;
+                container.style.cursor = 'grabbing';
+            };
+
+            window.onmousemove = (e) => {
+                if (!isDragging) return;
+                posX = e.clientX - startX;
+                posY = e.clientY - startY;
+                updateTransform();
+            };
+
+            window.onmouseup = () => {
+                isDragging = false;
+                container.style.cursor = zoomScale > 1 ? 'zoom-out' : 'zoom-in';
+            };
+
+            // Phím ESC để đóng nhanh
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && modal.style.display === 'flex') closeModal();
+            });
+        })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 
