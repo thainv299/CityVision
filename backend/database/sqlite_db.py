@@ -214,6 +214,16 @@ def init_db() -> None:
                 "ALTER TABLE bien_so_phat_hien ADD COLUMN id_camera INTEGER DEFAULT 0"
             )
 
+        # Cột duong_dan_anh trong bảng nhat_ky_un_tac
+        congestion_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(nhat_ky_un_tac)").fetchall()
+        }
+        if "duong_dan_anh" not in congestion_columns:
+            connection.execute(
+                "ALTER TABLE nhat_ky_un_tac ADD COLUMN duong_dan_anh TEXT"
+            )
+
         # Cấu hình mặc định
         default_settings = {
             "confidence": "0.32",
@@ -249,8 +259,8 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations() -> list:
-    """Lấy danh sách xe đỗ sai (giới hạn 50 bản ghi gần nhất)"""
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0) -> list:
+    """Lấy danh sách xe đỗ sai có phân trang"""
     with connect() as connection:
         rows = connection.execute(
             """
@@ -260,8 +270,9 @@ def get_illegal_parking_violations() -> list:
             FROM vi_pham_do_xe pv
             LEFT JOIN camera c ON pv.id_camera = c.id
             ORDER BY pv.da_giai_quyet ASC, pv.thoi_gian_vi_pham DESC
-            LIMIT 50
-            """
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -314,19 +325,21 @@ def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history() -> list:
-    """Lấy lịch sử ùn tắc"""
+def get_congestion_history(limit: int = 30, offset: int = 0) -> list:
+    """Lấy lịch sử ùn tắc có phân trang"""
     with connect() as connection:
         rows = connection.execute(
             """
             SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
                    n.thoi_gian_bat_dau as start_time, n.thoi_gian_ket_thuc as end_time,
-                   n.thoi_gian_keo_dai_giay as duration_seconds, c.ten_camera as camera_name
+                   n.thoi_gian_keo_dai_giay as duration_seconds, n.duong_dan_anh as image_path,
+                   c.ten_camera as camera_name
             FROM nhat_ky_un_tac n
             LEFT JOIN camera c ON n.id_camera = c.id
             ORDER BY n.thoi_gian_bat_dau DESC
-            LIMIT 50
-            """
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -447,7 +460,7 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
         connection.commit()
 
 
-def log_congestion(camera_id: int, level: int = 1, start_time: str = None) -> int:
+def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong_dan_anh: str = None) -> int:
     """Ghi lại sự kiện tắc nghẽn và trả về ID của record"""
     from datetime import datetime
     if start_time is None:
@@ -456,10 +469,10 @@ def log_congestion(camera_id: int, level: int = 1, start_time: str = None) -> in
     with connect() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO nhat_ky_un_tac (id_camera, muc_do_un_tac, thoi_gian_bat_dau)
-            VALUES (?, ?, ?)
+            INSERT INTO nhat_ky_un_tac (id_camera, muc_do_un_tac, thoi_gian_bat_dau, duong_dan_anh)
+            VALUES (?, ?, ?, ?)
             """,
-            (camera_id, level, start_time)
+            (camera_id, level, start_time, duong_dan_anh)
         )
         connection.commit()
         return cursor.lastrowid
@@ -570,6 +583,16 @@ def get_detected_license_plates(limit: int = 100, license_plate: str = None) -> 
             (limit,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+def get_total_records_count(table_name: str, conditions_str: str = "", params: list = None) -> int:
+    """Lấy tổng số bản ghi của một bảng theo điều kiện"""
+    query = f"SELECT COUNT(*) as total FROM {table_name}"
+    if conditions_str:
+        query += f" WHERE {conditions_str}"
+    
+    with connect() as connection:
+        row = connection.execute(query, params or []).fetchone()
+    return row["total"] if row and row["total"] else 0
 
 
 def get_license_plate_by_date(detected_date: str) -> list:

@@ -26,18 +26,53 @@
             <p class="muted">Đang tải dữ liệu...</p>
         </div>
     </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
+    </div>
 </section>
 
 <script>
-    async function loadCongestion() {
+    let currentPage = 1;
+    let totalRecords = 0;
+    const limit = 30;
+
+    async function loadCongestion(page = 1) {
+        currentPage = page;
         try {
-            const response = await portalApi.get('/api/congestion');
+            const response = await portalApi.get(`/api/congestion?limit=${limit}&page=${currentPage}`);
             displayCongestion(response.logs || []);
+
+            // Update pagination UI
+            totalRecords = response.total || 0;
+            const totalPages = Math.ceil(totalRecords / limit) || 1;
+            document.getElementById('current-page').textContent = currentPage;
+            document.getElementById('total-pages').textContent = totalPages;
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = currentPage >= totalPages;
         } catch (error) {
             portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
             console.error(error);
         }
     }
+
+    // Pagination events
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) loadCongestion(currentPage - 1);
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        if (currentPage < totalPages) loadCongestion(currentPage + 1);
+    });
 
     function displayCongestion(logs) {
         const container = document.getElementById('congestionList');
@@ -60,6 +95,7 @@
                         <th style="text-align: center; width: 50px;">STT</th>
                         <th>Camera</th>
                         <th style="text-align: center;">Mức độ</th>
+                        <th style="text-align: center;">Bằng chứng</th>
                         <th style="text-align: center;">Thời gian bắt đầu</th>
                         <th style="text-align: center;">Thời gian kết thúc</th>
                         <th style="text-align: center;">Kéo dài (giây)</th>
@@ -80,6 +116,13 @@
                                 ` : `
                                     <span class="pill blue">Nhẹ (Lv 1)</span>
                                 `}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.image_path ? `
+                                    <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
+                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border); transition: transform 0.2s;">
+                                    </div>
+                                ` : '<span class="muted">—</span>'}
                             </td>
                             <td style="text-align: center;">
                                 ${log.start_time || 'N/A'}

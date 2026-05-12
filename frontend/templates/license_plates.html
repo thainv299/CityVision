@@ -83,6 +83,15 @@ async function loadLatestPlates() {
     }
 }
 
+    // Pagination events
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) loadLatestPlates(currentPage - 1);
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        if (currentPage < totalPages) loadLatestPlates(currentPage + 1);
+    });
+
     async function filterByDate() {
         const date = document.getElementById('filterDate').value;
         if (!date) {
@@ -142,10 +151,10 @@ async function loadLatestPlates() {
                             </td>
                             <td style="text-align: center;">
                                 ${firstImage ? `
-                                    <a href="/${firstImage}" target="_blank" title="Bấm để xem ảnh gốc">
+                                    <div onclick="window.portalApi.previewImage('/${firstImage}', 'Biển số: ${plate.license_plate}')" style="cursor: pointer;" title="Bấm để xem ảnh lớn">
                                         <img src="/${firstImage}" class="plate-thumbnail" alt="Biển số ${plate.license_plate}" loading="lazy">
-                                    </a>
-                                ` : '<span class="badge muted">Không có ảnh</span>'}
+                                    </div>
+                                ` : '<span class="badge muted">N/A</span>'}
                             </td>
                             <td style="text-align: center;">
                                 <button class="button danger outline sm" onclick="deletePlate(${plate.id})" title="Xóa bản ghi rác">

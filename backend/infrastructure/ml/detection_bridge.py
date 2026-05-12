@@ -8,6 +8,7 @@ import queue
 import subprocess
 import json
 from pathlib import Path
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
@@ -44,6 +45,13 @@ VEHICLE_LABELS = {"car", "motorcycle", "bus", "truck"}
 PARKING_LABELS = {"car", "bus", "truck"}
 LICENSE_PLATE_LABELS = {"license_plate", "licenseplate", "number_plate", "licence_plate"}
 DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS
+
+# Ánh xạ tên mức độ ùn tắc cho tên thư mục ảnh
+TRAFFIC_LEVEL_NAMES = {
+    1: "DongDuc",
+    2: "RatDong",
+    3: "TacNghen"
+}
 
 # Kích thước pipe từ FFmpeg — 1080p (1920px) cho chất lượng cao
 PIPE_WIDTH = 1920
@@ -491,6 +499,7 @@ def process_video(
     stop_seconds = float(settings.get("stop_seconds", 30.0))
     move_threshold_px = float(settings.get("parking_move_threshold_px", 10.0))
     process_stride = max(1, int(settings.get("process_every_n_frames", 2)))
+    save_to_db = bool(settings.get("save_to_db", True))
 
     # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
     capture = VideoStream(input_video_path, force_single_thread=is_hevc).start()
@@ -563,7 +572,8 @@ def process_video(
     parking_manager.stop_seconds = stop_seconds
     parking_manager.move_thr_px = move_threshold_px
     parking_manager.camera_id = camera_id
-    parking_manager.violation_callback = log_parking_violation
+    parking_manager.violation_callback = log_parking_violation if save_to_db else None
+    parking_manager.save_to_db = save_to_db
     parking_manager.io_worker = io_worker
     parking_manager.setup_detection(fps)
 
@@ -621,6 +631,7 @@ def process_video(
     logging.getLogger("ppocr").setLevel(logging.ERROR)
     ocr_reader = PaddleOCR(lang='en')
     ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
+    ocr_manager.save_to_db = save_to_db
     if enable_license_plate:
         ocr_manager.start_worker()
 
@@ -809,11 +820,12 @@ def process_video(
                             # XÁC MINH XE MỚI: Chỉ lưu vào DB sau khi đã thấy xe ổn định (> 30 frames ~ 1s)
                             if not pending_alpr_tracks[track_id]["is_passed_logged"] and pending_alpr_tracks[track_id]["seen_count"] > 30:
                                 # 1. Ghi vào bảng lịch sử phương tiện
-                                io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{track_id}", label))
-                                
-                                # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
-                                from database.sqlite_db import log_vehicle_count
-                                io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, 1))
+                                if save_to_db:
+                                    io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{track_id}", label))
+                                    
+                                    # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
+                                    from database.sqlite_db import log_vehicle_count
+                                    io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, 1))
                                 
                                 logged_vehicle_ids.add(track_id)
                                 unique_passed_count += 1
@@ -842,7 +854,7 @@ def process_video(
                     if pending_alpr_tracks[tid]["missing_frames"] > 45:
                         # Chỉ ghi log nếu xe đã từng xuất hiện ổn định (đã được log 'Xe đi qua')
                         if pending_alpr_tracks[tid]["is_passed_logged"]:
-                            if tid not in alpr_logger.logged_v_tracks:
+                            if tid not in alpr_logger.logged_v_tracks and save_to_db:
                                 best_f, best_box = pending_alpr_tracks[tid]["best_image"]
                                 alpr_logger.log_vehicle_without_plate(frame_index, best_f, best_box)
                         
@@ -862,7 +874,7 @@ def process_video(
                     if clear_start_time == 0:
                         clear_start_time = current_time
                     elif current_time - clear_start_time >= true_clear_seconds:
-                        if last_db_traffic_level > 0 and last_congestion_record_id:
+                        if last_db_traffic_level > 0 and last_congestion_record_id and save_to_db:
                             io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
                             last_congestion_record_id = None
                         last_db_traffic_level = 0
@@ -870,11 +882,39 @@ def process_video(
                     clear_start_time = 0
 
                 if confirmed_lvl != last_db_traffic_level:
-                    if last_db_traffic_level > 0 and confirmed_lvl == 0 and last_congestion_record_id:
+                    if last_db_traffic_level > 0 and confirmed_lvl == 0 and last_congestion_record_id and save_to_db:
                         io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
                         last_congestion_record_id = None
                     elif confirmed_lvl > 0:
-                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl)
+                        # 1. Tạo đường dẫn ảnh bằng chứng theo yêu cầu
+                        # traffic/năm/tháng/ngày/{mức độ}_giờ_phút/{mức độ}_giờ_phút.jpg
+                        now = datetime.now()
+                        lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
+                        time_folder = now.strftime(f"{lvl_name}_%H%M")
+                        
+                        rel_dir = os.path.join(
+                            "logs", "traffic",
+                            now.strftime('%Y'),
+                            now.strftime('%m'),
+                            now.strftime('%d'),
+                            time_folder
+                        )
+                        abs_dir = PROJECT_ROOT / rel_dir
+                        os.makedirs(abs_dir, exist_ok=True)
+                        
+                        img_name = f"{time_folder}.jpg"
+                        rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
+                        abs_path = str(abs_dir / img_name)
+                        
+                        # 2. Lưu ảnh qua io_worker (Async)
+                        if save_to_db:
+                            if io_worker:
+                                io_worker.enqueue_save_image(abs_path, clean_frame)
+                            else:
+                                cv2.imwrite(abs_path, clean_frame)
+                                
+                            # 3. Ghi vào Database (Sync để lấy ID)
+                            last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
                     last_db_traffic_level = confirmed_lvl
 
             # Tính và vẽ FPS
@@ -928,9 +968,10 @@ def process_video(
         capture.release()
         if enable_license_plate:
             ocr_manager.stop_worker()
-        if last_congestion_record_id:
+        if last_congestion_record_id and save_to_db:
             update_congestion_end_time(last_congestion_record_id)
-        log_vehicle_count(camera_id, unique_passed_count)
+        if save_to_db:
+            log_vehicle_count(camera_id, unique_passed_count)
         io_worker.shutdown(wait=True, timeout=60.0)
         if should_cleanup_temp and input_video_path.exists():
             try:
