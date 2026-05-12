@@ -8,6 +8,7 @@ import queue
 import subprocess
 import json
 from pathlib import Path
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import cv2
@@ -44,6 +45,13 @@ VEHICLE_LABELS = {"car", "motorcycle", "bus", "truck"}
 PARKING_LABELS = {"car", "bus", "truck"}
 LICENSE_PLATE_LABELS = {"license_plate", "licenseplate", "number_plate", "licence_plate"}
 DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS
+
+# Ánh xạ tên mức độ ùn tắc cho tên thư mục ảnh
+TRAFFIC_LEVEL_NAMES = {
+    1: "DongDuc",
+    2: "RatDong",
+    3: "TacNghen"
+}
 
 # Kích thước pipe từ FFmpeg — 1080p (1920px) cho chất lượng cao
 PIPE_WIDTH = 1920
@@ -874,7 +882,34 @@ def process_video(
                         io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
                         last_congestion_record_id = None
                     elif confirmed_lvl > 0:
-                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl)
+                        # 1. Tạo đường dẫn ảnh bằng chứng theo yêu cầu
+                        # traffic/năm/tháng/ngày/{mức độ}_giờ_phút/{mức độ}_giờ_phút.jpg
+                        now = datetime.now()
+                        lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
+                        time_folder = now.strftime(f"{lvl_name}_%H%M")
+                        
+                        rel_dir = os.path.join(
+                            "logs", "traffic",
+                            now.strftime('%Y'),
+                            now.strftime('%m'),
+                            now.strftime('%d'),
+                            time_folder
+                        )
+                        abs_dir = PROJECT_ROOT / rel_dir
+                        os.makedirs(abs_dir, exist_ok=True)
+                        
+                        img_name = f"{time_folder}.jpg"
+                        rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
+                        abs_path = str(abs_dir / img_name)
+                        
+                        # 2. Lưu ảnh qua io_worker (Async)
+                        if io_worker:
+                            io_worker.enqueue_save_image(abs_path, clean_frame)
+                        else:
+                            cv2.imwrite(abs_path, clean_frame)
+                            
+                        # 3. Ghi vào Database (Sync để lấy ID)
+                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
                     last_db_traffic_level = confirmed_lvl
 
             # Tính và vẽ FPS
