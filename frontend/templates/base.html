@@ -67,7 +67,7 @@
                             <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
                         </div>
                     </a>
-                    <div class="nav-sub-menu" id="sub-menu-vehicles" style="display: none; padding-left: 12px; margin-top: 4px; flex-direction: column; gap: 4px;">
+                    <div class="nav-sub-menu" id="sub-menu-vehicles" style="padding-left: 12px; flex-direction: column; gap: 4px;">
                         <a href="/vehicles?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
                             <span style="color: var(--success); margin-right: 8px;">●</span> Phát hiện biển số
                         </a>
@@ -174,18 +174,14 @@
                                 e.preventDefault(); // Ngăn chuyển trang
                                 e.stopPropagation(); // Ngăn sự kiện lan lên thẻ <a>
                                 
-                                const isHidden = vehiclesSubMenu.style.display === 'none';
-                                vehiclesSubMenu.style.display = isHidden ? 'flex' : 'none';
-                                vehiclesChevron.querySelector('.chevron').style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-                                vehiclesToggle.classList.toggle('open', isHidden);
+                                const isActive = vehiclesSubMenu.classList.toggle('active-menu');
+                                vehiclesChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                vehiclesToggle.classList.toggle('open', isActive);
                             };
                             
-                            // Click vào thẻ <a> (vùng text/icon): Cho phép chuyển trang bình thường
-                            // (Mặc định thẻ <a> có href nên không cần code thêm ở đây)
-
-                            // Tự động mở menu nếu đang ở trang vehicles
+                            // Tự động mở menu nếu đang ở trang vehicles hoặc search
                             if (window.portalContext && (window.portalContext.page === 'vehicles' || window.portalContext.page === 'search')) {
-                                vehiclesSubMenu.style.display = 'flex';
+                                vehiclesSubMenu.classList.add('active-menu');
                                 vehiclesChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
                                 vehiclesToggle.classList.add('open');
                             }
