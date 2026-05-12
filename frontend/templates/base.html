@@ -80,13 +80,54 @@
                     </div>
                 </div>
 
-                <a id="nav-violations" class="nav-link {% if page == 'violations' %}active{% endif %}" href="{{ url_for('violations.violations_page') }}">
-                    Vi phạm đỗ xe
-                </a>
+                <div id="nav-violations-group" class="nav-group">
+                    <a id="nav-violations" class="nav-link {% if page in ['violations', 'violation-search'] %}active{% endif %}" href="{{ url_for('violations.violations_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-parking"></i>
+                            <span>Vi phạm đỗ xe</span>
+                        </div>
+                        <div id="chevron-violations" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-violations" style="padding-left: 12px; flex-direction: column; gap: 4px;">
+                        <a href="/violations?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--success); margin-right: 8px;">●</span> Phát hiện biển số
+                        </a>
+                        <a href="/violations?filter=no_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--danger); margin-right: 8px;">●</span> Không biển số
+                        </a>
+                        <a href="/violations/search" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search" style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm nâng cao
+                        </a>
+                    </div>
+                </div>
 
-                <a id="nav-congestion" class="nav-link {% if page == 'congestion' %}active{% endif %}" href="{{ url_for('congestion.congestion_page') }}">
-                    Nhật ký ùn tắc
-                </a>
+                <div id="nav-congestion-group" class="nav-group">
+                    <a id="nav-congestion" class="nav-link {% if page in ['congestion', 'congestion-search'] %}active{% endif %}" href="{{ url_for('congestion.congestion_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-traffic-light"></i>
+                            <span>Nhật ký ùn tắc</span>
+                        </div>
+                        <div id="chevron-congestion" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-congestion" style="padding-left: 12px; flex-direction: column; gap: 4px;">
+                        <a href="/congestion?level=1" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--brand-blue); margin-right: 8px;">●</span> Mức 1 — Đông đúc
+                        </a>
+                        <a href="/congestion?level=2" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: #F59E0B; margin-right: 8px;">●</span> Mức 2 — Rất đông
+                        </a>
+                        <a href="/congestion?level=3" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--danger); margin-right: 8px;">●</span> Mức 3 — Tắc nghẽn
+                        </a>
+                        <a href="/congestion/search" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search" style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm nâng cao
+                        </a>
+                    </div>
+                </div>
 
                 <div class="nav-label" style="margin-top: 16px;">Phân tích AI</div>
 
@@ -169,10 +210,21 @@
                         const vehiclesSubMenu = document.getElementById('sub-menu-vehicles');
                         
                         if (vehiclesToggle && vehiclesChevron && vehiclesSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
+                            vehiclesToggle.onclick = function(e) {
+                                if (!vehiclesSubMenu.classList.contains('active-menu')) {
+                                    e.preventDefault();
+                                    vehiclesSubMenu.classList.add('active-menu');
+                                    vehiclesChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    vehiclesToggle.classList.add('open');
+                                }
+                                // Nếu menu đã mở → cho phép <a> chuyển trang bình thường
+                            };
+                            
                             // Click vào mũi tên: Chỉ đóng/mở menu con
                             vehiclesChevron.onclick = function(e) {
-                                e.preventDefault(); // Ngăn chuyển trang
-                                e.stopPropagation(); // Ngăn sự kiện lan lên thẻ <a>
+                                e.preventDefault();
+                                e.stopPropagation();
                                 
                                 const isActive = vehiclesSubMenu.classList.toggle('active-menu');
                                 vehiclesChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
@@ -187,6 +239,74 @@
                             }
                         }
 
+                        // Logic Dropdown Sidebar (Vi phạm đỗ xe)
+                        const violationsToggle = document.getElementById('nav-violations');
+                        const violationsChevron = document.getElementById('chevron-violations');
+                        const violationsSubMenu = document.getElementById('sub-menu-violations');
+                        
+                        if (violationsToggle && violationsChevron && violationsSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
+                            violationsToggle.onclick = function(e) {
+                                if (!violationsSubMenu.classList.contains('active-menu')) {
+                                    e.preventDefault();
+                                    violationsSubMenu.classList.add('active-menu');
+                                    violationsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    violationsToggle.classList.add('open');
+                                }
+                                // Nếu menu đã mở → cho phép <a> chuyển trang bình thường
+                            };
+                            
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            violationsChevron.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const isActive = violationsSubMenu.classList.toggle('active-menu');
+                                violationsChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                violationsToggle.classList.toggle('open', isActive);
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang violations hoặc violation-search
+                            if (window.portalContext && (window.portalContext.page === 'violations' || window.portalContext.page === 'violation-search')) {
+                                violationsSubMenu.classList.add('active-menu');
+                                violationsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                violationsToggle.classList.add('open');
+                            }
+                        }
+
+                        // Logic Dropdown Sidebar (Nhật ký ùn tắc)
+                        const congestionToggle = document.getElementById('nav-congestion');
+                        const congestionChevron = document.getElementById('chevron-congestion');
+                        const congestionSubMenu = document.getElementById('sub-menu-congestion');
+                        
+                        if (congestionToggle && congestionChevron && congestionSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
+                            congestionToggle.onclick = function(e) {
+                                if (!congestionSubMenu.classList.contains('active-menu')) {
+                                    e.preventDefault();
+                                    congestionSubMenu.classList.add('active-menu');
+                                    congestionChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    congestionToggle.classList.add('open');
+                                }
+                            };
+                            
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            congestionChevron.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const isActive = congestionSubMenu.classList.toggle('active-menu');
+                                congestionChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                congestionToggle.classList.toggle('open', isActive);
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang congestion hoặc congestion-search
+                            if (window.portalContext && (window.portalContext.page === 'congestion' || window.portalContext.page === 'congestion-search')) {
+                                congestionSubMenu.classList.add('active-menu');
+                                congestionChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                congestionToggle.classList.add('open');
+                            }
+                        }
                         document.onclick = function() {
                                 dropdown.style.display = 'none';
                             };

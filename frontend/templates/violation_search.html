@@ -1,41 +1,98 @@
 {% extends "base.html" %}
 
-{% block title %}Quản lý Vi phạm đỗ xe | CityVision AI Portal{% endblock %}
+{% block title %}Tìm kiếm Vi phạm | CityVision AI Portal{% endblock %}
 
 {% block content %}
 <div class="page-head">
     <div>
-        <p class="eyebrow">Giám sát Giao thông</p>
-        <h2 class="page-title">Vi phạm Đỗ xe sai quy định</h2>
-        <p class="muted">Danh sách các xe dừng/đỗ sai vùng quy định (có thể chưa được xử lý)</p>
+        <p class="eyebrow">Vi phạm đỗ xe</p>
+        <h2 class="page-title">Tìm kiếm Vi phạm nâng cao</h2>
+        <p class="muted">Lọc và tìm kiếm vi phạm đỗ xe theo ngày, giờ, camera</p>
     </div>
 </div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Bộ lọc</p>
+            <h3>Điều kiện Tìm kiếm</h3>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto auto; gap: 16px; align-items: end;">
+        <label class="field">
+            <span>Chọn Ngày</span>
+            <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem;">
+        </label>
+        <label class="field">
+            <span>Chọn Giờ (0-23)</span>
+            <select id="filterHour" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+                <option value="">-- Tất cả --</option>
+                <option value="00">00:00 - 00:59</option>
+                <option value="01">01:00 - 01:59</option>
+                <option value="02">02:00 - 02:59</option>
+                <option value="03">03:00 - 03:59</option>
+                <option value="04">04:00 - 04:59</option>
+                <option value="05">05:00 - 05:59</option>
+                <option value="06">06:00 - 06:59</option>
+                <option value="07">07:00 - 07:59</option>
+                <option value="08">08:00 - 08:59</option>
+                <option value="09">09:00 - 09:59</option>
+                <option value="10">10:00 - 10:59</option>
+                <option value="11">11:00 - 11:59</option>
+                <option value="12">12:00 - 12:59</option>
+                <option value="13">13:00 - 13:59</option>
+                <option value="14">14:00 - 14:59</option>
+                <option value="15">15:00 - 15:59</option>
+                <option value="16">16:00 - 16:59</option>
+                <option value="17">17:00 - 17:59</option>
+                <option value="18">18:00 - 18:59</option>
+                <option value="19">19:00 - 19:59</option>
+                <option value="20">20:00 - 20:59</option>
+                <option value="21">21:00 - 21:59</option>
+                <option value="22">22:00 - 22:59</option>
+                <option value="23">23:00 - 23:59</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Camera</span>
+            <select id="filterCamera" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+                <option value="">-- Tất cả Camera --</option>
+            </select>
+        </label>
+        <button class="button primary" onclick="searchViolations()" style="height: 44px;">
+            <i class="fas fa-search" style="margin-right: 6px;"></i> Tìm kiếm
+        </button>
+        <button class="button secondary" onclick="resetFilters()" style="height: 44px;">
+            <i class="fas fa-undo" style="margin-right: 6px;"></i> Xoá lọc
+        </button>
+    </div>
+</section>
 
 <section class="panel margin-top">
     <div class="panel-header">
         <div>
-            <p class="eyebrow">Dữ liệu theo thời gian thực</p>
-            <h3>Danh Sách Vi Phạm Chờ Xử Lý</h3>
+            <p class="eyebrow">Kết quả</p>
+            <h3 id="results-title">Danh sách Vi phạm</h3>
         </div>
-        <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
+        <span id="results-count" class="pill blue" style="font-size: 0.85rem;">0 kết quả</span>
     </div>
 
     <div id="violationList" style="display: grid; gap: 16px;">
         <div class="empty-state">
-            <span class="empty-icon">📋</span>
-            <p class="muted">Đang tải dữ liệu...</p>
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để bắt đầu</p>
         </div>
     </div>
 
     <!-- Pagination Controls -->
     <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
-        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
             <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
         </button>
         <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
             Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
         </div>
-        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;">
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
             Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
         </button>
     </div>
@@ -46,8 +103,6 @@
     <div class="modal-content">
         <button id="closeModalBtn" class="close-btn">&times;</button>
         <h3>Bằng chứng Video (15s)</h3>
-        
-        <!-- Không có src ban đầu, preload="none" để chắc chắn không tải trước -->
         <video id="violationVideoPlayer" width="100%" controls preload="none" style="border-radius: 8px; background: #000;">
             Trình duyệt của bạn không hỗ trợ thẻ video.
         </video>
@@ -75,14 +130,12 @@
     .data-table td {
         vertical-align: middle;
     }
-    
     .video-thumbnail {
         position: relative;
         display: inline-block;
         cursor: pointer;
         margin: 0 auto;
     }
-    
     .play-overlay {
         position: absolute;
         top: 50%;
@@ -93,12 +146,10 @@
         pointer-events: none;
         transition: all 0.3s var(--ease);
     }
-    
     .video-thumbnail:hover .play-overlay {
         color: rgba(255, 255, 255, 1);
         transform: translate(-50%, -50%) scale(1.1);
     }
-
     .modal-overlay {
         position: fixed;
         top: 0;
@@ -112,7 +163,6 @@
         justify-content: center;
         backdrop-filter: blur(4px);
     }
-    
     .modal-content {
         position: relative;
         background: var(--surface);
@@ -122,12 +172,10 @@
         max-width: 800px;
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
-    
     .modal-content h3 {
         margin-top: 0;
         margin-bottom: 15px;
     }
-    
     .close-btn {
         position: absolute;
         top: 15px;
@@ -140,9 +188,19 @@
         cursor: pointer;
         transition: color 0.2s;
     }
-    
     .close-btn:hover {
         color: var(--text);
+    }
+    
+    @media (max-width: 900px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr 1fr !important;
+        }
+    }
+    @media (max-width: 600px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr !important;
+        }
     }
 </style>
 
@@ -151,43 +209,82 @@ let currentPage = 1;
 let totalRecords = 0;
 const limit = 30;
 
-async function loadViolations(page = 1) {
-    currentPage = page;
+// Tải danh sách Camera cho bộ lọc
+async function loadCameraOptions() {
     try {
-        const params = new URLSearchParams(window.location.search);
-        const filter = params.get('filter');
-        
-        // Cập nhật tiêu đề trang dựa theo filter
-        const pageTitle = document.querySelector('.page-title');
-        if (filter === 'has_plate') pageTitle.textContent = 'Vi phạm có Phát hiện biển số';
-        else if (filter === 'no_plate') pageTitle.textContent = 'Vi phạm Không phát hiện biển số';
-        
-        let url = `/api/violations?limit=${limit}&page=${currentPage}`;
-        if (filter) url += `&filter=${filter}`;
-        
-        const response = await portalApi.get(url);
+        const resp = await portalApi.get('/api/cameras');
+        const cameras = resp.cameras || resp || [];
+        const select = document.getElementById('filterCamera');
+        cameras.forEach(cam => {
+            const opt = document.createElement('option');
+            opt.value = cam.id;
+            opt.textContent = cam.name || cam.ten_camera || `Camera ${cam.id}`;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Lỗi tải danh sách camera:', e);
+    }
+}
+
+function searchViolations(page = 1) {
+    currentPage = page;
+    const date = document.getElementById('filterDate').value;
+    const hour = document.getElementById('filterHour').value;
+    const cameraId = document.getElementById('filterCamera').value;
+
+    let url = `/api/violations?limit=${limit}&page=${currentPage}`;
+    if (date) url += `&date=${date}`;
+    if (hour) url += `&hour=${hour}`;
+    if (cameraId) url += `&camera_id=${cameraId}`;
+
+    // Cập nhật tiêu đề kết quả
+    let titleParts = [];
+    if (date) titleParts.push(`Ngày ${date}`);
+    if (hour) titleParts.push(`Giờ ${hour}:00-${hour}:59`);
+    if (cameraId) {
+        const camSelect = document.getElementById('filterCamera');
+        const camName = camSelect.options[camSelect.selectedIndex].textContent;
+        titleParts.push(camName);
+    }
+    document.getElementById('results-title').textContent = titleParts.length > 0
+        ? `Vi phạm: ${titleParts.join(' | ')}`
+        : 'Danh sách Vi phạm';
+
+    portalApi.get(url).then(response => {
         displayViolations(response.violations || []);
-        
-        // Update pagination UI
         totalRecords = response.total || 0;
+        document.getElementById('results-count').textContent = `${totalRecords} kết quả`;
         const totalPages = Math.ceil(totalRecords / limit) || 1;
         document.getElementById('current-page').textContent = currentPage;
         document.getElementById('total-pages').textContent = totalPages;
         document.getElementById('prev-page').disabled = currentPage <= 1;
         document.getElementById('next-page').disabled = currentPage >= totalPages;
-    } catch (error) {
+    }).catch(error => {
         portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
-        console.error(error);
-    }
+    });
+}
+
+function resetFilters() {
+    document.getElementById('filterDate').value = '';
+    document.getElementById('filterHour').value = '';
+    document.getElementById('filterCamera').value = '';
+    document.getElementById('results-title').textContent = 'Danh sách Vi phạm';
+    document.getElementById('results-count').textContent = '0 kết quả';
+    document.getElementById('violationList').innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để bắt đầu</p>
+        </div>
+    `;
 }
 
 // Pagination events
 document.getElementById('prev-page').addEventListener('click', () => {
-    if (currentPage > 1) loadViolations(currentPage - 1);
+    if (currentPage > 1) searchViolations(currentPage - 1);
 });
 document.getElementById('next-page').addEventListener('click', () => {
     const totalPages = Math.ceil(totalRecords / limit) || 1;
-    if (currentPage < totalPages) loadViolations(currentPage + 1);
+    if (currentPage < totalPages) searchViolations(currentPage + 1);
 });
 
 async function resolveViolation(id) {
@@ -195,9 +292,7 @@ async function resolveViolation(id) {
     try {
         await portalApi.post(`/api/violations/${id}/resolve`);
         portalApi.showToast('Đã đánh dấu xử lý vi phạm thành công', 'success');
-        
-        // Refresh danh sách
-        setTimeout(loadViolations, 500); 
+        setTimeout(() => searchViolations(currentPage), 500);
     } catch(err) {
         portalApi.showToast('Lỗi xử lý: ' + err.message, 'error');
     }
@@ -209,8 +304,8 @@ function displayViolations(violations) {
     if (!violations || violations.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <span class="empty-icon">✅</span>
-                <p class="muted">Tuyệt vời, không có vi phạm đỗ xe nào cần xử lý!</p>
+                <span class="empty-icon">📭</span>
+                <p class="muted">Không tìm thấy vi phạm nào phù hợp với bộ lọc</p>
             </div>
         `;
         return;
@@ -237,7 +332,7 @@ function displayViolations(violations) {
                         const framePath = v.frame_path ? v.frame_path.replace(/^\/+/,'') : '';
                         return `
                         <tr>
-                            <td style="text-align: center;"><strong>${index + 1}</strong></td>
+                            <td style="text-align: center;"><strong>${(currentPage - 1) * limit + index + 1}</strong></td>
                             <td>
                                 <strong>${v.camera_name || 'N/A'}</strong>
                             </td>
@@ -308,9 +403,9 @@ function displayViolations(violations) {
     });
 }
 
-// Load dữ liệu khi trang mở
+// Khởi tạo khi trang mở
 document.addEventListener('DOMContentLoaded', () => {
-    loadViolations();
+    loadCameraOptions();
 
     const modal = document.getElementById('videoModal');
     const videoPlayer = document.getElementById('violationVideoPlayer');

@@ -81,25 +81,6 @@ async def api_vehicles(
         "camera_id": camera_id
     }
 
-@vehicle_router.get("/api/violations")
-async def api_violations(
-    user=Depends(login_required),
-    page: int = 1,
-    limit: int = 30
-):
-    """Lấy danh sách vi phạm đỗ xe có phân trang"""
-    offset = (page - 1) * limit
-    from database.sqlite_db import get_illegal_parking_violations, get_total_records_count
-    violations = get_illegal_parking_violations(limit, offset)
-    total_all = get_total_records_count("vi_pham_do_xe")
-    return {
-        "ok": True,
-        "total": total_all,
-        "page": page,
-        "limit": limit,
-        "violations": violations,
-    }
-
 @vehicle_router.get("/api/vehicles/date/{detected_date}")
 async def api_vehicles_by_date(
     detected_date: str,

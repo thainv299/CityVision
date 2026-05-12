@@ -259,21 +259,43 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations(limit: int = 30, offset: int = 0) -> list:
-    """Lấy danh sách xe đỗ sai có phân trang"""
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+    """Lấy danh sách xe đỗ sai có phân trang và bộ lọc"""
+    query = """
+        SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
+               pv.thoi_gian_do_giay as duration_seconds, pv.duong_dan_anh as frame_path, pv.da_giai_quyet as is_resolved,
+               pv.ngay_tao as created_at, c.ten_camera as camera_name
+        FROM vi_pham_do_xe pv
+        LEFT JOIN camera c ON pv.id_camera = c.id
+    """
+    conditions = []
+    params = []
+
+    if filter_type == "has_plate":
+        conditions.append("(pv.bien_so IS NOT NULL AND pv.bien_so != '' AND pv.bien_so NOT LIKE '%Không%' AND pv.bien_so NOT LIKE 'ID_%')")
+    elif filter_type == "no_plate":
+        conditions.append("(pv.bien_so IS NULL OR pv.bien_so = '' OR pv.bien_so LIKE '%Không%' OR pv.bien_so LIKE 'ID_%')")
+
+    if date:
+        conditions.append("DATE(pv.thoi_gian_vi_pham) = ?")
+        params.append(date)
+
+    if hour:
+        conditions.append("strftime('%H', pv.thoi_gian_vi_pham) = ?")
+        params.append(hour.zfill(2))
+
+    if camera_id is not None:
+        conditions.append("pv.id_camera = ?")
+        params.append(camera_id)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY pv.da_giai_quyet ASC, pv.thoi_gian_vi_pham DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
-                   pv.thoi_gian_do_giay as duration_seconds, pv.duong_dan_anh as frame_path, pv.da_giai_quyet as is_resolved,
-                   pv.ngay_tao as created_at, c.ten_camera as camera_name
-            FROM vi_pham_do_xe pv
-            LEFT JOIN camera c ON pv.id_camera = c.id
-            ORDER BY pv.da_giai_quyet ASC, pv.thoi_gian_vi_pham DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 def get_illegal_parking_count(start_date: str = None, end_date: str = None) -> int:
@@ -325,22 +347,43 @@ def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history(limit: int = 30, offset: int = 0) -> list:
-    """Lấy lịch sử ùn tắc có phân trang"""
+def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+    """Lấy lịch sử ùn tắc có phân trang và bộ lọc"""
+    query = """
+        SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
+               n.thoi_gian_bat_dau as start_time, n.thoi_gian_ket_thuc as end_time,
+               n.thoi_gian_keo_dai_giay as duration_seconds, n.duong_dan_anh as image_path,
+               c.ten_camera as camera_name
+        FROM nhat_ky_un_tac n
+        LEFT JOIN camera c ON n.id_camera = c.id
+    """
+    conditions = []
+    params = []
+
+    if level is not None:
+        conditions.append("n.muc_do_un_tac = ?")
+        params.append(level)
+
+    if date:
+        conditions.append("DATE(n.thoi_gian_bat_dau) = ?")
+        params.append(date)
+
+    if hour:
+        conditions.append("strftime('%H', n.thoi_gian_bat_dau) = ?")
+        params.append(hour.zfill(2))
+
+    if camera_id is not None:
+        conditions.append("n.id_camera = ?")
+        params.append(camera_id)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY n.thoi_gian_bat_dau DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
-                   n.thoi_gian_bat_dau as start_time, n.thoi_gian_ket_thuc as end_time,
-                   n.thoi_gian_keo_dai_giay as duration_seconds, n.duong_dan_anh as image_path,
-                   c.ten_camera as camera_name
-            FROM nhat_ky_un_tac n
-            LEFT JOIN camera c ON n.id_camera = c.id
-            ORDER BY n.thoi_gian_bat_dau DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 def get_daily_vehicle_stats(start_date: str = None, end_date: str = None, limit: int = 30) -> list:
