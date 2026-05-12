@@ -6,16 +6,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-# TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8734868146:AAFJ2G2dGU2r0aJANRRtzos2N8oDurIx_7E")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5501282225")
-bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+bot = None
+if TELEGRAM_BOT_TOKEN:
+    try:
+        bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi khởi tạo: {e}")
+
 alert_manager_ref = None
 
 def send_alert_with_button(img_path, caption, level):
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or TELEGRAM_CHAT_ID == "YOUR_CHAT_ID_HERE":
-        print("[Telegram Bot] Không thể gửi cảnh báo: Token hoặc Chat ID chưa được thiết lập.")
+    if not bot or not TELEGRAM_CHAT_ID:
+        # Im lặng nếu không có bot hoặc chat_id
         return
         
     markup = InlineKeyboardMarkup()
@@ -28,8 +33,16 @@ def send_alert_with_button(img_path, caption, level):
     except Exception as e:
         print(f"[Telegram Bot] Lỗi khi gửi ảnh lên Telegram: {e}")
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('ack_alert_'))
+def _dummy_decorator(f):
+    return f
+
+decorator = bot.callback_query_handler(func=lambda call: call.data.startswith('ack_alert_')) if bot else _dummy_decorator
+
+@decorator
 def ack_alert_callback(call):
+    if not bot:
+        return
+        
     global alert_manager_ref
     
     try:
@@ -54,14 +67,21 @@ def start_bot_thread(manager_instance):
     global alert_manager_ref, _is_polling_started
     alert_manager_ref = manager_instance
     
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        print("[Telegram Bot] Token chưa cài đặt. Luồng chờ tin nhắn sẽ không được khởi động.")
+    if not bot:
         return
         
     if _is_polling_started:
         return
         
     _is_polling_started = True
-    polling_thread = threading.Thread(target=bot.infinity_polling, daemon=True)
+    
+    def run_polling():
+        try:
+            # Use shorter timeouts to avoid hanging too long
+            bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        except Exception as e:
+            print(f"[Telegram Bot] Không thể kết nối polling (Có thể do mạng): {e}")
+            
+    polling_thread = threading.Thread(target=run_polling, daemon=True)
     polling_thread.start()
-    print("[Telegram Bot] Luồng kết nối trực tiếp BOT Telegram đã khởi động thành công.")
+    print("[Telegram Bot] Luồng kết nối BOT Telegram đã được khởi động ở chế độ nền.")

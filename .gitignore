@@ -124,3 +124,8 @@ modules/*/__init__.py
 runtime/*
 models/*
 scripts/*
+data/*
+# Ignored by request
+AI_CONTEXT.md
+convert_video.py
+scratch/*

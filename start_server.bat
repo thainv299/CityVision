@@ -26,7 +26,7 @@ start "AI_Backend" cmd /k "conda activate datn && python run_system.py"
 
 echo.
 echo [3/3] Dang mo duong ham Cloudflare Tunnel...
-echo Link: https://api.cityvision.id.vn
+echo Link: https://cityvision.id.vn
 echo.
 
 :: 4. Chay Tunnel

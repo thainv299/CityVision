@@ -3,11 +3,34 @@
 {% block title %}Dashboard | CityVision AI Portal{% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-    <h2 class="page-title" style="margin-bottom: 0;">Dashboard</h2>
+<style>
+    /* Ép layout trang Dashboard gọn lại để fit màn hình 100vh */
+    .page-content { padding: 16px 40px !important; }
+    .stat-value { font-size: 1.8rem !important; margin-bottom: 4px !important; }
+    .stat-card-top { margin-bottom: 8px !important; }
+    .stat-bottom { font-size: 0.8rem !important; }
+    .page-head { margin-bottom: 16px !important; }
+    
+    /* Màu sắc cho các dấu chấm loại xe */
+    .type-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dot-0 { background-color: #2563eb; }
+    .dot-1 { background-color: #06b6d4; }
+    .dot-2 { background-color: #10b981; }
+    .dot-3 { background-color: #f59e0b; }
+    .dot-4 { background-color: #f43f5e; }
+</style>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h2 class="page-title" style="margin-bottom: 0; font-size: 1.8rem;">Dashboard</h2>
 
-    <!-- Quick Actions -->
-    <div style="display: flex; gap: 12px;">
+    <!-- Filter & Quick Actions -->
+    <div style="display: flex; gap: 12px; align-items: center;">
+        <select class="field" id="dashboard-period-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
+            <option value="all" {% if stats and stats.period == 'all' %}selected{% endif %}>Tất cả thời gian</option>
+            <option value="today" {% if stats and stats.period == 'today' %}selected{% endif %}>Hôm nay</option>
+            <option value="7days" {% if stats and stats.period == '7days' %}selected{% endif %}>7 ngày qua</option>
+            <option value="30days" {% if stats and stats.period == '30days' %}selected{% endif %}>30 ngày qua</option>
+        </select>
+
         <a href="{{ url_for('cameras.cameras_page') }}" class="button secondary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -22,19 +45,48 @@
                 stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
             </svg>
-            Chạy Test Video
+            Xem Camera
         </a>
     </div>
 </div>
 
+<script>
+    // Hàm dùng chung để cập nhật các bộ lọc trên Dashboard (giữ lại các tham số cũ)
+    function updateDashboardFilters(params) {
+        const url = new URL(window.location.href);
+        for (const [key, value] of Object.entries(params)) {
+            url.searchParams.set(key, value);
+        }
+        window.location.href = url.toString();
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        // Bộ lọc tổng quát (Hôm nay, 7 ngày, 30 ngày)
+        const periodFilter = document.getElementById('dashboard-period-filter');
+        if (periodFilter) {
+            periodFilter.addEventListener('change', function() {
+                updateDashboardFilters({ 'period': this.value });
+            });
+        }
+
+        // Bộ lọc riêng cho biểu đồ lưu lượng
+        const chartFilter = document.getElementById('chart-period-filter');
+        if (chartFilter) {
+            chartFilter.addEventListener('change', function() {
+                updateDashboardFilters({ 'chart_period': this.value });
+            });
+        }
+    });
+</script>
+
 <!-- Stats -->
-<section class="stats-grid">
-    <div class="stat-card" style="cursor: pointer;"
+<section class="stats-grid" style="margin-bottom: 16px; gap: 16px;">
+    <div class="stat-card" style="cursor: pointer; padding: 16px;"
         onclick="window.location.href=`{{ url_for('users.users_page') }}`">
         <div class="stat-card-top">
             <span class="stat-title">Người dùng</span>
             <div class="stat-icon indigo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
                     <circle cx="9" cy="7" r="4"></circle>
@@ -47,12 +99,12 @@
         <div class="stat-bottom"><span class="trend"></span>Tài khoản đăng ký</div>
     </div>
 
-    <div class="stat-card" style="cursor: pointer;"
+    <div class="stat-card" style="cursor: pointer; padding: 16px;"
         onclick="window.location.href=`{{ url_for('vehicles.vehicles_page') }}`">
         <div class="stat-card-top">
             <span class="stat-title">Tổng số xe</span>
             <div class="stat-icon amber">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <rect x="1" y="3" width="15" height="13"></rect>
                     <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
@@ -65,12 +117,12 @@
         <div class="stat-bottom"><span class="trend"></span>Lượt xe ghi nhận được</div>
     </div>
 
-    <div class="stat-card" style="cursor: pointer;"
+    <div class="stat-card" style="cursor: pointer; padding: 16px;"
         onclick="window.location.href=`{{ url_for('violations.violations_page') }}`">
         <div class="stat-card-top">
             <span class="stat-title">Xe đỗ sai</span>
             <div class="stat-icon rose">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"></polygon>
                     <line x1="15" y1="9" x2="9" y2="15"></line>
@@ -78,17 +130,17 @@
                 </svg>
             </div>
         </div>
-        <div class="stat-value">{{ stats.parking_violations|length if stats and stats.parking_violations else '0' }}
+        <div class="stat-value">{{ stats.parking_violation_count if stats and stats.parking_violation_count is not none else '0' }}
         </div>
         <div class="stat-bottom"><span class="trend down">!</span> Cảnh báo vi phạm</div>
     </div>
 
-    <div class="stat-card" style="cursor: pointer;"
+    <div class="stat-card" style="cursor: pointer; padding: 16px;"
         onclick="window.location.href=`{{ url_for('congestion.congestion_page') }}`">
         <div class="stat-card-top">
             <span class="stat-title">Tắc nghẽn</span>
-            <div class="stat-icon emerald">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            <div class="stat-icon amber">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <path d="M12 8v4"></path>
@@ -102,46 +154,124 @@
 </section>
 
 <!-- Chart Area -->
-<section class="panel margin-top">
-    <div class="panel-header">
-        <h3>Thống kê lưu lượng xe</h3>
-        <select class="field" style="width: auto; padding: 6px 12px; margin-bottom: 0;">
-            <option>Tháng này</option>
-            <option>Tháng trước</option>
-        </select>
+<section class="panel" style="padding: 16px 24px; margin-bottom: 16px;">
+    <div class="panel-header" style="margin-bottom: 12px;">
+        <h3 style="font-size: 1.1rem; margin-bottom: 4px;">Thống kê lưu lượng xe</h3>
+        <div class="small muted">
+            {% if stats.period == 'today' %}Dữ liệu hôm nay
+            {% elif stats.period == '7days' %}Dữ liệu 7 ngày qua
+            {% elif stats.period == '30days' %}Dữ liệu 30 ngày qua
+            {% else %}Dữ liệu 30 ngày gần nhất{% endif %}
+        </div>
     </div>
-    <div style="position: relative; height: 350px; width: 100%;">
+    <div style="position: relative; height: 260px; width: 100%;">
         <canvas id="vehicleChart"></canvas>
     </div>
 </section>
+
+<!-- Insights Section -->
+<div class="split-layout two-columns" style="margin-top: 16px; gap: 16px; display: grid; grid-template-columns: 1.5fr 1fr;">
+    <!-- Top 5 Vi phạm mới nhất -->
+    <section class="panel" style="padding: 16px 24px;">
+        <div class="panel-header" style="margin-bottom: 12px;">
+            <h3 style="font-size: 1.1rem;">Vi phạm mới nhất</h3>
+            <a href="{{ url_for('violations.violations_page') }}" class="small muted">Xem tất cả</a>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table small">
+                <thead>
+                    <tr>
+                        <th>Biển số</th>
+                        <th>Camera</th>
+                        <th>Thời gian</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if stats and stats.latest_violations %}
+                        {% for v in stats.latest_violations %}
+                        <tr>
+                            <td><strong style="color: var(--brand-blue);">{{ v.license_plate or 'N/A' }}</strong></td>
+                            <td>{{ v.camera_name or 'N/A' }}</td>
+                            <td class="muted">
+                                {% if v.time %}
+                                    {% set parts = v.time.split('T') %}
+                                    {% if parts|length > 1 %}
+                                        {{ parts[1][:5] }} {{ parts[0].split('-')[2] }}/{{ parts[0].split('-')[1] }}
+                                    {% else %}
+                                        {{ v.time[:16] }}
+                                    {% endif %}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr><td colspan="3" class="center muted">Chưa có vi phạm</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Phân loại phương tiện -->
+    <section class="panel" style="padding: 16px 24px;">
+        <div class="panel-header" style="margin-bottom: 12px;">
+            <h3 style="font-size: 1.1rem;">Tỷ lệ phương tiện</h3>
+        </div>
+        <div style="position: relative; height: 180px; width: 100%; display: flex; justify-content: center; margin-bottom: 16px;">
+            <canvas id="typePieChart"></canvas>
+        </div>
+        
+        <!-- Danh sách số lượng xe chi tiết -->
+        <div id="vehicle-type-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            {% if stats and stats.vehicle_distribution %}
+                {% set type_map = {'car': 'Ô tô', 'truck': 'Xe tải', 'bus': 'Xe khách', 'motorcycle': 'Xe máy', 'bicycle': 'Xe đạp'} %}
+                {% set colors = ['#2563eb', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e'] %}
+                {% for item in stats.vehicle_distribution %}
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(0,0,0,0.02); border-radius: 4px;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span class="type-dot dot-{{ loop.index0 % 5 }}"></span>
+                            <span class="small muted">{{ type_map[item.type] or item.type }}</span>
+                        </div>
+                        <span class="small strong">{{ item.count }}</span>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="small muted center" style="grid-column: span 2;">Chưa có dữ liệu phân loại</div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+<!-- Dữ liệu ẩn cho JavaScript -->
+<script id="dashboard-data" type="application/json">
+    {{ stats | tojson | safe if stats else '{}' }}
+</script>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
     document.addEventListener("DOMContentLoaded", function () {
+        // Đọc dữ liệu từ thẻ JSON ẩn
+        const statsData = JSON.parse(document.getElementById('dashboard-data').textContent);
+        
+        // --- 1. BIỂU ĐỒ LƯU LƯỢNG (Line Chart) ---
         const ctx = document.getElementById('vehicleChart').getContext('2d');
-
-        // Create gradient
-        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
-        gradient.addColorStop(0, 'rgba(67, 121, 238, 0.2)');
-        gradient.addColorStop(1, 'rgba(67, 121, 238, 0)');
-
-        // Generate Date Labels for the month
-        const currentDate = new Date();
-        const daysInMonth = 30; // Approximation for mock data
-        const labels = Array.from({ length: daysInMonth }, (_, i) => {
-            return `${(i + 1).toString().padStart(2, '0')}/${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`;
+        
+        // Dữ liệu từ Backend
+        const dailyStats = statsData.daily_stats || [];
+        
+        // Xử lý labels và data
+        const labels = dailyStats.map(s => {
+            const d = s.date.split('-');
+            return `${d[2]}/${d[1]}`;
         });
+        const dataPoints = dailyStats.map(s => s.count);
 
-        // Mock Data points (Vehicle counts)
-        const dataPoints = [
-            1250, 1420, 1380, 1550, 1800, 2100, 1950,
-            1320, 1450, 1500, 1620, 1900, 2250, 2010,
-            1400, 1520, 1600, 1750, 2050, 2400, 2150,
-            1480, 1600, 1650, 1820, 2150, 2500, 2200,
-            1550, 1680
-        ];
+        let gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(37, 99, 235, 0.2)');
+        gradient.addColorStop(1, 'rgba(37, 99, 235, 0)');
 
         new Chart(ctx, {
             type: 'line',
@@ -150,66 +280,74 @@
                 datasets: [{
                     label: 'Lượt xe',
                     data: dataPoints,
-                    borderColor: '#4379EE',
+                    borderColor: '#2563eb',
                     borderWidth: 2,
                     backgroundColor: gradient,
                     fill: true,
-                    pointBackgroundColor: '#4379EE',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointRadius: function (context) {
-                        const index = context.dataIndex;
-                        // Show dots every 3 days or for weekends (peaks)
-                        return (index % 3 === 0 || dataPoints[index] > 2100) ? 4 : 0;
-                    },
-                    pointHoverRadius: 6,
-                    tension: 0.3
+                    tension: 0.4,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: '#2563eb',
+                    pointBorderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: '#f1f5f9' },
+                        ticks: { color: '#94a3b8', font: { size: 10 } }
+                    }
+                }
+            }
+        });
+
+        // --- 2. BIỂU ĐỒ TRÒN (Pie Chart) ---
+        const pieCtx = document.getElementById('typePieChart').getContext('2d');
+        const vehicleDist = statsData.vehicle_distribution || [];
+        
+        // Mapping tên tiếng Việt cho các loại xe
+        const typeMap = {
+            'car': 'Ô tô',
+            'truck': 'Xe tải',
+            'bus': 'Xe khách',
+            'motorcycle': 'Xe máy',
+            'bicycle': 'Xe đạp'
+        };
+
+        const pieLabels = vehicleDist.length > 0 ? vehicleDist.map(v => typeMap[v.type] || v.type) : ['Không có dữ liệu'];
+        const pieData = vehicleDist.length > 0 ? vehicleDist.map(v => v.count) : [1];
+        const pieColors = ['#2563eb', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e'];
+
+        new Chart(pieCtx, {
+            type: 'doughnut',
+            data: {
+                labels: pieLabels,
+                datasets: [{
+                    data: pieData,
+                    backgroundColor: pieColors,
+                    borderWidth: 0,
+                    hoverOffset: 10
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#4379EE',
-                        titleColor: '#fff',
-                        bodyColor: '#fff',
-                        padding: 10,
-                        cornerRadius: 4,
-                        displayColors: false,
-                        callbacks: {
-                            label: function (context) {
-                                return context.raw.toLocaleString() + " lượt xe";
-                            }
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            boxWidth: 12,
+                            padding: 10,
+                            font: { size: 11 }
                         }
                     }
                 },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: {
-                            color: '#9CA3AF',
-                            font: { size: 11 },
-                            maxTicksLimit: 10, // Avoid too many labels on x-axis
-                            maxRotation: 0
-                        }
-                    },
-                    y: {
-                        grid: {
-                            color: '#F3F4F6',
-                            drawBorder: false
-                        },
-                        border: { display: false },
-                        ticks: {
-                            color: '#9CA3AF',
-                            font: { size: 12 },
-                            stepSize: 500
-                        },
-                        suggestedMin: 0,
-                        suggestedMax: 3000
-                    }
-                }
+                cutout: '70%'
             }
         });
     });

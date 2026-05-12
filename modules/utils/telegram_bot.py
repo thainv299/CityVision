@@ -7,14 +7,13 @@ def send_telegram_image(
     caption: str,
     bot_token: str | None = None,
     chat_id: str | None = None,
-    timeout_seconds: int = 60,
+    timeout_seconds: int = 10,
 ) -> bool:
     """Gửi ảnh qua Telegram"""
     bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
     chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
 
     if not bot_token or not chat_id:
-        print("Telegram chưa cấu hình bot_token/chat_id")
         return False
         
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -39,14 +38,13 @@ def send_telegram_video(
     caption: str,
     bot_token: str | None = None,
     chat_id: str | None = None,
-    timeout_seconds: int = 60,
+    timeout_seconds: int = 10,
 ) -> bool:
     """Gửi video qua Telegram"""
     bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
     chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
 
     if not bot_token or not chat_id:
-        print("Telegram chưa cấu hình bot_token/chat_id")
         return False
 
     if not os.path.exists(video_path):

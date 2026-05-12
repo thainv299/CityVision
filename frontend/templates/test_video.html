@@ -1,204 +1,115 @@
 {% extends "base.html" %}
 
-{% block title %}Kiểm tra Video | CityVision AI Portal{% endblock %}
+{% block title %}Xem Camera | CityVision AI Portal{% endblock %}
 
 {% block content %}
 <div class="page-head">
     <div>
-        <p class="eyebrow">Phân tích Dữ liệu</p>
-        <h2 class="page-title">Kiểm tra Video với AI</h2>
-        <p class="muted">Tải lên video hoặc cung cấp đường dẫn tệp tin để chạy các thuật toán nhận diện tắc nghẽn và vi
-            phạm.</p>
+        <p class="eyebrow">Giám sát Camera</p>
+        <h2 class="page-title">Hệ thống Giám sát Thông minh</h2>
     </div>
 </div>
 
-<div class="split-layout two-columns">
-    <!-- Config form -->
+<div class="split-layout" style="display: grid; grid-template-columns: 1fr; gap: 24px;">
+    <!-- Camera Selection Grid -->
     <section class="panel">
         <div class="panel-header">
             <div>
-                <p class="eyebrow">Đầu vào</p>
-                <h3>Cấu hình Tiến trình</h3>
+                <p class="eyebrow">Giám sát Tổng thể</p>
+                <h3>Danh sách Camera khả dụng</h3>
             </div>
+            <button type="button" class="button secondary sm" id="cameras-refresh-grid">Làm mới danh sách</button>
         </div>
-
-        <form id="test-video-form" enctype="multipart/form-data" style="display: grid; gap: 16px;">
-            <label class="field">
-                <span>Chọn Cấu hình Camera (Tùy chọn)</span>
-                <select name="camera_id" id="camera_id_select">
-                    <option value="">-- Không sử dụng cấu hình --</option>
-                    {% for camera in cameras %}
-                    <option value="{{ camera.id }}">{{ camera.name }}</option>
-                    {% endfor %}
-                </select>
-            </label>
-
-            <label class="field">
-                <span>Chọn Model YOLO</span>
-                <select name="model_path" id="model_path_select">
-                    {% for model_file in available_models %}
-                    {% set full_model_path = "models/" ~ model_file %}
-                    <option value="{{ full_model_path }}" {% if full_model_path==default_model_path %}selected{% endif
-                        %}>
-                        {{ model_file }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </label>
-
-            <label class="field">
-                <span>Tải lên Tệp Video</span>
-                <input type="file" name="video_file" accept=".mp4,.avi,.mov,.mkv,.mpeg,.mpg">
-            </label>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-                <label class="field">
-                    <span>Ngưỡng Tin cậy (Confidence)</span>
-                    <input type="number" name="confidence_threshold" min="0.1" max="1" step="0.01" value="0.32">
-                </label>
-                <label class="field">
-                    <span>Thời gian dừng Vi phạm (s)</span>
-                    <input type="number" name="stop_seconds" min="1" step="1" value="30">
-                </label>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <label class="toggle-field">
-                    <input type="checkbox" name="enable_congestion" checked>
-                    <span>Phát hiện Tắc nghẽn</span>
-                </label>
-                <label class="toggle-field">
-                    <input type="checkbox" name="enable_illegal_parking" checked>
-                    <span>Phát hiện Đỗ xe sai</span>
-                </label>
-                <label class="toggle-field" style="grid-column: 1 / -1;">
-                    <input type="checkbox" name="enable_license_plate" checked>
-                    <span>Nhận diện Biển số xe</span>
-                </label>
-            </div>
-
-            <label class="field">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span>Vùng nhận diện ROI (JSON, tùy chọn)</span>
-                    <div style="display: flex; gap: 4px;">
-                        <button type="button" class="button secondary xs roi-draw-btn" data-target="roi_points"
-                            style="padding: 2px 8px; font-size: 0.75rem; display: none;">Vẽ ROI</button>
-                        <button type="button" class="button secondary xs" style="padding: 2px 8px; font-size: 0.75rem;"
-                            onclick="this.nextElementSibling.click()">Load JSON</button>
-                        <input type="file" accept=".json" style="display: none;"
-                            onchange="portalApi.readJsonFileToInput(this, 'roi_points')">
-                    </div>
-                </div>
-                <textarea name="roi_points" id="roi_points" rows="2"
-                    style="font-family: var(--font-mono); font-size: 0.82rem;"
-                    placeholder="Mặc định dùng toàn bộ khung hình"></textarea>
-            </label>
-
-            <label class="field">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span>Vùng cấm đỗ xe (JSON, tùy chọn)</span>
-                    <div style="display: flex; gap: 4px;">
-                        <button type="button" class="button secondary xs roi-draw-btn" data-target="no_parking_points"
-                            style="padding: 2px 8px; font-size: 0.75rem; display: none;">Vẽ Vùng</button>
-                        <button type="button" class="button secondary xs" style="padding: 2px 8px; font-size: 0.75rem;"
-                            onclick="this.nextElementSibling.click()">Load JSON</button>
-                        <input type="file" accept=".json" style="display: none;"
-                            onchange="portalApi.readJsonFileToInput(this, 'no_parking_points')">
-                    </div>
-                </div>
-                <textarea name="no_parking_points" id="no_parking_points" rows="2"
-                    style="font-family: var(--font-mono); font-size: 0.82rem;"
-                    placeholder='VD: [[140,340],[860,340],[860,520],[140,520]]'></textarea>
-            </label>
-
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-                <label class="field">
-                    <span>Ngưỡng di chuyển (px)</span>
-                    <input type="number" name="parking_move_threshold_px" min="1" step="1" value="10">
-                </label>
-                <label class="field">
-                    <span>Xử lý mỗi N frame</span>
-                    <input type="number" name="process_every_n_frames" min="1" step="1" value="2">
-                </label>
-            </div>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-                <button type="submit" class="button primary" id="submit-test-job" style="flex: 1;">
-                    Bắt đầu Phân tích
-                </button>
-                <button type="button" class="button secondary" id="stop-test-job"
-                    style="flex: 1; display: none; background-color: var(--color-error, #f44336); color: white; border-color: transparent;">
-                    Dừng Phân tích
-                </button>
-            </div>
-        </form>
-    </section>
-
-    <!-- Job status -->
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <p class="eyebrow">Trạng thái</p>
-                <h3>Tiến độ Xử lý</h3>
-            </div>
-        </div>
-        <div id="test-job-feedback"></div>
-        <div id="job-status-panel">
+        <div id="camera-preview-grid" class="camera-preview-grid"
+            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; padding: 8px;">
             <div class="empty-state">
-                <span class="empty-icon">📹</span>
-                <p class="muted">Chưa có tiến trình nào đang chạy.</p>
-                <p class="muted tiny">Kết quả sẽ hiển thị tại đây sau khi bạn nhấn bắt đầu.</p>
+                <span class="empty-icon">📷</span>
+                <p class="muted">Đang tải danh sách camera...</p>
             </div>
         </div>
     </section>
+
+    <!-- Job status & Feedback (Visible when job starts) -->
+    <div id="job-active-overlay" style="display: none;">
+        <div id="test-job-feedback" style="margin-bottom: 16px;"></div>
+    </div>
 </div>
 
 <!-- Result viewer -->
 <section id="viewer-panel" class="panel margin-top" hidden>
     <div class="panel-header">
         <div>
-            <p class="eyebrow">Kết quả Trực quan</p>
-            <h3>Luồng Phân tích Thời gian thực</h3>
+            <p class="eyebrow" id="active-camera-name">Đang xử lý...</p>
+            <h3>Luồng Phân tích Trực tiếp</h3>
         </div>
-    </div>
-
-    <article class="panel" style="padding: 20px; margin-bottom: 24px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <p class="eyebrow" style="margin-bottom: 0;">Live Stream (MJPEG)</p>
-            <button type="button" id="fullscreen-btn" class="button secondary xs" title="Xem toàn màn hình"
-                style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; font-size: 0.8rem;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
-                    <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
-                    <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
-                    <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
-                </svg>
+        <div style="display: flex; gap: 8px;">
+            <button type="button" class="button secondary sm" id="stop-test-job"
+                style="background-color: var(--color-error, #f44336); color: white; border-color: transparent;">
+                Dừng Giám sát
+            </button>
+            <button type="button" id="fullscreen-btn" class="button secondary sm" title="Toàn màn hình">
                 Toàn màn hình
             </button>
         </div>
-        <div id="stream-fullscreen-container" class="stream-fullscreen-container">
-            <img id="stream-output" class="preview-frame" alt="AI Analysis Stream"
-                style="width: 100%; max-height: 540px; object-fit: contain; background: #000; border-radius: 8px;">
-            <!-- Nút thoát fullscreen, chỉ hiển thị khi ở chế độ toàn màn hình -->
-            <button type="button" id="fullscreen-exit-btn" class="fullscreen-exit-btn"
-                title="Thoát toàn màn hình (ESC)">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-                <span>Thoát (ESC)</span>
-            </button>
-        </div>
-        <p id="stream-output-note" class="muted small" style="margin-top: 10px;">
-            Luồng stream sẽ bắt đầu khi backend xử lý video.
-        </p>
-    </article>
+    </div>
 
-    <div id="result-summary"
-        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 24px;">
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+        <!-- Video Display Area -->
+        <article class="panel"
+            style="padding: 16px; background: #000; border-radius: 12px; overflow: hidden; width: 100%;">
+            <div id="stream-viewer-wrapper"
+                style="position: relative; width: 100%; height: auto; min-height: 400px; background: #000; display: flex; align-items: center; justify-content: center;">
+                <img id="stream-output" class="preview-frame" alt="AI Analysis Stream"
+                    style="width: 100%; height: auto; max-height: 80vh; object-fit: contain; display: block; margin: 0 auto; z-index: 1;">
+
+                <!-- Quality Settings Gear (Bottom Right for better reach) -->
+                <div id="quality-settings-container" class="video-overlay-control" style="position: absolute; bottom: 12px; right: 12px; z-index: 100;">
+                    <div id="quality-menu" class="quality-menu" style="display: none;">
+                        <p class="menu-title">Chất lượng</p>
+                        <button type="button" class="quality-option" data-quality="low">Thấp (480p)</button>
+                        <button type="button" class="quality-option" data-quality="medium">Trung bình (720p)</button>
+                        <button type="button" class="quality-option active" data-quality="high">Cao (1080p)</button>
+                        <button type="button" class="quality-option" data-quality="ultra">Siêu nét (Full HD)</button>
+                    </div>
+                    <button type="button" id="quality-gear-btn" class="gear-btn" title="Chất lượng video">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                </div>
+
+                <div id="stream-loader"
+                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); z-index: 2; color: #fff;">
+                    <div class="loader-spinner"
+                        style="width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--brand-blue, #2563eb); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;">
+                    </div>
+                    <p id="stream-loader-text" style="margin: 0; font-weight: 500; font-size: 0.95rem;">Đang khởi tạo
+                        luồng dữ liệu AI...</p>
+                </div>
+
+                <button type="button" id="fullscreen-exit-btn" class="fullscreen-exit-btn" title="Thoát (ESC)">
+                    ✕ Thoát
+                </button>
+            </div>
+        </article>
+
+        <!-- Information & Results Area below video -->
+        <div
+            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; background: var(--bg-panel); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
+            <div id="result-summary-container">
+                <p class="eyebrow">Kết quả Phân tích</p>
+                <div id="result-summary"
+                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
+                </div>
+            </div>
+
+            <div id="job-info-container">
+                <p class="eyebrow">Trạng thái Hệ thống</p>
+                <div id="job-status-panel" style="margin-top: 12px;"></div>
+                <p id="stream-output-note" class="muted" style="margin-top: 12px; font-size: 0.9rem; font-weight: 500;">
+                    <span style="color: var(--success);">●</span> Hệ thống đang theo dõi và phân tích dữ liệu thời gian
+                    thực.
+                </p>
+            </div>
+        </div>
     </div>
 </section>
 
@@ -239,5 +150,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/roi_tool.js') }}?v=2.0"></script>
-<script src="{{ url_for('static', filename='js/test_video.js') }}?v=3.3"></script>
+<script src="{{ url_for('static', filename='js/test_video.js') }}?v=4.2"></script>
 {% endblock %}

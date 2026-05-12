@@ -23,7 +23,8 @@
             <span>Chọn Ngày</span>
             <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 8px;">
         </label>
-        <button class="button primary" onclick="filterByDate()">Tìm kiếm</button>
+        <button class="button primary" onclick="filterByDate()">🔍 Tìm kiếm</button>
+        <button class="button secondary" onclick="loadLatestPlates()">📊 Mới nhất</button>
     </div>
 </section>
 
@@ -42,6 +43,8 @@
             <p class="muted">Đang tải dữ liệu...</p>
         </div>
     </div>
+        </div>
+    </div>
 </section>
 
 <style>
@@ -57,48 +60,22 @@
         display: block;
         margin: 0 auto;
     }
+
     .plate-thumbnail:hover {
         transform: scale(1.1) translateY(-2px);
         border-color: var(--brand-blue);
         box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
     }
+
     .data-table td {
         vertical-align: middle;
     }
 </style>
 
 <script>
-    async function loadLatestPlates() {
-        try {
-            const urlParams = new URLSearchParams(window.location.search);
-            const filterPlate = urlParams.get('plate');
-            
-            let url = '/api/vehicles?limit=100';
-            if (filterPlate) {
-                url += `&plate=${encodeURIComponent(filterPlate)}`;
-            }
-            
-            const response = await portalApi.get(url);
-            displayPlates(response.plates || []);
-            
-            if (filterPlate && response.plates && response.plates.length > 0) {
-                portalApi.showToast(`Đang hiển thị lịch sử cho biển số: ${filterPlate}`, 'info');
-            }
-        } catch (error) {
-            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
-            console.error(error);
-        }
-    }
-
-async function filterByDate() {
-    const date = document.getElementById('filterDate').value;
-    if (!date) {
-        portalApi.showToast('Vui lòng chọn ngày', 'warning', 'Cảnh báo');
-        return;
-    }
-    
+async function loadLatestPlates() {
     try {
-        const response = await portalApi.get(`/api/vehicles/date/${date}`);
+        const response = await portalApi.get('/api/vehicles?limit=100');
         displayPlates(response.plates || []);
     } catch (error) {
         portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
@@ -106,35 +83,54 @@ async function filterByDate() {
     }
 }
 
-function displayPlates(plates) {
-    const container = document.getElementById('platesList');
-    
-    if (!plates || plates.length === 0) {
-        container.innerHTML = `
+    async function filterByDate() {
+        const date = document.getElementById('filterDate').value;
+        if (!date) {
+            portalApi.showToast('Vui lòng chọn ngày', 'warning', 'Cảnh báo');
+            return;
+        }
+
+        try {
+            const response = await portalApi.get(`/api/vehicles/date/${date}`);
+            displayPlates(response.plates || []);
+        } catch (error) {
+            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+            console.error(error);
+        }
+    }
+
+    function displayPlates(plates) {
+        const container = document.getElementById('platesList');
+
+        if (!plates || plates.length === 0) {
+            container.innerHTML = `
             <div class="empty-state">
                 <span class="empty-icon">🚫</span>
                 <p class="muted">Không có biển số nào</p>
             </div>
         `;
-        return;
-    }
-    
-    container.innerHTML = `
+            return;
+        }
+
+        container.innerHTML = `
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
                         <th>Biển Số</th>
                         <th style="text-align: center;">Ngày</th>
                         <th style="text-align: center;">Giờ</th>
                         <th style="text-align: center;">Ảnh Xem Lại</th>
+                        <th style="text-align: center; width: 120px;">Hành động</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${plates.map(plate => {
-                        const firstImage = plate.image_paths ? plate.image_paths.split(',')[0].replace(/^\/+/,'') : '';
-                        return `
+                    ${plates.map((plate, index) => {
+            const firstImage = plate.image_paths ? plate.image_paths.split(',')[0].replace(/^\/+/, '') : '';
+            return `
                         <tr>
+                            <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
                                 <strong>${plate.license_plate || 'N/A'}</strong>
                             </td>
@@ -151,18 +147,45 @@ function displayPlates(plates) {
                                     </a>
                                 ` : '<span class="badge muted">Không có ảnh</span>'}
                             </td>
+                            <td style="text-align: center;">
+                                <button class="button danger outline sm" onclick="deletePlate(${plate.id})" title="Xóa bản ghi rác">
+                                    <span class="icon">🗑️</span> Xóa
+                                </button>
+                            </td>
                         </tr>
                         `;
-                    }).join('')}
+        }).join('')}
                 </tbody>
             </table>
         </div>
     `;
-}
+    }
 
-// Load dữ liệu khi trang mở
-document.addEventListener('DOMContentLoaded', () => {
-    loadLatestPlates();
-});
+    async function deletePlate(id) {
+        if (!confirm('Bạn có chắc chắn muốn xóa bản ghi này?')) return;
+
+        try {
+            const response = await portalApi.delete(`/api/vehicles/${id}`);
+            if (response.ok) {
+                portalApi.showToast('Đã xóa bản ghi thành công', 'success', 'Thông báo');
+                // Reload danh sách hiện tại
+                const date = document.getElementById('filterDate').value;
+                if (date) {
+                    filterByDate();
+                } else {
+                    loadLatestPlates();
+                }
+            } else {
+                portalApi.showToast('Không thể xóa bản ghi', 'error', 'Lỗi');
+            }
+        } catch (error) {
+            portalApi.showToast('Lỗi khi xóa: ' + error.message, 'error', 'Lỗi');
+        }
+    }
+
+    // Load dữ liệu khi trang mở
+    document.addEventListener('DOMContentLoaded', () => {
+        loadLatestPlates();
+    });
 </script>
 {% endblock %}

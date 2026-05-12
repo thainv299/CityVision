@@ -97,8 +97,10 @@ class OCRManager:
                     else:
                         display_text = (self.plate_history.get(tid) or ["..."])[-1]
                         color = (0, 165, 255)
-                    cv2.rectangle(frame, (old_x1, old_y1), (old_x2, old_y2), color, f_thick)
-                    cv2.putText(frame, display_text, (old_x1, old_y1 - f_offset), cv2.FONT_HERSHEY_SIMPLEX, f_scale, color, f_thick)
+                    (tw, th), baseline = cv2.getTextSize(display_text, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+                    text_y = max(th + 5, old_y1 - f_offset)
+                    cv2.rectangle(frame, (old_x1, text_y - th - 5), (old_x1 + tw + 5, text_y + baseline + 2), color, -1)
+                    cv2.putText(frame, display_text, (old_x1 + 2, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
 
     def process_plate(self, frame, clean_frame, track_id, x1, y1, x2, y2, cx, cy, valid_vehicles, current_time, frame_count, drawing_params=None):
         """Xử lý lôgic chính: check spatial memory, nhận kết quả queue, gửi queue, vẽ biển số lên frame."""
@@ -168,7 +170,7 @@ class OCRManager:
                     if matched_v_id != -1:
                         self.vehicle_plates[matched_v_id] = best
                     if self.alpr_logger:
-                        self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2])
+                        self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2], v_track_id=matched_v_id)
                 else:
                     display_text = f"[?] {best} ({count}/{self.VOTE_THRESHOLD})"
             else:
@@ -195,10 +197,14 @@ class OCRManager:
             except queue.Full:
                 pass
 
-        # Vẽ Box Biển Số
+        # Vẽ Box Biển Số & Label có nền
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), f_thick)
         color = (0, 255, 0) if "[OK]" in display_text else ((0, 0, 255) if "[SKIP]" in display_text else (0, 255, 255))
-        cv2.putText(frame, display_text, (x1, y1 - f_offset), cv2.FONT_HERSHEY_SIMPLEX, f_scale, color, f_thick)
+        
+        (tw, th), baseline = cv2.getTextSize(display_text, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+        text_y = max(th + 5, y1 - f_offset)
+        cv2.rectangle(frame, (x1, text_y - th - 5), (x1 + tw + 5, text_y + baseline + 2), color, -1)
+        cv2.putText(frame, display_text, (x1 + 2, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
         
         return track_id
 

@@ -28,6 +28,19 @@
     </div>
 </section>
 
+<!-- Modal xem video vi phạm -->
+<div id="videoModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <button id="closeModalBtn" class="close-btn">&times;</button>
+        <h3>Bằng chứng Video (15s)</h3>
+        
+        <!-- Không có src ban đầu, preload="none" để chắc chắn không tải trước -->
+        <video id="violationVideoPlayer" width="100%" controls preload="none" style="border-radius: 8px; background: #000;">
+            Trình duyệt của bạn không hỗ trợ thẻ video.
+        </video>
+    </div>
+</div>
+
 <style>
     .plate-thumbnail {
         width: 100px;
@@ -48,6 +61,75 @@
     }
     .data-table td {
         vertical-align: middle;
+    }
+    
+    .video-thumbnail {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+        margin: 0 auto;
+    }
+    
+    .play-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 32px;
+        pointer-events: none;
+        transition: all 0.3s var(--ease);
+    }
+    
+    .video-thumbnail:hover .play-overlay {
+        color: rgba(255, 255, 255, 1);
+        transform: translate(-50%, -50%) scale(1.1);
+    }
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.8);
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(4px);
+    }
+    
+    .modal-content {
+        position: relative;
+        background: var(--surface);
+        padding: 20px;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    
+    .modal-content h3 {
+        margin-top: 0;
+        margin-bottom: 15px;
+    }
+    
+    .close-btn {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        background: transparent;
+        border: none;
+        color: var(--text-muted);
+        font-size: 28px;
+        line-height: 1;
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+    
+    .close-btn:hover {
+        color: var(--text);
     }
 </style>
 
@@ -111,20 +193,23 @@ function displayViolations(violations) {
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
                         <th>Camera</th>
                         <th>Biển Số</th>
                         <th style="text-align: center;">Thời gian vi phạm</th>
                         <th style="text-align: center;">Thời gian đỗ (giây)</th>
-                        <th style="text-align: center;">Bằng Chứng</th>
+                        <th style="text-align: center;">Bằng Chứng (Ảnh)</th>
+                        <th style="text-align: center;">Video Ghi Hình</th>
                         <th style="text-align: center;">Trạng thái</th>
                         <th style="text-align: center;">Hành động</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${violations.map(v => {
+                    ${violations.map((v, index) => {
                         const framePath = v.frame_path ? v.frame_path.replace(/^\/+/,'') : '';
                         return `
                         <tr>
+                            <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
                                 <strong>${v.camera_name || 'N/A'}</strong>
                             </td>
@@ -139,10 +224,20 @@ function displayViolations(violations) {
                             </td>
                             <td style="text-align: center;">
                                 ${framePath ? `
-                                    <a href="/${framePath}" target="_blank" title="Bấm để xem ảnh bằng chứng">
+                                    <a href="/${framePath}" target="_blank" title="Bấm để xem ảnh bằng chứng lớn">
                                         <img src="/${framePath}" class="plate-thumbnail" alt="Vi phạm ${v.license_plate}" loading="lazy">
                                     </a>
                                 ` : '<span class="badge muted">N/A</span>'}
+                            </td>
+                            <td style="text-align: center;">
+                                ${framePath ? (() => {
+                                    const videoPath = framePath.substring(0, framePath.lastIndexOf('/') + 1) + 'video_record.mp4';
+                                    return `
+                                    <button class="button secondary xs video-btn" data-video-url="/${videoPath}" style="display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fas fa-play-circle"></i> Xem Video
+                                    </button>
+                                    `;
+                                })() : '<span class="badge muted">N/A</span>'}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill ${v.is_resolved ? 'success' : 'danger'}">
@@ -163,11 +258,53 @@ function displayViolations(violations) {
             </table>
         </div>
     `;
+
+    // Gắn sự kiện cho các nút Xem Video
+    const videoBtns = container.querySelectorAll('.video-btn');
+    const modal = document.getElementById('videoModal');
+    const videoPlayer = document.getElementById('violationVideoPlayer');
+
+    videoBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const videoUrl = this.getAttribute('data-video-url');
+            videoPlayer.src = videoUrl;
+            videoPlayer.load();
+            modal.style.display = 'flex';
+            setTimeout(() => {
+                videoPlayer.play().catch(e => {
+                    console.log("Play failed", e);
+                    portalApi.showToast('Trình duyệt không hỗ trợ định dạng video này hoặc bị chặn tự động phát.', 'warning');
+                }); 
+            }, 100);
+        });
+    });
 }
 
 // Load dữ liệu khi trang mở
 document.addEventListener('DOMContentLoaded', () => {
     loadViolations();
+
+    const modal = document.getElementById('videoModal');
+    const videoPlayer = document.getElementById('violationVideoPlayer');
+    const closeBtn = document.getElementById('closeModalBtn');
+
+    function closeModal() {
+        modal.style.display = 'none';
+        videoPlayer.pause();
+        videoPlayer.src = "";
+    }
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeModal);
+    }
+    
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+    }
 });
 </script>
 {% endblock %}

@@ -10,6 +10,7 @@ class ALPRLogger:
         self.csv_path = os.path.join(self.logs_dir, "ALPR_log.csv")
         self.disappear_threshold = disappear_threshold
         self.plate_sessions = {}
+        self.logged_v_tracks = set() # Track IDs already logged to DB
         self.db_callback = db_callback
         self.id_camera = id_camera
         
@@ -23,9 +24,12 @@ class ALPRLogger:
                 writer = csv.writer(f)
                 writer.writerow(["Time", "Frame", "Plate", "Full_Frame_Image_Path"])
 
-    def process_plate(self, plate_text, current_frame, plate_img, full_frame, plate_coords):
+    def process_plate(self, plate_text, current_frame, plate_img, full_frame, plate_coords, v_track_id=None):
         is_new_session = False
         
+        if v_track_id is not None:
+            self.logged_v_tracks.add(v_track_id)
+
         if plate_text not in self.plate_sessions:
             is_new_session = True
         else:
@@ -39,6 +43,11 @@ class ALPRLogger:
         if is_new_session:
             self._save_log(plate_text, current_frame, full_frame, plate_coords)
             
+    def log_vehicle_without_plate(self, current_frame, full_frame, vehicle_coords):
+        """Ghi lại phương tiện ngay cả khi không thấy biển số"""
+        plate_text = "Không phát hiện biển số xe"
+        self._save_log(plate_text, current_frame, full_frame, vehicle_coords)
+
     def _save_log(self, plate_text, current_frame, full_frame, plate_coords):
         now = datetime.now()
         timestamp = now.strftime("%Y%m%d_%H%M%S")
@@ -50,19 +59,37 @@ class ALPRLogger:
         date_dir = os.path.join(self.plates_dir, year, month, day)
         os.makedirs(date_dir, exist_ok=True)
         
-        img_name = f"{plate_text}_{timestamp}.jpg"
+        # Tạo tên file hợp lệ (tránh dấu tiếng Việt/khoảng trắng)
+        safe_text = "NoPlate" if plate_text == "Không phát hiện biển số xe" else plate_text
+        img_name = f"{safe_text}_{timestamp}_{current_frame}.jpg"
         img_path = os.path.join(date_dir, img_name)
         
-        # Make a copy of full_frame to draw on
         evidence_frame = full_frame.copy()
-        
-        # Drawing parameters based on resolution
         h, w = full_frame.shape[:2]
         f_thick = max(1, int(round(2 * (w / 1280))))
-        
-        # Draw bounding box on the evidence copy
         x1, y1, x2, y2 = plate_coords
         cv2.rectangle(evidence_frame, (x1, y1), (x2, y2), (0, 0, 255), f_thick)
+        
+        # Vẽ text tiếng Việt bằng PIL
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import numpy as np
+            img_pil = Image.fromarray(cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(img_pil)
+            
+            font_size = int(30 * (w / 1280))
+            try:
+                # Arial hỗ trợ Unicode tốt trên Windows
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except:
+                font = ImageFont.load_default()
+            
+            draw.text((x1, max(0, y1 - font_size - 10)), plate_text, font=font, fill=(255, 0, 0))
+            evidence_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            print(f"[ALPR Logger] Lỗi vẽ font tiếng Việt: {e}")
+            cv2.putText(evidence_frame, "No Plate", (x1, max(30, y1 - 10)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8 * (w/1280), (0, 0, 255), f_thick)
         
         # Web path (forward slashes)
         web_path = img_path.replace(os.sep, "/")
@@ -70,7 +97,6 @@ class ALPRLogger:
         csv_row = [time_str, current_frame, plate_text, web_path]
         
         if self.io_worker is not None:
-            # ── Async mode: đẩy vào queue, return ngay ──
             self.io_worker.enqueue_save_image(img_path, evidence_frame)
             self.io_worker.enqueue_csv_append(self.csv_path, csv_row)
             if self.db_callback:
@@ -85,13 +111,10 @@ class ALPRLogger:
                     }
                 )
         else:
-            # ── Fallback: gọi đồng bộ (legacy, cho desktop GUI) ──
             cv2.imwrite(img_path, evidence_frame)
-
             with open(self.csv_path, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(csv_row)
-                
             if self.db_callback:
                 try:
                     self.db_callback(

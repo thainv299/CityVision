@@ -72,7 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const times = ['1 minute ago', '4 hours ago', '1 week ago', '1 month ago', '4 days ago', '10 days ago', '3 months ago', '15 minutes ago'];
 
-        tableBody.innerHTML = state.users.map((user) => {
+        tableBody.innerHTML = state.users.map((user, index) => {
             const safeName = user.full_name ? encodeURIComponent(user.full_name) : 'A';
             const avatarUrl = `https://ui-avatars.com/api/?name=${safeName}&background=E2E8F0&color=202224`;
             const joinedDate = user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'}) : 'March 12, 2023';
@@ -89,6 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return `
             <tr>
                 <td style="text-align: center;"><input type="checkbox" class="ds-checkbox"></td>
+                <td style="text-align: center;"><strong>${index + 1}</strong></td>
                 <td>
                     <div class="user-info-cell">
                         <img src="${avatarUrl}" alt="${user.full_name || 'User'}" class="user-avatar">

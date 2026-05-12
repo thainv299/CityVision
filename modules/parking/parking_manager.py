@@ -127,7 +127,7 @@ class ParkingManager:
                 if track_id in self._pending_plate_updates:
                     record_data['plate'] = self._pending_plate_updates.pop(track_id)
 
-                record_data['frames'].append(frame_copy.copy())
+                record_data['frames'].append(frame_copy)
                 record_data['frames_needed'] -= 1
                 if record_data['frames_needed'] <= 0:
                     threading.Thread(target=self._save_evidence_and_notify_thread, args=(track_id, record_data), daemon=True).start()
@@ -180,22 +180,28 @@ class ParkingManager:
         cv2.imwrite(img_t0_path, data['img_t0'])
         cv2.imwrite(img_t1_path, data['img_t1'])
         
-        # Ghép ảnh thông báo nguyên khối (T0 + T1)
+        # Ghép ảnh thông báo nguyên khối (T0 + T1) với nền text
         h1, w1 = data['img_t0'].shape[:2]
         h2, w2 = data['img_t1'].shape[:2]
         target_w = max(w1, w2)
         img1 = cv2.resize(data['img_t0'], (target_w, int(h1 * target_w / w1)))
         img2 = cv2.resize(data['img_t1'], (target_w, int(h2 * target_w / w2)))
         
-        # Tham số vẽ linh hoạt dựa trên resolution
+        # Tham số vẽ linh hoạt
         comb_h, comb_w = (img1.shape[0] + img2.shape[0]), target_w
-        f_scale = max(0.6, 1.0 * (comb_h / 1440)) # 1440 là chiều cao 2 ảnh FHD
+        f_scale = max(0.6, 1.0 * (comb_h / 1440))
         f_thick = max(1, int(round(2 * (comb_h / 1440))))
         
-        cv2.putText(img1, "T0: Bat dau do", (int(20*(target_w/1280)), int(40*(h1/720))), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 0, 255), f_thick)
-        cv2.putText(img2, "T1: Vi pham", (int(20*(target_w/1280)), int(40*(h2/720))), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 0, 255), f_thick)
+        def put_text_with_bg(img, text, pos, scale, color, thick):
+            (tw, th), bl = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
+            x, y = pos
+            cv2.rectangle(img, (x - 5, y - th - 5), (x + tw + 5, y + bl + 5), (0, 0, 0), -1)
+            cv2.putText(img, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick)
+
+        put_text_with_bg(img1, "T0: Bat dau do", (int(20*(target_w/1280)), int(60*(h1/720))), f_scale, (0, 0, 255), f_thick)
+        put_text_with_bg(img2, "T1: Vi pham", (int(20*(target_w/1280)), int(60*(h2/720))), f_scale, (0, 0, 255), f_thick)
         combined = np.vstack((img1, img2))
-        cv2.putText(combined, f"PLATE: {plate_folder}", (int(20*(target_w/1280)), int(80*(comb_h/1440))), cv2.FONT_HERSHEY_SIMPLEX, f_scale * 1.2, (0, 255, 0), f_thick + 1)
+        put_text_with_bg(combined, f"PLATE: {plate_folder}", (int(20*(target_w/1280)), int(100*(comb_h/1440))), f_scale * 1.2, (0, 255, 0), f_thick + 1)
         cv2.imwrite(combined_path, combined)
 
         
@@ -207,6 +213,38 @@ class ParkingManager:
             for f in data['frames']:
                 out.write(f)
             out.release()
+            
+            # Convert to H.264 for web browser compatibility
+            try:
+                import subprocess, shutil
+                temp_vid = video_path.replace(".mp4", "_temp.mp4")
+                shutil.move(video_path, temp_vid)
+                
+                ffmpeg_cmd = shutil.which("ffmpeg")
+                if not ffmpeg_cmd:
+                    local_appdata = os.environ.get("LOCALAPPDATA", "")
+                    winget_packages = os.path.join(local_appdata, "Microsoft", "WinGet", "Packages")
+                    if os.path.exists(winget_packages):
+                        for root, dirs, files in os.walk(winget_packages):
+                            if "ffmpeg.exe" in files:
+                                ffmpeg_cmd = os.path.join(root, "ffmpeg.exe")
+                                break
+                if not ffmpeg_cmd:
+                    ffmpeg_cmd = "ffmpeg"
+                
+                subprocess.run([
+                    ffmpeg_cmd, "-i", temp_vid, "-c:v", "libx264", "-preset", "fast", "-y", video_path
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                if os.path.exists(video_path) and os.path.getsize(video_path) > 0:
+                    if os.path.exists(temp_vid): os.remove(temp_vid)
+                else:
+                    shutil.move(temp_vid, video_path)
+            except Exception as e:
+                print(f"[ParkingManager] Lỗi convert video sang H.264: {e}")
+                temp_vid = video_path.replace(".mp4", "_temp.mp4")
+                if os.path.exists(temp_vid) and not os.path.exists(video_path):
+                    shutil.move(temp_vid, video_path)
             
         # Lưu file Metadata JSON
         meta = {
@@ -327,7 +365,11 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t0, (x1, y1), (x2, y2), box_color, f_thick + 1)
-                        cv2.putText(img_t0, f"{label.upper()} {track_id} - BAT DAU DO", (x1, max(f_offset, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, f_scale, box_color, f_thick)
+                        txt = f"{label.upper()} {track_id} - BAT DAU DO"
+                        (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+                        ty = max(th + 5, y1 - 5)
+                        cv2.rectangle(img_t0, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
+                        cv2.putText(img_t0, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
                         
                     self.waiting_vehicles[track_id] = {'img_t0': img_t0, 'start_time': datetime.datetime.now()}
                     if self.telegram_enabled:
@@ -346,7 +388,11 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t1, (x1, y1), (x2, y2), box_color, f_thick + 2)
-                        cv2.putText(img_t1, f"{label.upper()} {track_id} - VI PHAM!", (x1, max(f_offset, y1 - 5)), cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, box_color, f_thick + 1)
+                        txt = f"{label.upper()} {track_id} - VI PHAM!"
+                        (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, f_thick + 1)
+                        ty = max(th + 5, y1 - 5)
+                        cv2.rectangle(img_t1, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
+                        cv2.putText(img_t1, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, (255, 255, 255), f_thick + 1)
                         
                     self.active_recordings[track_id] = {
                         'frames': list(self.frame_buffer),

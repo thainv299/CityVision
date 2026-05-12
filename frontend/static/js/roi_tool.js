@@ -73,10 +73,6 @@ window.roiDrawingTool = {
             points: this.points
         };
 
-        // Ghi log để debug (Người dùng nhấn F12 để kiểm tra)
-        console.log("ROI Drawing tool v2 (Reference Resolution)");
-        console.log("Result Data to Backend:", resultData);
-
         const el = document.getElementById(this.targetField);
         if (el) {
             el.value = JSON.stringify(resultData);
@@ -208,7 +204,9 @@ window.roiDrawingTool = {
 };
 
 // Initialize when DOM is ready
-if (document.readyState === 'loading') {
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => window.roiDrawingTool.init());
+} else {
     window.roiDrawingTool.init();
 }
 

@@ -17,7 +17,7 @@
             <p class="eyebrow">Dữ liệu ghi nhận</p>
             <h3>Lịch sử Ùn tắc theo Camera</h3>
         </div>
-        <button class="button secondary" onclick="loadCongestion()">🔄 Làm mới</button>
+        <button class="button secondary" onclick="loadCongestion()">Làm mới</button>
     </div>
 
     <div id="congestionList" style="display: grid; gap: 16px;">
@@ -29,34 +29,35 @@
 </section>
 
 <script>
-async function loadCongestion() {
-    try {
-        const response = await portalApi.get('/api/congestion');
-        displayCongestion(response.logs || []);
-    } catch (error) {
-        portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
-        console.error(error);
+    async function loadCongestion() {
+        try {
+            const response = await portalApi.get('/api/congestion');
+            displayCongestion(response.logs || []);
+        } catch (error) {
+            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+            console.error(error);
+        }
     }
-}
 
-function displayCongestion(logs) {
-    const container = document.getElementById('congestionList');
-    
-    if (!logs || logs.length === 0) {
-        container.innerHTML = `
+    function displayCongestion(logs) {
+        const container = document.getElementById('congestionList');
+
+        if (!logs || logs.length === 0) {
+            container.innerHTML = `
             <div class="empty-state">
                 <span class="empty-icon">✅</span>
                 <p class="muted">Giao thông thông thoáng, không ghi nhận ùn tắc nào!</p>
             </div>
         `;
-        return;
-    }
-    
-    container.innerHTML = `
+            return;
+        }
+
+        container.innerHTML = `
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
                         <th>Camera</th>
                         <th style="text-align: center;">Mức độ</th>
                         <th style="text-align: center;">Thời gian bắt đầu</th>
@@ -65,8 +66,9 @@ function displayCongestion(logs) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${logs.map(log => `
+                    ${logs.map((log, index) => `
                         <tr>
+                            <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
                                 <strong>${log.camera_name || 'N/A'}</strong>
                             </td>
@@ -94,11 +96,11 @@ function displayCongestion(logs) {
             </table>
         </div>
     `;
-}
+    }
 
-// Load dữ liệu khi trang mở
-document.addEventListener('DOMContentLoaded', () => {
-    loadCongestion();
-});
+    // Load dữ liệu khi trang mở
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCongestion();
+    });
 </script>
 {% endblock %}

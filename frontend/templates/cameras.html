@@ -7,30 +7,31 @@
     <div>
         <p class="eyebrow">Cấu hình Thiết bị</p>
         <h2 class="page-title">Quản lý Hệ thống Camera</h2>
-        <p class="muted">Khai báo nguồn video, thiết lập vùng nhận diện (ROI) và cấu hình các tính năng phân tích AI.</p>
+        <p class="muted">Khai báo nguồn video, thiết lập vùng nhận diện (ROI) và cấu hình các tính năng phân tích AI.
+        </p>
     </div>
 </div>
 
 <div class="split-layout two-columns">
-    <!-- Camera list -->
+    <!-- Danh sách camera -->
     <section class="panel">
         <div class="panel-header">
             <div>
                 <p class="eyebrow">Dữ liệu</p>
                 <h3>Danh sách Camera</h3>
             </div>
-            <button type="button" class="button secondary sm" id="cameras-refresh">🔄 Làm mới</button>
+            <button type="button" class="button secondary sm" id="cameras-refresh">Làm mới</button>
         </div>
         <div id="cameras-feedback"></div>
-        <div class="table-wrap">
-            <table class="data-table">
+        <div class="table-wrap" style="overflow-x: hidden;">
+            <table class="data-table" style="table-layout: fixed; width: 100%;">
                 <thead>
                     <tr>
-                        <th>Tên Camera</th>
+                        <th style="width: 40px; text-align: center;">#</th>
+                        <th style="width: 140px;">Tên Camera</th>
                         <th>Nguồn Video</th>
-                        <th>Tính năng AI</th>
-                        <th>Trạng thái</th>
-                        <th>Thao tác</th>
+                        <th style="width: 110px;">Trạng thái</th>
+                        <th style="width: 110px; text-align: center;">Thao tác</th>
                     </tr>
                 </thead>
                 <tbody id="cameras-table-body"></tbody>
@@ -38,7 +39,7 @@
         </div>
     </section>
 
-    <!-- Add / Edit form -->
+    <!-- Form thêm / sửa camera -->
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -47,86 +48,243 @@
             </div>
         </div>
 
-        <form id="camera-form" style="display: grid; gap: 16px;">
+        <form id="camera-form" style="display: flex; flex-direction: column; gap: 24px;">
             <input type="hidden" id="camera_id" name="camera_id">
 
-            <label class="field">
-                <span>Tên Camera</span>
-                <input type="text" id="camera_name" name="name" placeholder="VD: Camera Cổng Chính" required>
-            </label>
+            <!-- Nhóm 1: Thông tin cơ bản -->
+            <div class="form-group" style="display: grid; gap: 16px; padding: 16px; background: var(--bg-dim); border-radius: 12px; border: 1px solid var(--border);">
+                <p style="margin: 0 0 8px 0; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; color: var(--brand-main); letter-spacing: 0.5px;">1. Thông tin cơ bản</p>
+                
+                <label class="field">
+                    <span>Tên Camera</span>
+                    <input type="text" id="camera_name" name="name" placeholder="VD: Camera Cổng Chính" required>
+                </label>
 
-            <label class="field">
-                <span>Nguồn Video (RTSP / File)</span>
-                <input type="text" id="stream_source" name="stream_source" placeholder="0, rtsp://..., hoặc đường dẫn file">
-            </label>
+                <label class="field">
+                    <span>Nguồn Video (RTSP / File / Giả lập)</span>
+                    <input type="text" id="stream_source" name="stream_source"
+                        placeholder="0, rtsp://..., hoặc đường dẫn file">
+                </label>
 
-            <label class="field">
-                <span>Mô tả chi tiết</span>
-                <textarea id="description" name="description" rows="2" placeholder="Vị trí lắp đặt, ghi chú thêm..."></textarea>
-            </label>
-
-            <label class="field">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span>Vùng nhận diện ROI (JSON)</span>
-                    <button type="button" class="button secondary xs" style="padding: 2px 8px; font-size: 0.75rem;" onclick="this.nextElementSibling.click()">📁 Chọn file JSON</button>
-                    <input type="file" accept=".json" style="display: none;" onchange="portalApi.readJsonFileToInput(this, 'roi_points')">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable_simulation" name="enable_simulation">
+                            <span class="slider"></span>
+                        </label>
+                        <span class="small" style="font-weight: 600;">Chế độ Giả lập (Dùng file)</span>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end;">
+                        <button type="button" class="button secondary xs" id="browse-server-btn"
+                            style="padding: 6px 14px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px; border-radius: 6px;">
+                            Duyệt Server
+                        </button>
+                    </div>
                 </div>
-                <textarea id="roi_points" name="roi_points" rows="2" style="font-family: var(--font-mono); font-size: 0.82rem;" placeholder='[[100,80],[900,80],[900,520],[100,520]]'></textarea>
-            </label>
 
-            <label class="field">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span>Vùng cấm đỗ xe (JSON)</span>
-                    <button type="button" class="button secondary xs" style="padding: 2px 8px; font-size: 0.75rem;" onclick="this.nextElementSibling.click()">📁 Chọn file JSON</button>
-                    <input type="file" accept=".json" style="display: none;" onchange="portalApi.readJsonFileToInput(this, 'no_parking_points')">
-                </div>
-                <textarea id="no_parking_points" name="no_parking_points" rows="2" style="font-family: var(--font-mono); font-size: 0.82rem;" placeholder='[[140,340],[860,340],[860,520],[140,520]]'></textarea>
-            </label>
+                <label class="field">
+                    <span>Mô tả chi tiết</span>
+                    <textarea id="description" name="description" rows="1"
+                        placeholder="Vị trí lắp đặt, ghi chú thêm..."></textarea>
+                </label>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <label class="toggle-field">
-                    <input type="checkbox" id="enable_congestion" name="enable_congestion" checked>
-                    <span>Phát hiện Tắc nghẽn</span>
-                </label>
-                <label class="toggle-field">
-                    <input type="checkbox" id="enable_illegal_parking" name="enable_illegal_parking" checked>
-                    <span>Phát hiện Đỗ xe sai</span>
-                </label>
-                <label class="toggle-field">
-                    <input type="checkbox" id="enable_license_plate" name="enable_license_plate" checked>
-                    <span>Nhận diện Biển số</span>
-                </label>
-                <label class="toggle-field">
-                    <input type="checkbox" id="camera_is_active" name="is_active" checked>
-                    <span>Kích hoạt Camera</span>
+                <label class="field">
+                    <span>Mô hình YOLO Phân tích</span>
+                    <select id="model_path" name="model_path">
+                        {% for model_file in available_models %}
+                        {% set full_model_path = "models/" ~ model_file %}
+                        <option value="{{ full_model_path }}" {% if full_model_path==default_model_path %}selected{% endif %}>
+                            {{ model_file }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </label>
             </div>
 
+            <!-- Nhóm 2: Cấu hình AI & Không gian -->
+            <div class="form-group" style="display: grid; gap: 20px; padding: 16px; background: var(--bg-panel); border-radius: 12px; border: 1px solid var(--border);">
+                <p style="margin: 0 0 4px 0; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; color: var(--brand-main); letter-spacing: 0.5px;">2. Cấu hình AI & Không gian</p>
+                
+                <!-- Công tắc cho các tính năng AI -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable_congestion" name="enable_congestion" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 600;">Tắc nghẽn</span>
+                            <span class="muted" style="font-size: 0.7rem;">Cảnh báo kẹt xe</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable_illegal_parking" name="enable_illegal_parking" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 600;">Đỗ sai</span>
+                            <span class="muted" style="font-size: 0.7rem;">Vi phạm dừng đỗ</span>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable_license_plate" name="enable_license_plate" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 600;">Biển số</span>
+                            <span class="muted" style="font-size: 0.7rem;">Nhận diện tự động</span>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="camera_is_active" name="is_active" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 600;">Kích hoạt</span>
+                            <span class="muted" style="font-size: 0.7rem;">Bật luồng xử lý</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Các nút vẽ ROI và không gian -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <button type="button" class="button secondary w-full roi-draw-btn" data-target="roi_points" style="padding: 10px; font-weight: 600; border-radius: 8px;">
+                            Vẽ ROI
+                        </button>
+                        <div id="roi_points_status" class="small muted center" style="font-style: italic;">Chưa có dữ liệu.</div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <button type="button" class="button secondary w-full roi-draw-btn" data-target="no_parking_points" style="padding: 10px; font-weight: 600; border-radius: 8px;">
+                            Vẽ Vùng Cấm
+                        </button>
+                        <div id="no_parking_points_status" class="small muted center" style="font-style: italic;">Chưa có vùng cấm đỗ.</div>
+                    </div>
+                </div>
+
+                <!-- Phần mở rộng cho tọa độ JSON nâng cao -->
+                <details style="border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+                    <summary style="padding: 10px 16px; background: var(--bg-dim); cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-subtle);">
+                        Tọa độ nâng cao (JSON)
+                    </summary>
+                    <div style="padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+                        <label class="field">
+                            <span class="small">JSON Vùng nhận diện ROI</span>
+                            <textarea id="roi_points" name="roi_points" rows="2" readonly style="font-family: monospace; font-size: 0.75rem; background: var(--bg-panel); color: var(--brand-main);"></textarea>
+                            <input type="file" id="roi_file_picker" accept=".json" style="display: none;">
+                        </label>
+                        <label class="field">
+                            <span class="small">JSON Vùng cấm đỗ xe</span>
+                            <textarea id="no_parking_points" name="no_parking_points" rows="2" readonly style="font-family: monospace; font-size: 0.75rem; background: var(--bg-panel); color: var(--brand-main);"></textarea>
+                            <input type="file" id="no_parking_file_picker" accept=".json" style="display: none;">
+                        </label>
+                        <p class="muted small center" style="margin: 0;">Dữ liệu JSON sẽ tự động cập nhật sau khi bạn vẽ xong.</p>
+                    </div>
+                </details>
+            </div>
+
             <div style="display: flex; gap: 10px; margin-top: 6px;">
-                <button type="submit" class="button primary" id="camera-form-submit">Lưu Cấu hình</button>
-                <button type="button" class="button secondary" id="camera-form-reset">Hủy bỏ</button>
+                <button type="submit" class="button primary" style="flex: 2;">Lưu Cấu hình</button>
+                <button type="button" class="button secondary" id="camera-form-reset" style="flex: 1;">Đặt lại</button>
             </div>
         </form>
     </section>
 </div>
 
-<!-- Camera preview -->
-<section class="panel margin-top">
-    <div class="panel-header">
-        <div>
-            <p class="eyebrow">Giám sát Trực quan</p>
-            <h3>Xem trước & Điều khiển Nhanh</h3>
+<!-- Modal vẽ ROI -->
+<div id="roi-drawing-modal"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
+    <div
+        style="background: white; border-radius: 12px; padding: 20px; max-width: 90%; max-height: 90%; display: flex; flex-direction: column;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="margin: 0;">Vẽ Vùng Quan Sát (ROI)</h3>
+            <button type="button" onclick="roiDrawingTool.closeModal()"
+                style="background: none; border: none; font-size: 24px; cursor: pointer; padding: 0;">✕</button>
+        </div>
+
+        <div style="margin-bottom: 12px; font-size: 0.9rem; color: #666;">
+            <p style="margin: 0 0 8px 0;"><strong>Hướng dẫn:</strong></p>
+            <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Click trái:</strong> Thêm điểm</li>
+                <li><strong>Click phải:</strong> Xóa toàn bộ</li>
+                <li><strong>Ctrl+Z:</strong> Xóa điểm cuối</li>
+                <li><strong>Enter:</strong> Xác nhận (ít nhất 3 điểm)</li>
+                <li><strong>ESC:</strong> Hủy</li>
+            </ul>
+        </div>
+
+        <canvas id="roi-canvas"
+            style="border: 2px solid #ddd; border-radius: 8px; background: #000; cursor: crosshair; width: auto; max-width: 100%; height: auto; display: block; margin: 0 auto;"></canvas>
+
+        <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+            <button type="button" class="button secondary" onclick="roiDrawingTool.closeModal()"
+                style="padding: 8px 16px;">Hủy</button>
+            <button type="button" class="button primary" onclick="roiDrawingTool.confirmPoints()"
+                style="padding: 8px 16px;">Xác nhận</button>
         </div>
     </div>
-    <div id="camera-preview-grid" class="camera-preview-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px;">
-        <div class="empty-state">
-            <span class="empty-icon">📷</span>
-            <p class="muted">Chưa có camera nào để hiển thị preview.</p>
+</div>
+
+<!-- Modal duyệt video từ server -->
+<div id="server-browser-modal"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; align-items: center; justify-content: center;">
+    <div class="panel"
+        style="width: 1250px; max-width: 98%; height: 85vh; display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--border); box-shadow: var(--shadow-lg);">
+        <div class="panel-header" style="padding: 16px; border-bottom: 1px solid var(--border);">
+            <h3 style="margin: 0;">Duyệt Video trên Máy chủ</h3>
+            <button type="button" class="close-btn" id="close-server-browser"
+                style="background:none; border:none; font-size: 1.5rem; cursor:pointer;">✕</button>
+        </div>
+        <div style="padding: 0; flex: 1; overflow: hidden; display: flex;">
+            <!-- Bên trái: Danh sách file -->
+            <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 20px; background: var(--bg-dim);">
+                <p class="muted small" style="margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Danh sách video</p>
+                <div id="server-file-list" style="display: flex; flex-direction: column; gap: 10px;">
+                    <p class="muted center">Đang tải danh sách file...</p>
+                </div>
+            </div>
+
+            <!-- Bên phải: Khung xem trước -->
+            <div id="server-file-preview-pane" style="width: 550px; display: flex; flex-direction: column; gap: 20px; padding: 24px; border-left: 1px solid var(--border); background: var(--bg-main);">
+                <p class="muted small" style="margin-bottom: 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Xem trước</p>
+                <div style="width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 12px; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); box-shadow: var(--shadow-md);">
+                    <img id="server-file-preview-img" style="width: 100%; height: 100%; object-fit: contain; display: none;">
+                    <div id="server-file-preview-placeholder" style="text-align: center; color: var(--text-subtle);">
+                        <div style="font-size: 2.5rem; margin-bottom: 8px;">🎬</div>
+                        <div style="font-size: 0.9rem;">Chọn file để xem</div>
+                    </div>
+                    <div id="server-file-preview-loader" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); align-items: center; justify-content: center; color: #fff; font-size: 0.95rem; backdrop-filter: blur(4px);">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                            <div class="loader-spinner"></div>
+                            <span>Đang trích xuất frame...</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="server-file-info" style="display: none; background: var(--bg-dim); padding: 16px; border-radius: 12px; border: 1px solid var(--border);">
+                    <div id="server-file-info-name" style="font-weight: 700; font-size: 1rem; word-break: break-all; margin-bottom: 8px; color: var(--brand-main);"></div>
+                    <div style="display: flex; gap: 16px; align-items: center;">
+                        <span id="server-file-info-size" class="badge" style="background: var(--bg-panel); color: var(--text-main); border: 1px solid var(--border);"></span>
+                        <span class="muted small">MP4 Video</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: auto; display: flex; flex-direction: column; gap: 12px;">
+                    <p class="small muted" style="font-style: italic;">Di chuột qua danh sách để xem nhanh, hoặc bấm chọn để sử dụng làm nguồn camera.</p>
+                    <button type="button" class="button secondary w-full" id="cancel-server-browser" style="height: 44px; border-radius: 8px; font-weight: 600;">Hủy bỏ</button>
+                </div>
+            </div>
         </div>
     </div>
-</section>
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/cameras.js') }}"></script>
+<script src="{{ url_for('static', filename='js/roi_tool.js') }}?v=2.0"></script>
+<script src="{{ url_for('static', filename='js/cameras.js') }}?v=4.5"></script>
 {% endblock %}
