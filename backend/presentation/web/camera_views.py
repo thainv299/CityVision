@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from typing import Any, Dict, Optional
 import base64
 import numpy as np
-from core.utils import resolve_path
+from core.utils import resolve_path, normalize_capture_source
 from core.config import ALLOWED_VIDEO_EXTENSIONS, INPUTS_DIR, PROJECT_ROOT, DEFAULT_MODEL_PATH
 from core.errors import AppError, NotFoundError
 from presentation.container import container, templates
