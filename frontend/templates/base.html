@@ -10,10 +10,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}?v={{ range(1000, 9999) | random }}" />
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     {% block head %}{% endblock %}
+    <style>
+        html, body { margin: 0 !important; padding: 0 !important; overflow-x: hidden; }
+        .portal-shell { margin-top: 0 !important; }
+    </style>
 </head>
 
 {% set page_content %}{% block content %}{% endblock %}{% endset %}
@@ -27,25 +31,7 @@
     data-urole="{{ current_user['role'] }}"
     data-uactive="{{ '1' if current_user['is_active'] else '0' }}"
     {% endif %}
->
-    <!-- Shared Image Preview Modal -->
-    <div id="image-preview-modal" class="image-modal-overlay">
-        <button class="image-modal-close" id="close-image-modal">&times;</button>
-        <div class="image-modal-container" id="image-zoom-container">
-            <img src="" id="image-preview-img" alt="Xem ảnh lớn">
-        </div>
-        <div class="image-modal-info" id="image-modal-caption">Thông tin hình ảnh</div>
-        <div class="zoom-controls">
-            <button class="zoom-btn" id="zoom-out-btn"><i class="fas fa-search-minus"></i></button>
-            <button class="zoom-btn" id="zoom-reset-btn"><i class="fas fa-sync-alt"></i></button>
-            <button class="zoom-btn" id="zoom-in-btn"><i class="fas fa-search-plus"></i></button>
-        </div>
-    </div>
-
-    {% if current_user %}
-    <div class="notification-container" id="notificationContainer"></div>
-    
-    <div class="portal-shell">
+>{% if current_user %}<div class="notification-container" id="notificationContainer" style="position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none;"></div>{% endif %}<!-- Shared Image Preview Modal --><div id="image-preview-modal" class="image-modal-overlay"><button class="image-modal-close" id="close-image-modal">&times;</button><div class="image-modal-container" id="image-zoom-container"><img src="" id="image-preview-img" alt="Xem ảnh lớn"></div><div class="image-modal-info" id="image-modal-caption">Thông tin hình ảnh</div><div class="zoom-controls"><button class="zoom-btn" id="zoom-out-btn"><i class="fas fa-search-minus"></i></button><button class="zoom-btn" id="zoom-reset-btn"><i class="fas fa-sync-alt"></i></button><button class="zoom-btn" id="zoom-in-btn"><i class="fas fa-search-plus"></i></button></div></div>{% if current_user %}<div class="portal-shell">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand-block">
@@ -72,14 +58,16 @@
                 <div class="nav-label" style="margin-top: 16px;">Giám sát giao thông</div>
 
                 <div id="nav-vehicles-group" class="nav-group">
-                    <a id="nav-vehicles" class="nav-link nav-dropdown-toggle {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
+                    <a id="nav-vehicles" class="nav-link {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
                             <i class="fas fa-car-side"></i>
                             <span>Phương tiện</span>
                         </div>
-                        <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        <div id="chevron-vehicles" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
                     </a>
-                    <div class="nav-sub-menu" id="sub-menu-vehicles" style="display: none; padding-left: 12px; margin-top: 4px; flex-direction: column; gap: 4px;">
+                    <div class="nav-sub-menu" id="sub-menu-vehicles" style="padding-left: 12px; flex-direction: column; gap: 4px;">
                         <a href="/vehicles?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
                             <span style="color: var(--success); margin-right: 8px;">●</span> Phát hiện biển số
                         </a>
@@ -92,13 +80,54 @@
                     </div>
                 </div>
 
-                <a id="nav-violations" class="nav-link {% if page == 'violations' %}active{% endif %}" href="{{ url_for('violations.violations_page') }}">
-                    Vi phạm đỗ xe
-                </a>
+                <div id="nav-violations-group" class="nav-group">
+                    <a id="nav-violations" class="nav-link {% if page in ['violations', 'violation-search'] %}active{% endif %}" href="{{ url_for('violations.violations_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-parking"></i>
+                            <span>Vi phạm đỗ xe</span>
+                        </div>
+                        <div id="chevron-violations" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-violations" style="padding-left: 12px; flex-direction: column; gap: 4px;">
+                        <a href="/violations?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--success); margin-right: 8px;">●</span> Phát hiện biển số
+                        </a>
+                        <a href="/violations?filter=no_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--danger); margin-right: 8px;">●</span> Không biển số
+                        </a>
+                        <a href="/violations/search" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search" style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm nâng cao
+                        </a>
+                    </div>
+                </div>
 
-                <a id="nav-congestion" class="nav-link {% if page == 'congestion' %}active{% endif %}" href="{{ url_for('congestion.congestion_page') }}">
-                    Nhật ký ùn tắc
-                </a>
+                <div id="nav-congestion-group" class="nav-group">
+                    <a id="nav-congestion" class="nav-link {% if page in ['congestion', 'congestion-search'] %}active{% endif %}" href="{{ url_for('congestion.congestion_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-traffic-light"></i>
+                            <span>Nhật ký ùn tắc</span>
+                        </div>
+                        <div id="chevron-congestion" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-congestion" style="padding-left: 12px; flex-direction: column; gap: 4px;">
+                        <a href="/congestion?level=1" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--brand-blue); margin-right: 8px;">●</span> Mức 1 — Đông đúc
+                        </a>
+                        <a href="/congestion?level=2" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: #F59E0B; margin-right: 8px;">●</span> Mức 2 — Rất đông
+                        </a>
+                        <a href="/congestion?level=3" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--danger); margin-right: 8px;">●</span> Mức 3 — Tắc nghẽn
+                        </a>
+                        <a href="/congestion/search" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search" style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm nâng cao
+                        </a>
+                    </div>
+                </div>
 
                 <div class="nav-label" style="margin-top: 16px;">Phân tích AI</div>
 
@@ -177,28 +206,107 @@
 
                         // Logic Dropdown Sidebar (Phương tiện)
                         const vehiclesToggle = document.getElementById('nav-vehicles');
+                        const vehiclesChevron = document.getElementById('chevron-vehicles');
                         const vehiclesSubMenu = document.getElementById('sub-menu-vehicles');
-                        if (vehiclesToggle && vehiclesSubMenu) {
+                        
+                        if (vehiclesToggle && vehiclesChevron && vehiclesSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
                             vehiclesToggle.onclick = function(e) {
-                                // Click lần đầu: mở menu con nếu đang đóng
-                                if (vehiclesSubMenu.style.display === 'none') {
+                                if (!vehiclesSubMenu.classList.contains('active-menu')) {
                                     e.preventDefault();
-                                    vehiclesSubMenu.style.display = 'flex';
-                                    vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    vehiclesSubMenu.classList.add('active-menu');
+                                    vehiclesChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
                                     vehiclesToggle.classList.add('open');
-                                } else {
-                                    // Menu đang mở, click lần 2: cho phép nhảy tới trang gốc
                                 }
+                                // Nếu menu đã mở → cho phép <a> chuyển trang bình thường
                             };
                             
-                            // Tự động mở menu nếu đang ở trang vehicles
-                            if (window.portalContext && window.portalContext.page === 'vehicles') {
-                                vehiclesSubMenu.style.display = 'flex';
-                                vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            vehiclesChevron.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const isActive = vehiclesSubMenu.classList.toggle('active-menu');
+                                vehiclesChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                vehiclesToggle.classList.toggle('open', isActive);
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang vehicles hoặc search
+                            if (window.portalContext && (window.portalContext.page === 'vehicles' || window.portalContext.page === 'search')) {
+                                vehiclesSubMenu.classList.add('active-menu');
+                                vehiclesChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
                                 vehiclesToggle.classList.add('open');
                             }
                         }
 
+                        // Logic Dropdown Sidebar (Vi phạm đỗ xe)
+                        const violationsToggle = document.getElementById('nav-violations');
+                        const violationsChevron = document.getElementById('chevron-violations');
+                        const violationsSubMenu = document.getElementById('sub-menu-violations');
+                        
+                        if (violationsToggle && violationsChevron && violationsSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
+                            violationsToggle.onclick = function(e) {
+                                if (!violationsSubMenu.classList.contains('active-menu')) {
+                                    e.preventDefault();
+                                    violationsSubMenu.classList.add('active-menu');
+                                    violationsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    violationsToggle.classList.add('open');
+                                }
+                                // Nếu menu đã mở → cho phép <a> chuyển trang bình thường
+                            };
+                            
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            violationsChevron.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const isActive = violationsSubMenu.classList.toggle('active-menu');
+                                violationsChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                violationsToggle.classList.toggle('open', isActive);
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang violations hoặc violation-search
+                            if (window.portalContext && (window.portalContext.page === 'violations' || window.portalContext.page === 'violation-search')) {
+                                violationsSubMenu.classList.add('active-menu');
+                                violationsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                violationsToggle.classList.add('open');
+                            }
+                        }
+
+                        // Logic Dropdown Sidebar (Nhật ký ùn tắc)
+                        const congestionToggle = document.getElementById('nav-congestion');
+                        const congestionChevron = document.getElementById('chevron-congestion');
+                        const congestionSubMenu = document.getElementById('sub-menu-congestion');
+                        
+                        if (congestionToggle && congestionChevron && congestionSubMenu) {
+                            // Click vào link chính: Lần 1 mở menu, lần 2 chuyển trang
+                            congestionToggle.onclick = function(e) {
+                                if (!congestionSubMenu.classList.contains('active-menu')) {
+                                    e.preventDefault();
+                                    congestionSubMenu.classList.add('active-menu');
+                                    congestionChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    congestionToggle.classList.add('open');
+                                }
+                            };
+                            
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            congestionChevron.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                
+                                const isActive = congestionSubMenu.classList.toggle('active-menu');
+                                congestionChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                congestionToggle.classList.toggle('open', isActive);
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang congestion hoặc congestion-search
+                            if (window.portalContext && (window.portalContext.page === 'congestion' || window.portalContext.page === 'congestion-search')) {
+                                congestionSubMenu.classList.add('active-menu');
+                                congestionChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                congestionToggle.classList.add('open');
+                            }
+                        }
                         document.onclick = function() {
                                 dropdown.style.display = 'none';
                             };
@@ -214,6 +322,23 @@
                         });
 
                         // Logic Search AJAX
+                        const SYSTEM_FEATURES = [
+                            { name: "Tổng quan Dashboard", keywords: "dashboard tong quan thong ke", url: "/", icon: "fa-chart-pie", color: "#6366f1" },
+                            { name: "Quản lý Camera", keywords: "camera cau hinh thiet bi them moi", url: "/cameras", icon: "fa-video", color: "#3b82f6" },
+                            { name: "Phương tiện: Phát hiện biển số", keywords: "phuong tien bien so co", url: "/vehicles?filter=has_plate", icon: "fa-car", color: "#10b981" },
+                            { name: "Phương tiện: Không biển số", keywords: "phuong tien khong bien so", url: "/vehicles?filter=no_plate", icon: "fa-car-side", color: "#ef4444" },
+                            { name: "Tìm kiếm Phương tiện", keywords: "tim kiem phuong tien search", url: "/search", icon: "fa-search", color: "#8b5cf6" },
+                            { name: "Vi phạm: Phát hiện biển số", keywords: "vi pham do xe sai quy dinh co bien so", url: "/violations?filter=has_plate", icon: "fa-parking", color: "#f59e0b" },
+                            { name: "Vi phạm: Không biển số", keywords: "vi pham do xe sai quy dinh khong bien so", url: "/violations?filter=no_plate", icon: "fa-exclamation-triangle", color: "#ef4444" },
+                            { name: "Tìm kiếm Vi phạm", keywords: "tim kiem vi pham do xe search", url: "/violations/search", icon: "fa-search", color: "#f59e0b" },
+                            { name: "Ùn tắc: Mức 1 (Đông đúc)", keywords: "un tac muc 1 dong duc", url: "/congestion?level=1", icon: "fa-traffic-light", color: "#3b82f6" },
+                            { name: "Ùn tắc: Mức 2 (Rất đông)", keywords: "un tac muc 2 rat dong", url: "/congestion?level=2", icon: "fa-traffic-light", color: "#f59e0b" },
+                            { name: "Ùn tắc: Mức 3 (Tắc nghẽn)", keywords: "un tac muc 3 tac nghen ket xe", url: "/congestion?level=3", icon: "fa-traffic-light", color: "#ef4444" },
+                            { name: "Tìm kiếm Ùn tắc", keywords: "tim kiem un tac search", url: "/congestion/search", icon: "fa-search", color: "#ef4444" },
+                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/test-video", icon: "fa-play-circle", color: "#14b8a6" },
+                            { name: "Cài đặt hệ thống", keywords: "cai dat he thong settings telegram bot", url: "/settings", icon: "fa-cog", color: "#64748b" }
+                        ];
+
                         const globalSearchInput = document.getElementById('global-search');
                         const searchResultsDropdown = document.getElementById('search-results');
                         const searchResultsContent = document.getElementById('search-results-content');
@@ -223,8 +348,8 @@
                             const query = this.value.trim();
                             clearTimeout(searchTimeout);
                             
-                            if (query.length < 2) {
-                                searchResultsContent.innerHTML = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">GỢI Ý TÌM KIẾM NHANH</div><div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Nhập ít nhất 2 ký tự...</div>';
+                            if (query.length < 1) {
+                                searchResultsContent.innerHTML = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">GỢI Ý TÌM KIẾM NHANH</div><div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Nhập chức năng, biển số hoặc tên camera...</div>';
                                 return;
                             }
 
@@ -232,38 +357,80 @@
                                 searchResultsContent.innerHTML = '<div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Đang tìm kiếm...</div>';
                                 searchResultsDropdown.style.display = 'block';
 
+                                // Tìm kiếm chức năng (client-side)
+                                const normalizedQuery = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                const matchedFeatures = SYSTEM_FEATURES.filter(f => {
+                                    const normName = f.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                    const normKw = f.keywords.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                    return normName.includes(normalizedQuery) || normKw.includes(normalizedQuery);
+                                }).slice(0, 4); // Lấy tối đa 4 chức năng
+
                                 try {
                                     const resp = await portalApi.get(`/api/search?q=${encodeURIComponent(query)}`);
                                     const { cameras, plates } = resp.results;
                                     
-                                    let html = '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">KẾT QUẢ TÌM KIẾM</div>';
+                                    let html = '';
+
+                                    // Hiển thị chức năng
+                                    if (matchedFeatures.length > 0) {
+                                        html += '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px;">CHỨC NĂNG HỆ THỐNG</div>';
+                                        matchedFeatures.forEach(f => {
+                                            html += `
+                                                <div class="search-item" onclick="location.href='${f.url}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 12px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                    <div style="width: 24px; height: 24px; border-radius: 6px; background: ${f.color}15; color: ${f.color}; display: flex; align-items: center; justify-content: center; font-size: 11px;">
+                                                        <i class="fas ${f.icon}"></i>
+                                                    </div>
+                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${f.name}</div>
+                                                    <div style="margin-left: auto; color: #94A3B8; font-size: 10px;"><i class="fas fa-arrow-right"></i></div>
+                                                </div>
+                                            `;
+                                        });
+                                    }
+
+                                    if (cameras.length > 0 || plates.length > 0) {
+                                        html += '<div style="padding: 5px 15px; font-size: 11px; color: #94A3B8; font-weight: 700; border-bottom: 1px solid #F1F5F9; margin-bottom: 5px; margin-top: ${matchedFeatures.length > 0 ? "10px" : "0"};">DỮ LIỆU TÌM THẤY</div>';
+                                    }
                                     
-                                    if (cameras.length === 0 && plates.length === 0) {
+                                    if (cameras.length === 0 && plates.length === 0 && matchedFeatures.length === 0) {
                                         html += '<div style="padding: 10px 15px; color: #64748B; font-size: 13px;">Không tìm thấy kết quả phù hợp.</div>';
                                     }
+
 
                                     // Hiển thị camera
                                     cameras.forEach(cam => {
                                         html += `
-                                            <div class="search-item" onclick="location.href='/cameras'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                                <div style="color: #4379EE;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></div>
-                                                <div>
-                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${cam.ten_camera}</div>
-                                                    <div style="font-size: 11px; color: ${cam.trang_thai_hoat_dong ? '#10B981' : '#EF4444'};">${cam.trang_thai_hoat_dong ? '● Đang hoạt động' : '○ Tắt'}</div>
+                                            <div class="search-item" onclick="location.href='/cameras?id=${cam.id}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <div style="color: #4379EE; min-width: 14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg></div>
+                                                    <div>
+                                                        <div style="font-size: 13px; font-weight: 600; color: #1E293B;">${cam.ten_camera}</div>
+                                                        <div style="font-size: 11px; color: ${cam.trang_thai_hoat_dong ? '#10B981' : '#EF4444'};">${cam.trang_thai_hoat_dong ? '● Đang hoạt động' : '○ Tắt'}</div>
+                                                    </div>
+                                                </div>
+                                                <div style="width: 40px; height: 30px; background: #e2e8f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                                    <i class="fas fa-video" style="color: #94a3b8; font-size: 12px;"></i>
                                                 </div>
                                             </div>
                                         `;
                                     });
 
                                     // Hiển thị biển số
-                                    plates.forEach(p => {
+                                    plates.forEach((p, index) => {
+                                        let imgPath = p.image_paths ? p.image_paths.split(',')[0].replace(/^\/+/, '') : '';
                                         html += `
-                                            <div class="search-item" onclick="location.href='/vehicles'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                                <div style="color: #EF4444;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
-                                                <div>
-                                                    <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
-                                                    <div style="font-size: 11px; color: #64748B;">Ngày phát hiện: ${p.detected_date}</div>
+                                            <div class="search-item staggered-item" onclick="location.href='/vehicles?search=${encodeURIComponent(p.license_plate)}'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; animation-delay: ${index * 0.05}s;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <div style="color: #EF4444; min-width: 14px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
+                                                    <div>
+                                                        <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
+                                                        <div style="font-size: 11px; color: #64748B;">Ngày phát hiện: ${p.detected_date}</div>
+                                                    </div>
                                                 </div>
+                                                ${imgPath ? `
+                                                    <div style="width: 50px; height: 30px; border-radius: 4px; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8f0;">
+                                                        <img src="/${imgPath}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
+                                                    </div>
+                                                ` : ''}
                                             </div>
                                         `;
                                     });
@@ -348,6 +515,7 @@
                 img.src = src;
                 caption.textContent = title;
                 modal.style.display = 'flex';
+                setTimeout(() => modal.classList.add('active'), 10); // Kích hoạt animation mờ nền
                 resetZoom();
                 document.body.style.overflow = 'hidden'; // Khóa cuộn trang web
             };
@@ -374,8 +542,11 @@
             modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
             function closeModal() {
-                modal.style.display = 'none';
-                document.body.style.overflow = '';
+                modal.classList.remove('active'); // Tắt animation mờ nền
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }, 400); // Đợi hiệu ứng transition hoàn tất (400ms)
             }
 
             // Logic Zoom bằng nút bấm

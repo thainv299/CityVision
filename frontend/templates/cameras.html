@@ -46,6 +46,9 @@
                 <p class="eyebrow">Thiết lập</p>
                 <h3 id="camera-form-title">Thêm Camera Mới</h3>
             </div>
+            <button type="button" class="button primary sm" id="btn-new-camera" style="border-radius: 6px;">
+                <i class="fas fa-plus"></i> Thêm mới
+            </button>
         </div>
 
         <form id="camera-form" style="display: flex; flex-direction: column; gap: 24px;">
@@ -60,11 +63,45 @@
                     <input type="text" id="camera_name" name="name" placeholder="VD: Camera Cổng Chính" required>
                 </label>
 
-                <label class="field">
-                    <span>Nguồn Video (RTSP / File / Giả lập)</span>
+                <label class="field" style="margin-bottom: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span>Nguồn Video</span>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <label class="toggle-switch" style="transform: scale(0.7); transform-origin: right;">
+                                <input type="checkbox" id="enable_rtsp_builder">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="small" style="font-weight: 600; color: var(--text-subtle); cursor: pointer;" onclick="document.getElementById('enable_rtsp_builder').click()">Tạo link RTSP</span>
+                        </div>
+                    </div>
+                    <input type="hidden" id="stream_source_hidden">
                     <input type="text" id="stream_source" name="stream_source"
                         placeholder="0, rtsp://..., hoặc đường dẫn file">
                 </label>
+
+                <!-- RTSP Builder Panel (ẩn mặc định) -->
+                <div id="rtsp-builder-panel" style="display: none; background: var(--bg-dim); border: 1px dashed var(--brand-blue); padding: 12px; border-radius: 8px; flex-direction: column; gap: 10px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <input type="text" id="rtsp_user" placeholder="Tài khoản (Tùy chọn)" style="padding: 8px 10px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; width: 100%;">
+                        <input type="password" id="rtsp_pass" placeholder="Mật khẩu (Tùy chọn)" style="padding: 8px 10px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; width: 100%;">
+                    </div>
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                        <input type="text" id="rtsp_ip" placeholder="IP / Tên miền (VD: 192.168.1.100)" style="padding: 8px 10px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; width: 100%;">
+                        <input type="text" id="rtsp_port" placeholder="Port (VD: 554)" value="554" style="padding: 8px 10px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; width: 100%;">
+                    </div>
+                    <input type="text" id="rtsp_path" placeholder="Đường dẫn (VD HikVision: /Streaming/Channels/101)" value="/Streaming/Channels/101" style="padding: 8px 10px; font-size: 0.8rem; border: 1px solid var(--border); border-radius: 6px; width: 100%;">
+                    
+                    <div id="rtsp-hint-box" style="background: #eff6ff; color: #1e3a8a; padding: 10px 12px; border-radius: 6px; font-size: 0.75rem; border: 1px solid #bfdbfe; margin-top: 4px;">
+                        <div style="font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                            <i class="fas fa-info-circle"></i> Hướng dẫn cấu hình HikVision
+                        </div>
+                        <ul style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; color: #1e40af;">
+                            <li><strong>Với Camera IP Độc lập:</strong> Luồng chính là <code>/Streaming/Channels/101</code> (Luồng phụ: <code>102</code>).</li>
+                            <li><strong>Với Đầu ghi NVR (Nhiều Camera):</strong> Quy tắc là <code>[Số Kênh]0[Luồng]</code>.<br>Ví dụ: Camera số 2 luồng chính là <code>201</code>, Camera số 5 luồng phụ là <code>502</code>.</li>
+                            <li>Chỉ điền Tài khoản/Mật khẩu nếu thiết bị có cài đặt mật khẩu luồng.</li>
+                        </ul>
+                    </div>
+                </div>
 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -286,5 +323,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/roi_tool.js') }}?v=2.0"></script>
-<script src="{{ url_for('static', filename='js/cameras.js') }}?v=4.5"></script>
+<script src="{{ url_for('static', filename='js/cameras.js') }}?v=4.7"></script>
 {% endblock %}

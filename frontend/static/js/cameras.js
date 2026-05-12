@@ -4,7 +4,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("camera-form");
     const feedback = document.getElementById("cameras-feedback");
     const refreshButton = document.getElementById("cameras-refresh");
-    const resetButton = document.getElementById("camera-form-reset");
+    const newCameraButton = document.getElementById("btn-new-camera");
     const formTitle = document.getElementById("camera-form-title");
 
     if (!tableBody || !form) {
@@ -16,6 +16,7 @@ document.addEventListener("DOMContentLoaded", () => {
         id: document.getElementById("camera_id"),
         name: document.getElementById("camera_name"),
         streamSource: document.getElementById("stream_source"),
+        streamSourceHidden: document.getElementById("stream_source_hidden"),
         description: document.getElementById("description"),
         modelPath: document.getElementById("model_path"),
         enableSimulation: document.getElementById("enable_simulation"),
@@ -84,7 +85,14 @@ document.addEventListener("DOMContentLoaded", () => {
         currentEditingCameraId = camera !== null ? camera.id : null;
         fields.id.value = camera !== null ? camera.id : "";
         fields.name.value = camera?.name || "";
-        fields.streamSource.value = camera?.stream_source || "";
+        
+        fields.streamSourceHidden.value = camera?.stream_source || "";
+        let displaySource = fields.streamSourceHidden.value;
+        if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+            displaySource = displaySource.split(/[\\\/]/).pop();
+        }
+        fields.streamSource.value = displaySource;
+        
         fields.description.value = camera?.description || "";
 
         if (camera?.model_path) {
@@ -120,6 +128,23 @@ document.addEventListener("DOMContentLoaded", () => {
         fields.isActive.checked = camera ? Boolean(camera.is_active) : true;
 
         formTitle.textContent = camera ? `Cập nhật camera #${camera.id}` : "Thêm camera mới";
+
+        // Reset RTSP builder
+        const rtspToggle = document.getElementById("enable_rtsp_builder");
+        if (rtspToggle) {
+            rtspToggle.checked = false;
+            document.getElementById("rtsp-builder-panel").style.display = "none";
+            fields.streamSource.readOnly = false;
+            fields.streamSource.style.backgroundColor = "";
+            ['rtsp_user', 'rtsp_pass', 'rtsp_ip', 'rtsp_port', 'rtsp_path'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (id === 'rtsp_port') el.value = '554';
+                    else if (id === 'rtsp_path') el.value = '/Streaming/Channels/101';
+                    else el.value = '';
+                }
+            });
+        }
 
         // Cập nhật trạng thái tọa độ
         updatePointsStatus("roi_points");
@@ -283,12 +308,68 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    if (fields.streamSource) {
+        fields.streamSource.addEventListener("input", function() {
+            fields.streamSourceHidden.value = this.value;
+        });
+    }
+
     // ── LOGIC DUYỆT VIDEO TRÊN SERVER ──────────────────────────
     if (fields.browseServerBtn) {
         fields.browseServerBtn.addEventListener("click", openServerBrowser);
     }
     if (fields.closeServerBrowser) fields.closeServerBrowser.addEventListener("click", closeServerBrowser);
     if (fields.cancelServerBrowser) fields.cancelServerBrowser.addEventListener("click", closeServerBrowser);
+
+    // Logic RTSP Builder
+    const rtspToggle = document.getElementById("enable_rtsp_builder");
+    if (rtspToggle) {
+        rtspToggle.addEventListener("change", function() {
+            const panel = document.getElementById("rtsp-builder-panel");
+            if (this.checked) {
+                panel.style.display = "flex";
+                fields.streamSource.readOnly = true;
+                fields.streamSource.style.backgroundColor = "#f1f5f9";
+                updateRTSPLink();
+            } else {
+                panel.style.display = "none";
+                fields.streamSource.readOnly = false;
+                fields.streamSource.style.backgroundColor = "";
+            }
+        });
+
+        const updateRTSPLink = () => {
+            const user = document.getElementById("rtsp_user").value.trim();
+            const pass = document.getElementById("rtsp_pass").value.trim();
+            const ip = document.getElementById("rtsp_ip").value.trim();
+            const port = document.getElementById("rtsp_port").value.trim() || "554";
+            const path = document.getElementById("rtsp_path").value.trim();
+
+            if (!ip) {
+                fields.streamSource.value = "";
+                fields.streamSourceHidden.value = "";
+                return;
+            }
+
+            let auth = "";
+            if (user || pass) {
+                auth = `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@`;
+            }
+
+            let finalPath = path;
+            if (finalPath && !finalPath.startsWith("/")) {
+                finalPath = "/" + finalPath;
+            }
+
+            fields.streamSourceHidden.value = `rtsp://${auth}${ip}:${port}${finalPath}`;
+            fields.streamSource.value = fields.streamSourceHidden.value;
+        };
+
+        ['rtsp_user', 'rtsp_pass', 'rtsp_ip', 'rtsp_port', 'rtsp_path'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener("input", updateRTSPLink);
+        });
+    }
 
     const previewFields = {
         img: document.getElementById("server-file-preview-img"),
@@ -351,7 +432,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 fields.serverFileList.querySelectorAll(".select-file-btn").forEach(btn => {
                     btn.addEventListener("click", (e) => {
                         e.stopPropagation();
-                        fields.streamSource.value = btn.dataset.path;
+                        fields.streamSourceHidden.value = btn.dataset.path;
+                        fields.streamSource.value = btn.dataset.filename;
                         fields.enableSimulation.checked = true;
                         closeServerBrowser();
                     });
@@ -447,13 +529,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         tableBody.innerHTML = state.cameras.map((camera, index) => {
             let displaySource = camera.stream_source || "Chưa có nguồn";
-            if (camera.enable_simulation && camera.stream_source) {
-                const filename = camera.stream_source.split(/[\\\/]/).pop();
+            let titleSource = displaySource;
+            
+            if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+                const filename = displaySource.split(/[\\\/]/).pop();
                 displaySource = `${filename}`;
+                titleSource = displaySource; // Không hiển thị đường dẫn thật trong tooltip
             }
 
             return `
-                <tr>
+                <tr class="camera-row" data-id="${camera.id}" style="cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-dim)'" onmouseout="this.style.background='transparent'">
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
                         <div style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">${camera.name}</div>
@@ -464,7 +549,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         </div>
                     </td>
                     <td>
-                        <div class="small muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;" title="${camera.stream_source}">
+                        <div class="small muted" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;" title="${titleSource}">
                             ${displaySource}
                         </div>
                     </td>
@@ -479,8 +564,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; justify-content: center;">
-                            <button class="button secondary xs" data-action="edit" data-id="${camera.id}" style="padding: 4px 8px;">Sửa</button>
-                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px;">Xóa</button>
+                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px; z-index: 2; position: relative;">Xóa</button>
                         </div>
                     </td>
                 </tr>
@@ -492,7 +576,7 @@ document.addEventListener("DOMContentLoaded", () => {
         event.preventDefault();
         const payload = {
             name: fields.name.value.trim(),
-            stream_source: fields.streamSource.value.trim(),
+            stream_source: fields.streamSourceHidden.value.trim(),
             description: fields.description.value.trim(),
             model_path: fields.modelPath.value,
             roi_points: fields.roiPoints.value.trim(),
@@ -543,16 +627,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     tableBody.addEventListener("click", async (event) => {
+        // Handle row click for editing
+        const tr = event.target.closest("tr.camera-row");
+        const toggle = event.target.closest(".toggle-switch");
         const button = event.target.closest("button[data-action]");
+        
+        if (tr && !toggle && !button) {
+            const cameraId = Number(tr.dataset.id);
+            const camera = state.cameras.find((item) => item.id === cameraId);
+            if (camera) {
+                setForm(camera);
+                // Cuộn tới form nếu màn hình nhỏ
+                if (window.innerWidth < 1100) {
+                    document.getElementById('camera-form-title').scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+            return;
+        }
+
         if (!button) return;
         const cameraId = Number(button.dataset.id);
         const camera = state.cameras.find((item) => item.id === cameraId);
         if (!camera) return;
-
-        if (button.dataset.action === "edit") {
-            setForm(camera);
-            return;
-        }
 
         if (button.dataset.action === "delete") {
             if (!confirm(`Xóa camera ${camera.name}?`)) return;
@@ -567,9 +663,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     refreshButton.addEventListener("click", () => loadCameras());
-    resetButton.addEventListener("click", () => setForm());
+    if (newCameraButton) newCameraButton.addEventListener("click", () => {
+        setForm();
+        if (window.innerWidth < 1100) {
+            formTitle.scrollIntoView({ behavior: 'smooth' });
+        }
+    });
     form.addEventListener("submit", saveCamera);
 
     setForm();
-    loadCameras();
+    loadCameras().then(() => {
+        // Tự động mở camera theo ID từ URL (được truyền từ thanh tìm kiếm global)
+        const params = new URLSearchParams(window.location.search);
+        const editId = params.get('id');
+        if (editId) {
+            const camId = Number(editId);
+            const camera = state.cameras.find(c => c.id === camId);
+            if (camera) {
+                setForm(camera);
+                // Xóa param khỏi URL để tránh refresh lại bị dính
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        }
+    });
 });

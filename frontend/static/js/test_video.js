@@ -225,12 +225,23 @@ function initTestVideoForm() {
     // ── CAMERA DASHBOARD GRID ──────────────────────────────
     function renderPreviewGrid() {
         if (!previewGrid) return;
+        
+        // Hiển thị Skeleton Loading nếu đang tải
+        if (allCameras.length === 0 && !previewGrid.dataset.loaded) {
+            previewGrid.innerHTML = Array(6).fill(0).map(() => `
+                <div class="skeleton" style="height: 380px; border-radius: 16px; width: 100%;"></div>
+            `).join("");
+            return;
+        }
+
         if (!allCameras.length) {
             previewGrid.innerHTML = `<div class="empty-state">Chưa có camera nào để hiển thị.</div>`;
             return;
         }
 
-        previewGrid.innerHTML = allCameras.map((camera) => {
+        previewGrid.dataset.loaded = "true";
+
+        previewGrid.innerHTML = allCameras.map((camera, index) => {
             const createToggle = (feature, label, isChecked) => `
                 <div class="feature-toggle-row" style="padding: 8px 4px; border-bottom: 1px solid rgba(0,0,0,0.05);">
                     <span style="font-size: 0.85rem; font-weight: 500; color: #475569;">${label}</span>
@@ -242,12 +253,12 @@ function initTestVideoForm() {
             `;
 
             return `
-                <article class="camera-preview-card" data-id="${camera.id}" style="border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; background: #fff; transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); max-width: 400px;">
+                <article class="camera-preview-card staggered-item" data-id="${camera.id}" style="border: 1px solid #E2E8F0; border-radius: 16px; overflow: hidden; background: #fff; transition: all 0.3s ease; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); max-width: 400px; animation-delay: ${index * 0.1}s;">
                     <div class="preview-container" style="position: relative; height: 180px; background: #000; overflow: hidden;">
                         <img src="/api/cameras/${camera.id}/snapshot?ts=${Date.now()}" alt="${camera.name}" class="camera-preview-image" data-camera-id="${camera.id}" style="width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s ease;">
                         <div class="status-overlay" style="position: absolute; top: 12px; left: 12px; z-index: 2;">
-                            <span class="badge ${camera.is_active ? "success" : "muted"}" style="box-shadow: 0 4px 12px rgba(0,0,0,0.2); backdrop-filter: blur(8px); padding: 6px 12px; font-weight: 700; font-size: 11px; letter-spacing: 0.05em;">
-                                ${camera.is_active ? "● LIVE" : "● OFFLINE"}
+                            <span class="badge ${camera.is_active ? "success" : "muted"}" style="box-shadow: 0 4px 12px rgba(0,0,0,0.2); backdrop-filter: blur(8px); padding: 6px 12px; font-weight: 700; font-size: 11px; letter-spacing: 0.05em; display: flex; align-items: center; gap: 4px;">
+                                ${camera.is_active ? '<span class="status-live"></span> LIVE' : '● OFFLINE'}
                             </span>
                         </div>
                         <div class="model-badge" style="position: absolute; bottom: 12px; right: 12px; background: rgba(15, 23, 42, 0.7); color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 700; backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.1);">
