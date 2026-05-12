@@ -88,7 +88,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         fields.streamSourceHidden.value = camera?.stream_source || "";
         let displaySource = fields.streamSourceHidden.value;
-        if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+        if (displaySource && (displaySource.startsWith('rtsp') || displaySource.startsWith('http'))) {
+            displaySource = camera?.description || "Nguồn Camera Mạng (Bảo mật)";
+        } else if (displaySource && displaySource !== "0") {
             displaySource = displaySource.split(/[\\\/]/).pop();
         }
         fields.streamSource.value = displaySource;
@@ -362,7 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             fields.streamSourceHidden.value = `rtsp://${auth}${ip}:${port}${finalPath}`;
-            fields.streamSource.value = fields.streamSourceHidden.value;
+            fields.streamSource.value = fields.description.value || "Nguồn Camera Mạng (Bảo mật)";
         };
 
         ['rtsp_user', 'rtsp_pass', 'rtsp_ip', 'rtsp_port', 'rtsp_path'].forEach(id => {
@@ -531,7 +533,10 @@ document.addEventListener("DOMContentLoaded", () => {
             let displaySource = camera.stream_source || "Chưa có nguồn";
             let titleSource = displaySource;
             
-            if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+            if (displaySource && (displaySource.startsWith('rtsp') || displaySource.startsWith('http'))) {
+                displaySource = camera.description || "Nguồn Camera Mạng (Bảo mật)";
+                titleSource = displaySource;
+            } else if (displaySource && displaySource !== "0") {
                 const filename = displaySource.split(/[\\\/]/).pop();
                 displaySource = `${filename}`;
                 titleSource = displaySource; // Không hiển thị đường dẫn thật trong tooltip
