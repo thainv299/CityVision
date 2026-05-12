@@ -1397,6 +1397,57 @@ input:checked + .slider:before {
 }
 
 /* ──────────────────────────────────────────────────────────
+   FINAL PREMIUM POLISH
+   ────────────────────────────────────────────────────────── */
+
+/* 1. Logo Hover Breathing */
+.brand-block h1:hover span {
+    color: var(--brand-light);
+    text-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+    transition: all 0.4s var(--ease);
+}
+
+.brand-block:hover {
+    transform: translateY(-1px);
+    transition: transform 0.3s var(--ease);
+}
+
+/* 2. Thumbnail Hover Zoom */
+.evidence-thumb, .camera-preview-image {
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), filter 0.3s ease;
+}
+
+.evidence-thumb:hover {
+    transform: scale(1.08);
+    z-index: 10;
+    box-shadow: var(--shadow-lg);
+    filter: brightness(1.1);
+}
+
+/* 3. Floating Empty States */
+@keyframes floating {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-15px); }
+    100% { transform: translateY(0px); }
+}
+
+.empty-icon {
+    display: inline-block;
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    animation: floating 3s ease-in-out infinite;
+}
+
+/* 4. Smooth List Item Transitions */
+.search-item, .table-row {
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.search-item:hover, tr:hover td {
+    transform: translateX(4px);
+}
+
+/* ──────────────────────────────────────────────────────────
    RESPONSIVE DESIGN (MEDIA QUERIES)
    ────────────────────────────────────────────────────────── */
 
