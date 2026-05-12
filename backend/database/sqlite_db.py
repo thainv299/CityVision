@@ -553,19 +553,33 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
         connection.commit()
 
 
-def get_detected_license_plates(limit: int = 100) -> list:
-    """Lấy danh sách biển số được phát hiện"""
+def get_detected_license_plates(limit: int = 100, filter_type: str = None, search_query: str = None) -> list:
+    """Lấy danh sách biển số được phát hiện với bộ lọc và tìm kiếm"""
+    query = """
+        SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
+               so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
+        FROM bien_so_phat_hien
+    """
+    params = []
+    conditions = []
+
+    if filter_type == "has_plate":
+        conditions.append("(bien_so != 'Không phát hiện biển số xe' AND bien_so != '' AND bien_so IS NOT NULL)")
+    elif filter_type == "no_plate":
+        conditions.append("(bien_so = 'Không phát hiện biển số xe' OR bien_so = '' OR bien_so IS NULL)")
+    
+    if search_query:
+        conditions.append("bien_so LIKE ?")
+        params.append(f"%{search_query}%")
+        
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+        
+    query += " ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC LIMIT ?"
+    params.append(limit)
+    
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
-                   so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
-            FROM bien_so_phat_hien
-            ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC
-            LIMIT ?
-            """,
-            (limit,)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 

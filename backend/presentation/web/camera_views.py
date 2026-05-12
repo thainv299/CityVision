@@ -159,8 +159,8 @@ async def api_camera_snapshot(camera_id: int, raw: bool = False, user=Depends(lo
         from core.utils import build_placeholder_frame
         return StreamingResponse(io.BytesIO(build_placeholder_frame("Không tìm thấy camera.")), media_type="image/jpeg")
     
-    # MỚI: Nếu camera đang OFF, trả về ảnh camera_off.png
-    if not camera.is_active:
+    # MỚI: Nếu camera đang OFF và không yêu cầu ảnh raw (dành cho vẽ ROI), trả về ảnh camera_off.png
+    if not camera.is_active and not raw:
         off_img_path = PROJECT_ROOT / "frontend" / "static" / "img" / "camera_off.png"
         if off_img_path.exists():
             return FileResponse(off_img_path, media_type="image/jpeg")

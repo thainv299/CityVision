@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Tìm kiếm Hệ thống | CityVision AI Portal{% endblock %}
+
+{% block content %}
+<div class="search-hero" style="padding: 60px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh;">
+    <div style="text-align: center; margin-bottom: 40px;">
+        <h1 style="font-size: 2.8rem; font-weight: 800; color: var(--text-main); margin-bottom: 12px; letter-spacing: -0.02em;">Tìm kiếm thông minh</h1>
+        <p class="muted" style="font-size: 1.1rem;">Tra cứu biển số xe, vị trí camera và lịch sử vi phạm trên toàn hệ thống</p>
+    </div>
+
+    <div class="search-main-container" style="width: 100%; max-width: 700px; position: relative;">
+        <div class="search-input-wrapper" style="position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-radius: 16px; background: #fff; border: 1px solid var(--border); transition: all 0.3s ease;">
+            <i class="fas fa-search" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: var(--brand-blue);"></i>
+            <input type="text" id="main-search-input" placeholder="Nhập biển số hoặc tên camera..." 
+                   style="width: 100%; padding: 22px 60px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
+                   autocomplete="off">
+            <div id="search-loading" style="position: absolute; right: 24px; top: 50%; transform: translateY(-50%); display: none;">
+                <div class="loader-spinner" style="width: 20px; height: 20px; border-width: 2px;"></div>
+            </div>
+        </div>
+
+        <!-- Suggestions Dropdown -->
+        <div id="search-suggestions" class="suggestions-dropdown" style="display: none; position: absolute; top: calc(100% + 12px); left: 0; right: 0; background: #fff; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 15px 30px rgba(0,0,0,0.1); z-index: 100; overflow: hidden; padding: 8px;">
+            <!-- suggestions will be injected here -->
+        </div>
+    </div>
+
+    <div class="quick-tags" style="margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+        <span style="font-size: 0.9rem; color: var(--text-muted); align-self: center; margin-right: 8px;">Tìm kiếm nhanh:</span>
+        <button class="tag-btn" onclick="quickSearch('15A')">Xe 15A</button>
+        <button class="tag-btn" onclick="quickSearch('Cam')">Camera</button>
+        <button class="tag-btn" onclick="quickSearch('NoPlate')">Không biển số</button>
+    </div>
+</div>
+
+<style>
+    .search-input-wrapper:focus-within {
+        border-color: var(--brand-blue);
+        box-shadow: 0 20px 50px rgba(37, 99, 235, 0.15);
+        transform: translateY(-2px);
+    }
+
+    .suggestion-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .suggestion-item:hover {
+        background: var(--bg-main);
+    }
+
+    .suggestion-icon {
+        width: 40px;
+        height: 40px;
+        background: var(--bg-main);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--brand-blue);
+    }
+
+    .tag-btn {
+        background: #fff;
+        border: 1px solid var(--border);
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text-main);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .tag-btn:hover {
+        border-color: var(--brand-blue);
+        color: var(--brand-blue);
+        background: rgba(37, 99, 235, 0.05);
+    }
+</style>
+
+<script>
+    const searchInput = document.getElementById('main-search-input');
+    const suggestionsBox = document.getElementById('search-suggestions');
+    const loader = document.getElementById('search-loading');
+    let debounceTimer;
+
+    searchInput.addEventListener('input', (e) => {
+        const q = e.target.value.trim();
+        clearTimeout(debounceTimer);
+
+        if (q.length < 2) {
+            suggestionsBox.style.display = 'none';
+            return;
+        }
+
+        debounceTimer = setTimeout(() => fetchSuggestions(q), 300);
+    });
+
+    async function fetchSuggestions(q) {
+        loader.style.display = 'block';
+        try {
+            const data = await portalApi.get(`/api/search/suggestions?q=${encodeURIComponent(q)}`);
+            renderSuggestions(data.suggestions);
+        } catch (error) {
+            console.error('Lỗi lấy gợi ý:', error);
+        } finally {
+            loader.style.display = 'none';
+        }
+    }
+
+    function renderSuggestions(suggestions) {
+        if (!suggestions || suggestions.length === 0) {
+            suggestionsBox.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">Không tìm thấy kết quả phù hợp</div>';
+            suggestionsBox.style.display = 'block';
+            return;
+        }
+
+        suggestionsBox.innerHTML = suggestions.map(s => `
+            <div class="suggestion-item" onclick="handleSuggestionClick('${s.type}', '${s.text}', '${s.id || ''}')">
+                <div class="suggestion-icon">
+                    <i class="fas ${s.type === 'camera' ? 'fa-video' : 'fa-car'}"></i>
+                </div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; color: var(--text-main);">${s.text}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${s.sub}</div>
+                </div>
+                <i class="fas fa-chevron-right" style="font-size: 0.7rem; color: var(--border);"></i>
+            </div>
+        `).join('');
+        suggestionsBox.style.display = 'block';
+    }
+
+    function handleSuggestionClick(type, text, id) {
+        if (type === 'camera') {
+            // Đi tới trang camera
+            window.location.href = `/cameras?highlight=${id}`;
+        } else {
+            // Đi tới trang vehicles với query search
+            window.location.href = `/vehicles?search=${encodeURIComponent(text)}`;
+        }
+    }
+
+    function quickSearch(tag) {
+        searchInput.value = tag;
+        fetchSuggestions(tag);
+        searchInput.focus();
+    }
+
+    // Đóng gợi ý khi click ra ngoài
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-main-container')) {
+            suggestionsBox.style.display = 'none';
+        }
+    });
+
+    // Xử lý Enter
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const q = searchInput.value.trim();
+            if (q) window.location.href = `/vehicles?search=${encodeURIComponent(q)}`;
+        }
+    });
+</script>
+{% endblock %}

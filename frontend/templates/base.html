@@ -58,9 +58,26 @@
 
                 <div class="nav-label" style="margin-top: 16px;">Giám sát giao thông</div>
 
-                <a id="nav-vehicles" class="nav-link {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
-                    Phương tiện
-                </a>
+                <div id="nav-vehicles-group" class="nav-group">
+                    <a id="nav-vehicles" class="nav-link nav-dropdown-toggle {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-car-side"></i>
+                            <span>Phương tiện</span>
+                        </div>
+                        <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-vehicles" style="display: none; padding-left: 12px; margin-top: 4px; flex-direction: column; gap: 4px;">
+                        <a href="/vehicles?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--success); margin-right: 8px;">●</span> Phát hiện biển số
+                        </a>
+                        <a href="/vehicles?filter=no_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: var(--danger); margin-right: 8px;">●</span> Không biển số
+                        </a>
+                        <a href="/search" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search" style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm nâng cao
+                        </a>
+                    </div>
+                </div>
 
                 <a id="nav-violations" class="nav-link {% if page == 'violations' %}active{% endif %}" href="{{ url_for('violations.violations_page') }}">
                     Vi phạm đỗ xe
@@ -143,9 +160,33 @@
                             bell.onclick = function(e) {
                                 e.stopPropagation();
                                 dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-                            };
+                        };
 
-                            document.onclick = function() {
+                        // Logic Dropdown Sidebar (Phương tiện)
+                        const vehiclesToggle = document.getElementById('nav-vehicles');
+                        const vehiclesSubMenu = document.getElementById('sub-menu-vehicles');
+                        if (vehiclesToggle && vehiclesSubMenu) {
+                            vehiclesToggle.onclick = function(e) {
+                                // Click lần đầu: mở menu con nếu đang đóng
+                                if (vehiclesSubMenu.style.display === 'none') {
+                                    e.preventDefault();
+                                    vehiclesSubMenu.style.display = 'flex';
+                                    vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    vehiclesToggle.classList.add('open');
+                                } else {
+                                    // Menu đang mở, click lần 2: cho phép nhảy tới trang gốc
+                                }
+                            };
+                            
+                            // Tự động mở menu nếu đang ở trang vehicles
+                            if (window.portalContext && window.portalContext.page === 'vehicles') {
+                                vehiclesSubMenu.style.display = 'flex';
+                                vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                vehiclesToggle.classList.add('open');
+                            }
+                        }
+
+                        document.onclick = function() {
                                 dropdown.style.display = 'none';
                             };
                         });
