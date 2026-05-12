@@ -13,6 +13,7 @@ class OCRManager:
         self.VOTE_THRESHOLD = vote_threshold
         self.MAX_LOST_FRAMES = max_lost_frames
         self.alpr_logger = alpr_logger
+        self.save_to_db = True
         
         self.queue = queue.Queue(maxsize=3)
         self.pending_results = {}

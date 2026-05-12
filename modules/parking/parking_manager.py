@@ -31,6 +31,7 @@ class ParkingManager:
         self.io_worker = None  # AsyncIOWorker (inject từ bên ngoài)
         self.telegram_bot_token = ""
         self.telegram_chat_id = ""
+        self.save_to_db = True
 
         self.logic = None
         self.frame_buffer = None
@@ -130,7 +131,8 @@ class ParkingManager:
                 record_data['frames'].append(frame_copy)
                 record_data['frames_needed'] -= 1
                 if record_data['frames_needed'] <= 0:
-                    threading.Thread(target=self._save_evidence_and_notify_thread, args=(track_id, record_data), daemon=True).start()
+                    if self.save_to_db:
+                        threading.Thread(target=self._save_evidence_and_notify_thread, args=(track_id, record_data), daemon=True).start()
                     self.logic.set_recording_done(track_id)
                     to_delete.append(track_id)
                     
@@ -372,7 +374,7 @@ class ParkingManager:
                         cv2.putText(img_t0, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
                         
                     self.waiting_vehicles[track_id] = {'img_t0': img_t0, 'start_time': datetime.datetime.now()}
-                    if self.telegram_enabled:
+                    if self.telegram_enabled and self.save_to_db:
                         caption = f"⚠️ CẢNH BÁO: Xe ID {track_id} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
                         threading.Thread(target=self._send_warning_thread, args=(img_t0, caption), daemon=True).start()
                         

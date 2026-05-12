@@ -22,14 +22,20 @@ async def violations_page(request: Request, user=Depends(login_required)):
 
 @violation_router.get("/api/violations")
 async def api_violations(
-    user=Depends(login_required)
+    user=Depends(login_required),
+    page: int = 1,
+    limit: int = 30
 ):
-    """Lấy danh sách vi phạm đỗ xe chưa giải quyết"""
-    from database.sqlite_db import get_illegal_parking_violations
-    violations = get_illegal_parking_violations()
+    """Lấy danh sách vi phạm đỗ xe có phân trang"""
+    offset = (page - 1) * limit
+    from database.sqlite_db import get_illegal_parking_violations, get_total_records_count
+    violations = get_illegal_parking_violations(limit, offset)
+    total_all = get_total_records_count("vi_pham_do_xe")
     return {
         "ok": True,
-        "total": len(violations),
+        "total": total_all,
+        "page": page,
+        "limit": limit,
         "violations": violations,
     }
 

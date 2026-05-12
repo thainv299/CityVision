@@ -231,4 +231,26 @@
         showToast,
         readJsonFileToInput,
     };
+
+    // Sidebar Toggle Logic
+    document.addEventListener('DOMContentLoaded', function() {
+        const toggleBtn = document.getElementById('sidebar-toggle-btn');
+        const shell = document.querySelector('.portal-shell');
+        if (toggleBtn && shell) {
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                shell.classList.toggle('sidebar-active');
+            });
+
+            // Đóng sidebar khi click ra ngoài (trên mobile)
+            document.addEventListener('click', (e) => {
+                if (shell.classList.contains('sidebar-active')) {
+                    const sidebar = document.querySelector('.sidebar');
+                    if (sidebar && !sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
+                        shell.classList.remove('sidebar-active');
+                    }
+                }
+            });
+        }
+    });
 })();

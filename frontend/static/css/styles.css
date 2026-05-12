@@ -1165,3 +1165,173 @@ input:checked + .slider:before {
     opacity: 1;
     visibility: visible;
 }
+
+/* ──────────────────────────────────────────────────────────
+   IMAGE PREVIEW MODAL & ZOOM
+   ────────────────────────────────────────────────────────── */
+.image-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.95);
+    z-index: 11000;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(8px);
+}
+
+.image-modal-container {
+    position: relative;
+    max-width: 90vw;
+    max-height: 85vh;
+    overflow: hidden;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    cursor: zoom-in;
+}
+
+.image-modal-container img {
+    display: block;
+    max-width: 100%;
+    max-height: 85vh;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform-origin: center;
+}
+
+.image-modal-container.zoomed {
+    cursor: zoom-out;
+}
+
+.image-modal-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    z-index: 11001;
+}
+
+.image-modal-close:hover {
+    background: var(--danger);
+    transform: rotate(90deg);
+}
+
+.image-modal-info {
+    margin-top: 20px;
+    color: white;
+    text-align: center;
+    font-size: 0.95rem;
+}
+
+.zoom-controls {
+    position: absolute;
+    bottom: 30px;
+    display: flex;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 8px 16px;
+    border-radius: 30px;
+    backdrop-filter: blur(10px);
+    z-index: 11001;
+}
+
+.zoom-btn {
+    background: none;
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    cursor: pointer;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.zoom-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ──────────────────────────────────────────────────────────
+   RESPONSIVE DESIGN (MEDIA QUERIES)
+   ────────────────────────────────────────────────────────── */
+
+/* LAPTOPS & TABLETS (Large) */
+@media (max-width: 1366px) {
+    :root {
+        --sidebar-w: 240px;
+    }
+    .main-header { padding: 0 24px; }
+    .page-content { padding: 24px 30px; }
+    .search-container { width: 260px; }
+}
+
+/* TABLETS & SMALL LAPTOPS (iPad Pro, 13" Laptops) */
+@media (max-width: 1200px) {
+    .sidebar-toggle-btn { display: block !important; }
+    
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.4s var(--ease);
+        box-shadow: 10px 0 30px rgba(0,0,0,0.1);
+    }
+    
+    .portal-shell.sidebar-active .sidebar {
+        transform: translateX(0);
+    }
+    
+    .content-area {
+        margin-left: 0 !important;
+    }
+    
+    .portal-shell.sidebar-active .content-area {
+        pointer-events: none;
+        opacity: 0.6;
+    }
+
+    .two-columns { grid-template-columns: 1fr; }
+    .page-head .page-title { font-size: 1.8rem; }
+    .stats-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+}
+
+/* SMALL TABLETS & MOBILE */
+@media (max-width: 768px) {
+    .main-header { height: 60px; padding: 0 16px; }
+    .search-container { display: none; } /* Hide search on mobile header to save space */
+    .header-profile-text { display: none; } /* Hide name on mobile */
+    
+    .page-content { padding: 20px 16px; }
+    .page-head { flex-direction: column; align-items: flex-start; gap: 12px; }
+    
+    .panel { padding: 20px; }
+    
+    .camera-preview-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Fix for overlapping cards in grid */
+.camera-preview-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+@media (max-width: 480px) {
+    .camera-preview-grid {
+        grid-template-columns: 1fr;
+    }
+}

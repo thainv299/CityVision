@@ -259,8 +259,8 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations() -> list:
-    """Lấy danh sách xe đỗ sai (giới hạn 50 bản ghi gần nhất)"""
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0) -> list:
+    """Lấy danh sách xe đỗ sai có phân trang"""
     with connect() as connection:
         rows = connection.execute(
             """
@@ -270,8 +270,9 @@ def get_illegal_parking_violations() -> list:
             FROM vi_pham_do_xe pv
             LEFT JOIN camera c ON pv.id_camera = c.id
             ORDER BY pv.da_giai_quyet ASC, pv.thoi_gian_vi_pham DESC
-            LIMIT 50
-            """
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -324,8 +325,8 @@ def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history() -> list:
-    """Lấy lịch sử ùn tắc"""
+def get_congestion_history(limit: int = 30, offset: int = 0) -> list:
+    """Lấy lịch sử ùn tắc có phân trang"""
     with connect() as connection:
         rows = connection.execute(
             """
@@ -336,8 +337,9 @@ def get_congestion_history() -> list:
             FROM nhat_ky_un_tac n
             LEFT JOIN camera c ON n.id_camera = c.id
             ORDER BY n.thoi_gian_bat_dau DESC
-            LIMIT 50
-            """
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset)
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -553,20 +555,48 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
         connection.commit()
 
 
-def get_detected_license_plates(limit: int = 100) -> list:
-    """Lấy danh sách biển số được phát hiện"""
+def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: str = None, search_query: str = None, camera_id: int = None) -> list:
+    """Lấy danh sách biển số được phát hiện với bộ lọc, tìm kiếm và phân trang"""
+    query = """
+        SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
+               so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
+        FROM bien_so_phat_hien
+    """
+    params = []
+    conditions = []
+
+    if filter_type == "has_plate":
+        conditions.append("(bien_so != 'Không phát hiện biển số xe' AND bien_so != '' AND bien_so IS NOT NULL)")
+    elif filter_type == "no_plate":
+        conditions.append("(bien_so = 'Không phát hiện biển số xe' OR bien_so = '' OR bien_so IS NULL)")
+    
+    if search_query:
+        conditions.append("bien_so LIKE ?")
+        params.append(f"%{search_query}%")
+
+    if camera_id is not None:
+        conditions.append("id_camera = ?")
+        params.append(camera_id)
+        
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+        
+    query += " ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
-                   so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
-            FROM bien_so_phat_hien
-            ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC
-            LIMIT ?
-            """,
-            (limit,)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
+
+def get_total_records_count(table_name: str, conditions_str: str = "", params: list = None) -> int:
+    """Lấy tổng số bản ghi của một bảng theo điều kiện"""
+    query = f"SELECT COUNT(*) as total FROM {table_name}"
+    if conditions_str:
+        query += f" WHERE {conditions_str}"
+    
+    with connect() as connection:
+        row = connection.execute(query, params or []).fetchone()
+    return row["total"] if row and row["total"] else 0
 
 
 def get_license_plate_by_date(detected_date: str) -> list:
