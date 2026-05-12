@@ -336,7 +336,8 @@ class JobUseCases:
                         "enable_license_plate": cam.enable_license_plate,
                         "model_path": cam.model_path,
                         "confidence_threshold": sys_settings.get("confidence", 0.32),
-                        "process_every_n_frames": sys_settings.get("frame_skip", 2)
+                        "process_every_n_frames": sys_settings.get("frame_skip", 2),
+                        "save_to_db": True
                     }
                     
                     # Submit job

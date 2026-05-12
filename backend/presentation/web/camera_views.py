@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from fastapi import APIRouter, Request, Depends, status, File, UploadFile, Form, Body
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse, FileResponse
 from typing import Any, Dict, Optional
 import base64
 import numpy as np
@@ -158,8 +158,20 @@ async def api_camera_snapshot(camera_id: int, raw: bool = False, user=Depends(lo
     except NotFoundError:
         from core.utils import build_placeholder_frame
         return StreamingResponse(io.BytesIO(build_placeholder_frame("Không tìm thấy camera.")), media_type="image/jpeg")
-    from core.utils import build_placeholder_frame, encode_jpeg, normalize_capture_source, prepare_snapshot_frame, resolve_path
     
+    # MỚI: Nếu camera đang OFF, trả về ảnh camera_off.png
+    if not camera.is_active:
+        off_img_path = PROJECT_ROOT / "frontend" / "static" / "img" / "camera_off.png"
+        if off_img_path.exists():
+            return FileResponse(off_img_path, media_type="image/jpeg")
+        else:
+            # Fallback nếu không tìm thấy file ảnh
+            from core.utils import build_placeholder_frame
+            return StreamingResponse(
+                io.BytesIO(build_placeholder_frame("Camera đang TẮT.", camera.name)),
+                media_type="image/jpeg"
+            )
+
     source = camera.stream_source
     capture_source = normalize_capture_source(source)
     

@@ -16,6 +16,7 @@ class ALPRLogger:
         
         # AsyncIOWorker (inject từ bên ngoài, nếu None sẽ fallback gọi đồng bộ)
         self.io_worker = None
+        self.save_to_db = True
         
         os.makedirs(self.plates_dir, exist_ok=True)
         
@@ -41,10 +42,13 @@ class ALPRLogger:
         self.plate_sessions[plate_text] = {"last_seen": current_frame}
         
         if is_new_session:
-            self._save_log(plate_text, current_frame, full_frame, plate_coords)
+            if self.save_to_db:
+                self._save_log(plate_text, current_frame, full_frame, plate_coords)
             
     def log_vehicle_without_plate(self, current_frame, full_frame, vehicle_coords):
         """Ghi lại phương tiện ngay cả khi không thấy biển số"""
+        if not self.save_to_db:
+            return
         plate_text = "Không phát hiện biển số xe"
         self._save_log(plate_text, current_frame, full_frame, vehicle_coords)
 

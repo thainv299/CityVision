@@ -374,17 +374,39 @@ async def api_create_test_job(
         test_settings = _build_test_settings(form_dict, camera)
         # Bổ sung camera_id vào settings để bridge biết ghi vào đâu
         test_settings["camera_id"] = camera.id
+        
+        # LOGIC MỚI: Tối ưu hóa Job
+        # 1. Nếu camera đang KÍCH HOẠT (is_active=True), ưu tiên dùng Job nền có sẵn
+        if camera.is_active:
+            bg_job_id = f"background_{camera.id}"
+            existing_bg = container.job_use_cases.get_job(bg_job_id)
+            if existing_bg and existing_bg.status in {"queued", "running"}:
+                job = existing_bg
+                print(f"[API] Phát hiện camera {camera.id} đang chạy nền. Chuyển hướng xem stream sang job: {bg_job_id}")
+            else:
+                # Nếu camera active nhưng job nền bị chết/chưa chạy, khởi tạo job với save_to_db=True
+                test_settings["save_to_db"] = True
+                job = container.job_use_cases.submit_job(
+                    job_id=job_id,
+                    input_stream=input_stream,
+                    input_path=input_path,
+                    input_ext=input_ext,
+                    settings=test_settings,
+                    delete_after_job=(upload_id is not None or (video_file is not None and video_file.filename))
+                )
+        else:
+            # 2. Nếu camera đang TẮT, tạo job tạm thời và KHÔNG lưu vào Database (save_to_db=False)
+            test_settings["save_to_db"] = False
+            job = container.job_use_cases.submit_job(
+                job_id=job_id,
+                input_stream=input_stream,
+                input_path=input_path,
+                input_ext=input_ext,
+                settings=test_settings,
+                delete_after_job=(upload_id is not None or (video_file is not None and video_file.filename))
+            )
     except ValidationError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": exc.message})
-
-    job = container.job_use_cases.submit_job(
-        job_id=job_id,
-        input_stream=input_stream,
-        input_path=input_path,
-        input_ext=input_ext,
-        settings=test_settings,
-        delete_after_job=(upload_id is not None or (video_file is not None and video_file.filename))
-    )
 
     payload = job.to_dict()
     payload["stream_url"] = str(request.url_for("test_video.serve_test_job_stream", job_id=job.id))
