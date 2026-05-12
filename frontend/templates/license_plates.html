@@ -42,7 +42,18 @@
             <p class="muted">Đang tải dữ liệu...</p>
         </div>
     </div>
-    </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
     </div>
 </section>
 
@@ -72,29 +83,55 @@
 </style>
 
 <script>
-    async function loadLatestPlates() {
+    let currentPage = 1;
+    let totalRecords = 0;
+    const limit = 30;
+
+    async function loadLatestPlates(page = 1) {
+        currentPage = page;
         try {
             const params = new URLSearchParams(window.location.search);
             const filter = params.get('filter');
             const search = params.get('search');
+            const cameraId = params.get('camera_id');
             
             // Cập nhật tiêu đề trang
             const pageTitle = document.querySelector('.page-title');
             if (filter === 'has_plate') pageTitle.textContent = 'Phương tiện Phát hiện biển số';
             else if (filter === 'no_plate') pageTitle.textContent = 'Phương tiện Không phát hiện biển số';
+            else if (cameraId) pageTitle.textContent = `Phương tiện từ Camera ID: ${cameraId}`;
             else if (search) pageTitle.textContent = `Kết quả tìm kiếm: "${search}"`;
             
-            let url = '/api/vehicles?limit=100';
+            let url = `/api/vehicles?limit=${limit}&page=${currentPage}`;
             if (filter) url += `&filter=${filter}`;
             if (search) url += `&search=${encodeURIComponent(search)}`;
+            if (cameraId) url += `&camera_id=${cameraId}`;
             
             const response = await portalApi.get(url);
             displayPlates(response.plates || []);
+            
+            // Update pagination UI
+            totalRecords = response.total || 0;
+            const totalPages = Math.ceil(totalRecords / limit) || 1;
+            document.getElementById('current-page').textContent = currentPage;
+            document.getElementById('total-pages').textContent = totalPages;
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = currentPage >= totalPages;
+            
         } catch (error) {
             portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
             console.error(error);
         }
     }
+
+    // Pagination events
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) loadLatestPlates(currentPage - 1);
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        if (currentPage < totalPages) loadLatestPlates(currentPage + 1);
+    });
 
     async function filterByDate() {
         const date = document.getElementById('filterDate').value;

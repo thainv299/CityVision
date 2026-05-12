@@ -124,8 +124,11 @@
 
         suggestionsBox.innerHTML = suggestions.map(s => `
             <div class="suggestion-item" onclick="handleSuggestionClick('${s.type}', '${s.text}', '${s.id || ''}')">
-                <div class="suggestion-icon">
-                    <i class="fas ${s.type === 'camera' ? 'fa-video' : 'fa-car'}"></i>
+                <div class="suggestion-icon" style="overflow: hidden; padding: 0;">
+                    ${s.img ? 
+                        `<img src="/${s.img.replace(/^\/+/, '')}" style="width: 100%; height: 100%; object-fit: cover;">` : 
+                        `<i class="fas ${s.type === 'camera' ? 'fa-video' : 'fa-car'}"></i>`
+                    }
                 </div>
                 <div style="flex: 1;">
                     <div style="font-weight: 600; color: var(--text-main);">${s.text}</div>
@@ -139,8 +142,8 @@
 
     function handleSuggestionClick(type, text, id) {
         if (type === 'camera') {
-            // Đi tới trang camera
-            window.location.href = `/cameras?highlight=${id}`;
+            // Đi tới trang vehicles lọc theo camera_id
+            window.location.href = `/vehicles?camera_id=${id}`;
         } else {
             // Đi tới trang vehicles với query search
             window.location.href = `/vehicles?search=${encodeURIComponent(text)}`;

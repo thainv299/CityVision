@@ -26,18 +26,53 @@
             <p class="muted">Đang tải dữ liệu...</p>
         </div>
     </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
+    </div>
 </section>
 
 <script>
-    async function loadCongestion() {
+    let currentPage = 1;
+    let totalRecords = 0;
+    const limit = 30;
+
+    async function loadCongestion(page = 1) {
+        currentPage = page;
         try {
-            const response = await portalApi.get('/api/congestion');
+            const response = await portalApi.get(`/api/congestion?limit=${limit}&page=${currentPage}`);
             displayCongestion(response.logs || []);
+
+            // Update pagination UI
+            totalRecords = response.total || 0;
+            const totalPages = Math.ceil(totalRecords / limit) || 1;
+            document.getElementById('current-page').textContent = currentPage;
+            document.getElementById('total-pages').textContent = totalPages;
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = currentPage >= totalPages;
         } catch (error) {
             portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
             console.error(error);
         }
     }
+
+    // Pagination events
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) loadCongestion(currentPage - 1);
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        if (currentPage < totalPages) loadCongestion(currentPage + 1);
+    });
 
     function displayCongestion(logs) {
         const container = document.getElementById('congestionList');
