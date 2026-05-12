@@ -58,12 +58,14 @@
                 <div class="nav-label" style="margin-top: 16px;">Giám sát giao thông</div>
 
                 <div id="nav-vehicles-group" class="nav-group">
-                    <a id="nav-vehicles" class="nav-link nav-dropdown-toggle {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
+                    <a id="nav-vehicles" class="nav-link {% if page == 'vehicles' %}active{% endif %}" href="{{ url_for('vehicles.vehicles_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
                             <i class="fas fa-car-side"></i>
                             <span>Phương tiện</span>
                         </div>
-                        <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        <div id="chevron-vehicles" style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;" title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron" style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
                     </a>
                     <div class="nav-sub-menu" id="sub-menu-vehicles" style="display: none; padding-left: 12px; margin-top: 4px; flex-direction: column; gap: 4px;">
                         <a href="/vehicles?filter=has_plate" class="nav-link sub-link" style="font-size: 0.8rem; padding: 8px 12px;">
@@ -163,24 +165,28 @@
 
                         // Logic Dropdown Sidebar (Phương tiện)
                         const vehiclesToggle = document.getElementById('nav-vehicles');
+                        const vehiclesChevron = document.getElementById('chevron-vehicles');
                         const vehiclesSubMenu = document.getElementById('sub-menu-vehicles');
-                        if (vehiclesToggle && vehiclesSubMenu) {
-                            vehiclesToggle.onclick = function(e) {
-                                // Click lần đầu: mở menu con nếu đang đóng
-                                if (vehiclesSubMenu.style.display === 'none') {
-                                    e.preventDefault();
-                                    vehiclesSubMenu.style.display = 'flex';
-                                    vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
-                                    vehiclesToggle.classList.add('open');
-                                } else {
-                                    // Menu đang mở, click lần 2: cho phép nhảy tới trang gốc
-                                }
+                        
+                        if (vehiclesToggle && vehiclesChevron && vehiclesSubMenu) {
+                            // Click vào mũi tên: Chỉ đóng/mở menu con
+                            vehiclesChevron.onclick = function(e) {
+                                e.preventDefault(); // Ngăn chuyển trang
+                                e.stopPropagation(); // Ngăn sự kiện lan lên thẻ <a>
+                                
+                                const isHidden = vehiclesSubMenu.style.display === 'none';
+                                vehiclesSubMenu.style.display = isHidden ? 'flex' : 'none';
+                                vehiclesChevron.querySelector('.chevron').style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+                                vehiclesToggle.classList.toggle('open', isHidden);
                             };
                             
+                            // Click vào thẻ <a> (vùng text/icon): Cho phép chuyển trang bình thường
+                            // (Mặc định thẻ <a> có href nên không cần code thêm ở đây)
+
                             // Tự động mở menu nếu đang ở trang vehicles
-                            if (window.portalContext && window.portalContext.page === 'vehicles') {
+                            if (window.portalContext && (window.portalContext.page === 'vehicles' || window.portalContext.page === 'search')) {
                                 vehiclesSubMenu.style.display = 'flex';
-                                vehiclesToggle.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                vehiclesChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
                                 vehiclesToggle.classList.add('open');
                             }
                         }
