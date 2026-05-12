@@ -1333,6 +1333,70 @@ input:checked + .slider:before {
 }
 
 /* ──────────────────────────────────────────────────────────
+   ADVANCED MICRO-ANIMATIONS (PREMIUM)
+   ────────────────────────────────────────────────────────── */
+
+/* 1. Live Pulse for Camera Status */
+@keyframes pulse-green {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.status-live {
+    display: inline-block;
+    width: 8px; height: 8px;
+    background: #10B981;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: pulse-green 2s infinite;
+}
+
+/* 2. Skeleton Loading Shimmer */
+@keyframes shimmer {
+    0% { background-position: -468px 0; }
+    100% { background-position: 468px 0; }
+}
+
+.skeleton {
+    background: #f6f7f8;
+    background-image: linear-gradient(to right, #f6f7f8 0%, #edeef1 20%, #f6f7f8 40%, #f6f7f8 100%);
+    background-repeat: no-repeat;
+    background-size: 800px 104px;
+    display: inline-block;
+    position: relative;
+    animation: shimmer 1.5s infinite linear;
+    border-radius: var(--r-sm);
+}
+
+/* 3. Notification Toast Elastic Entry */
+@keyframes toastIn {
+    0% { transform: translateX(100%) scale(0.5); opacity: 0; }
+    70% { transform: translateX(-10%) scale(1.05); opacity: 1; }
+    100% { transform: translateX(0) scale(1); opacity: 1; }
+}
+
+.notification-item {
+    animation: toastIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+/* 4. Staggered List Entrance */
+.staggered-item {
+    opacity: 0;
+    animation: fadeInUp 0.5s var(--ease) forwards;
+}
+
+/* 5. Smooth Backdrop Blur */
+.image-modal-overlay {
+    backdrop-filter: blur(0px);
+    transition: backdrop-filter 0.4s var(--ease);
+}
+
+.image-modal-overlay.active {
+    backdrop-filter: blur(12px);
+}
+
+/* ──────────────────────────────────────────────────────────
    RESPONSIVE DESIGN (MEDIA QUERIES)
    ────────────────────────────────────────────────────────── */
 

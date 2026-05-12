@@ -244,9 +244,9 @@
                                     });
 
                                     // Hiển thị biển số
-                                    plates.forEach(p => {
+                                    plates.forEach((p, index) => {
                                         html += `
-                                            <div class="search-item" onclick="location.href='/vehicles'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                                            <div class="search-item staggered-item" onclick="location.href='/vehicles'" style="padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; animation-delay: ${index * 0.05}s;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
                                                 <div style="color: #EF4444;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg></div>
                                                 <div>
                                                     <div style="font-size: 13px; font-weight: 600; color: #1E293B;">Biển số: ${p.license_plate}</div>
@@ -336,6 +336,7 @@
                 img.src = src;
                 caption.textContent = title;
                 modal.style.display = 'flex';
+                setTimeout(() => modal.classList.add('active'), 10); // Kích hoạt animation mờ nền
                 resetZoom();
                 document.body.style.overflow = 'hidden'; // Khóa cuộn trang web
             };
@@ -362,8 +363,11 @@
             modal.onclick = (e) => { if (e.target === modal) closeModal(); };
 
             function closeModal() {
-                modal.style.display = 'none';
-                document.body.style.overflow = '';
+                modal.classList.remove('active'); // Tắt animation mờ nền
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
+                }, 400); // Đợi hiệu ứng transition hoàn tất (400ms)
             }
 
             // Logic Zoom bằng nút bấm
