@@ -49,7 +49,19 @@
     async function loadCongestion(page = 1) {
         currentPage = page;
         try {
-            const response = await portalApi.get(`/api/congestion?limit=${limit}&page=${currentPage}`);
+            const params = new URLSearchParams(window.location.search);
+            const level = params.get('level');
+            
+            // Cập nhật tiêu đề trang dựa theo filter
+            const pageTitle = document.querySelector('.page-title');
+            if (level === '1') pageTitle.textContent = 'Ùn tắc Mức 1 — Đông đúc';
+            else if (level === '2') pageTitle.textContent = 'Ùn tắc Mức 2 — Rất đông';
+            else if (level === '3') pageTitle.textContent = 'Ùn tắc Mức 3 — Tắc nghẽn';
+            
+            let url = `/api/congestion?limit=${limit}&page=${currentPage}`;
+            if (level) url += `&level=${level}`;
+            
+            const response = await portalApi.get(url);
             displayCongestion(response.logs || []);
 
             // Update pagination UI
