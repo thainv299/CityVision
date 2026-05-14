@@ -1,6 +1,10 @@
+import datetime
 import time
 import os
 import cv2
+# import pyttsx3
+# import threading
+from backend.core.config import DATABASE_PATH
 from modules.utils.interactive_telegram_bot import send_alert_with_button
 
 class TrafficAlertManager:
@@ -75,8 +79,6 @@ class TrafficAlertManager:
         current_time = time.time()
         self.is_acknowledged = True
         
-        # Only update the global snooze_until if the calculated end time is in the future
-        # and it pushes the current snooze_until further out.
         if calculated_snooze_end > current_time:
             self.snooze_until = max(self.snooze_until, calculated_snooze_end)
             print(f"[INFO] Telegram ACK Mức {acked_level}. Snoozing until {time.strftime('%H:%M:%S', time.localtime(self.snooze_until))}.")
@@ -84,22 +86,107 @@ class TrafficAlertManager:
             print(f"[INFO] Telegram ACK Mức {acked_level}, nhưng {snooze_duration}s đã hết hạn. Không kích hoạt Snooze.")
 
     def _trigger_alert(self, level, frame):
-        # Nếu có io_worker, đẩy vào queue (không blocking)
-        if self.io_worker is not None:
-            self.io_worker.enqueue_traffic_alert(level, frame)
-            return
-
-        # Fallback: gọi đồng bộ (legacy, cho desktop GUI)
+        # 1. Lưu ảnh để hiển thị
         img_path = "logs/traffic_alert.jpg"
         cv2.imwrite(img_path, frame)
         
-        caption = ""
-        if level == 1:
-            caption = "CẢNH BÁO ⚠️: Giao thông đang Bắt Đầu Đông (Mức 1)."
-        elif level == 2:
-            caption = "CẢNH BÁO ⚠️: Giao thông đang RẤT ĐÔNG (Mức 2)."
-        elif level == 3:
-            caption = "BÁO ĐỘNG 🚨: TẮC NGHẼN nghiêm trọng (Mức 3)!"  
-        # Gửi sang Bot Telegram có đính kèm Nút nhấn tương tác
+        # 2. Định nghĩa nội dung chi tiết theo mức độ
+        messages = {
+            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
+            2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
+            3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
+        }
+        detail = messages.get(level, f"Mức độ {level}")
+        caption = f"CẢNH BÁO ⚠️: {detail}"
+        
+        voice_messages = {
+            1: "Giao thông đang bắt đầu đông đúc",
+            2: "Giao thông đang rất đông đúc, phụ huynh nhanh chóng di chuyển",
+            3: "Giao thông đang tắc nghẽn nghiêm trọng, nhắc lại, phụ huynh nhanh chóng di chuyển"
+        }
+        speech_text = voice_messages.get(level)
+        # if speech_text:
+        #     self._speak_alert(speech_text)
+
+        import sqlite3
+        from datetime import datetime
+        from backend.core.config import DATABASE_PATH 
+        
+        try:
+            conn = sqlite3.connect(DATABASE_PATH) 
+            cursor = conn.cursor()
+            
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu database AI:", e)
+
+        # 4. Gửi thông báo sang Telegram
         send_alert_with_button(img_path, caption, level)
+    # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
+    def save_congestion(self, level, img_path):
+        messages = {
+            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
+            2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
+            3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
+        }
+        detail = messages.get(level, f"Mức độ {level}")
+        
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu tắc nghẽn:", e)
+
+    def save_parking(self, plate_number, img_path):
+        try:
+            conn = sqlite3.connect(DATABASE_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
+                ("Parking", plate_number, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Lỗi lưu dừng đỗ:", e)
+    
+    # def _speak_alert(self, text):
+    #     """"""
+    #     return
+    #     def run_tts():
+    #         try:
+    #             engine = pyttsx3.init()
+                
+    #             # --- TÌM GIỌNG TIẾNG VIỆT TRONG MÁY ---
+    #             voices = engine.getProperty('voices')
+    #             vietnamese_voice_id = None
+    #             for voice in voices:
+    #                 # Tìm giọng nào có chữ "vietnamese" hoặc "vi-vn"
+    #                 if "vietnamese" in voice.name.lower() or "vi-vn" in voice.id.lower():
+    #                     vietnamese_voice_id = voice.id
+    #                     break
+                
+    #             if vietnamese_voice_id:
+    #                 engine.setProperty('voice', vietnamese_voice_id)
+    #             else:
+    #                 print("[CẢNH BÁO] Máy chưa cài giọng Tiếng Việt, sẽ dùng giọng mặc định.")
+
+    #             engine.setProperty('rate', 150) # Tốc độ nói chậm lại tí cho dễ nghe
+    #             engine.say(text)
+    #             engine.runAndWait()
+    #         except Exception as e:
+    #             print(f"[Lỗi Loa] {e}")
+
+    #     threading.Thread(target=run_tts, daemon=True).start()
 

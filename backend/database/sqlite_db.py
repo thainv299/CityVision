@@ -181,12 +181,22 @@ def init_db() -> None:
                 bien_so_xe TEXT,
                 loai_xe TEXT,
                 thoi_gian_di_qua TEXT NOT NULL,
+                duong_dan_anh TEXT,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS cau_hinh_he_thong (
                 khoa TEXT PRIMARY KEY,
                 gia_tri TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS violations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT,
+                license_plate TEXT,
+                camera_id TEXT,
+                image_path TEXT,
+                time TEXT
             );
             """
         )
