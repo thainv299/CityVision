@@ -194,13 +194,38 @@ async def api_image_search(
         from modules.image_search.image_search_service import get_image_search_service
         service = get_image_search_service()
         
-        # Thực hiện tìm kiếm
+        # Thực hiện tìm kiếm tương đồng
         results = service.search_similar(
             query_image=image_bytes,
             top_k=min(top_k, 50),
             search_dirs=search_dirs,
             min_score=min_score,
         )
+
+        from database.sqlite_db import connect
+        with connect() as conn:
+            for res in results:
+                # Tìm bản ghi trong DB dựa trên đường dẫn ảnh
+                # Vì duong_dan_anh có thể chứa nhiều đường dẫn, dùng LIKE
+                img_path = res["path"] # logs/plates/2026/...
+                row = conn.execute("""
+                    SELECT b.bien_so, b.ngay_phat_hien, b.thoi_gian_phat_hien, c.ten_camera
+                    FROM bien_so_phat_hien b
+                    LEFT JOIN camera c ON b.id_camera = c.id
+                    WHERE b.duong_dan_anh LIKE ?
+                    LIMIT 1
+                """, (f"%{img_path}%",)).fetchone()
+                
+                if row:
+                    res["license_plate"] = row["bien_so"]
+                    res["detected_date"] = row["ngay_phat_hien"]
+                    res["detected_time"] = row["thoi_gian_phat_hien"]
+                    res["camera_name"] = row["ten_camera"]
+                else:
+                    res["license_plate"] = "N/A"
+                    res["detected_date"] = "N/A"
+                    res["detected_time"] = "N/A"
+                    res["camera_name"] = "Unknown"
         
         return {
             "ok": True,

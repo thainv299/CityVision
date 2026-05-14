@@ -601,30 +601,32 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
 def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: str = None, search_query: str = None, camera_id: int = None) -> list:
     """Lấy danh sách biển số được phát hiện với bộ lọc, tìm kiếm và phân trang"""
     query = """
-        SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
-               so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
-        FROM bien_so_phat_hien
+        SELECT b.id, b.bien_so as license_plate, b.ngay_phat_hien as detected_date, b.thoi_gian_phat_hien as detected_time, 
+               b.so_lan_phat_hien as detection_count, b.do_chinh_xac_tb as avg_confidence, b.duong_dan_anh as image_paths,
+               c.ten_camera as camera_name
+        FROM bien_so_phat_hien b
+        LEFT JOIN camera c ON b.id_camera = c.id
     """
     params = []
     conditions = []
 
     if filter_type == "has_plate":
-        conditions.append("(bien_so != 'Không phát hiện biển số xe' AND bien_so != '' AND bien_so IS NOT NULL)")
+        conditions.append("(b.bien_so != 'Không phát hiện biển số xe' AND b.bien_so != '' AND b.bien_so IS NOT NULL)")
     elif filter_type == "no_plate":
-        conditions.append("(bien_so = 'Không phát hiện biển số xe' OR bien_so = '' OR bien_so IS NULL)")
+        conditions.append("(b.bien_so = 'Không phát hiện biển số xe' OR b.bien_so = '' OR b.bien_so IS NULL)")
     
     if search_query:
-        conditions.append("bien_so LIKE ?")
+        conditions.append("b.bien_so LIKE ?")
         params.append(f"%{search_query}%")
 
     if camera_id is not None:
-        conditions.append("id_camera = ?")
+        conditions.append("b.id_camera = ?")
         params.append(camera_id)
         
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
         
-    query += " ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
+    query += " ORDER BY b.ngay_phat_hien DESC, b.thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     
     with connect() as connection:

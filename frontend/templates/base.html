@@ -135,12 +135,7 @@
                     Xem Camera
                 </a>
 
-                <a id="nav-image-search" class="nav-link {% if page == 'image-search' %}active{% endif %}" href="/image-search">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <i class="fas fa-image"></i>
-                        <span>Tìm kiếm bằng ảnh</span>
-                    </div>
-                </a>
+
 
                 
                 <a class="nav-link {% if page == 'settings' %}active{% endif %}" href="/settings" style="margin-top: 20px;">
@@ -465,14 +460,14 @@
             </header>
 
             <div class="page-content">
-                {{ page_content }}
+                {{ page_content | safe }}
             </div>
         </div>
     </div>
 
     {% else %}
     <main class="public-layout">
-        {{ page_content }}
+        {{ page_content | safe }}
     </main>
     {% endif %}
 
