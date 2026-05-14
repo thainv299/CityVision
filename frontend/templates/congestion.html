@@ -51,15 +51,18 @@
         try {
             const params = new URLSearchParams(window.location.search);
             const level = params.get('level');
+            const id = params.get('id');
             
             // Cập nhật tiêu đề trang dựa theo filter
             const pageTitle = document.querySelector('.page-title');
             if (level === '1') pageTitle.textContent = 'Ùn tắc Mức 1 — Đông đúc';
             else if (level === '2') pageTitle.textContent = 'Ùn tắc Mức 2 — Rất đông';
             else if (level === '3') pageTitle.textContent = 'Ùn tắc Mức 3 — Tắc nghẽn';
+            else if (id) pageTitle.textContent = 'Chi tiết cảnh báo ùn tắc';
             
             let url = `/api/congestion?limit=${limit}&page=${currentPage}`;
             if (level) url += `&level=${level}`;
+            if (id) url += `&id=${id}`;
             
             const response = await portalApi.get(url);
             displayCongestion(response.logs || []);

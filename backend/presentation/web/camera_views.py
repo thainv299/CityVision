@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from typing import Any, Dict, Optional
 import base64
 import numpy as np
-from core.utils import resolve_path, normalize_capture_source, encode_jpeg, prepare_snapshot_frame, build_placeholder_frame
+from core.utils import resolve_path, normalize_capture_source, build_placeholder_frame
 from core.config import ALLOWED_VIDEO_EXTENSIONS, INPUTS_DIR, PROJECT_ROOT, DEFAULT_MODEL_PATH
 from core.errors import AppError, NotFoundError
 from presentation.container import container, templates
@@ -156,7 +156,6 @@ async def api_camera_snapshot(camera_id: int, raw: bool = False, user=Depends(lo
     try:
         camera = container.camera_use_cases.get_camera(camera_id)
     except NotFoundError:
-        from core.utils import build_placeholder_frame
         return StreamingResponse(io.BytesIO(build_placeholder_frame("Không tìm thấy camera.")), media_type="image/jpeg")
     
     # MỚI: Nếu camera đang OFF và không yêu cầu ảnh raw (dành cho vẽ ROI), trả về ảnh camera_off.png
@@ -166,7 +165,6 @@ async def api_camera_snapshot(camera_id: int, raw: bool = False, user=Depends(lo
             return FileResponse(off_img_path, media_type="image/jpeg")
         else:
             # Fallback nếu không tìm thấy file ảnh
-            from core.utils import build_placeholder_frame
             return StreamingResponse(
                 io.BytesIO(build_placeholder_frame("Camera đang TẮT.", camera.name)),
                 media_type="image/jpeg"

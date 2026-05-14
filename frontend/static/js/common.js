@@ -253,4 +253,101 @@
             });
         }
     });
+
+    // Notification Polling Logic
+    let notificationPollingInterval = null;
+
+    async function fetchNotifications() {
+        try {
+            const data = await window.portalApi.get('/api/notifications/unread');
+            if (data && data.ok) {
+                updateNotificationUI(data.unread_count, data.notifications);
+            }
+        } catch (err) {
+            console.error("Lỗi lấy thông báo:", err);
+            const listContainer = document.getElementById('notif-list-content');
+            if (listContainer && listContainer.innerHTML.trim() === '') {
+                listContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #EF4444; font-size: 13px;">Không thể kết nối đến máy chủ. Vui lòng khởi động lại server.</div>';
+            }
+        }
+    }
+
+    function updateNotificationUI(count, notifications) {
+        const badge = document.querySelector('.icon-badge');
+        const listContainer = document.getElementById('notif-list-content');
+        
+        if (!badge || !listContainer) return;
+        
+        // Update badge
+        if (count > 0) {
+            badge.textContent = count;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+        
+        // Update list
+        listContainer.innerHTML = '';
+        if (notifications.length === 0) {
+            listContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #94A3B8; font-size: 13px;">Không có thông báo mới</div>';
+            return;
+        }
+        
+        notifications.forEach(n => {
+            const item = document.createElement('div');
+            item.className = 'notif-item';
+            item.style.padding = '10px 15px';
+            item.style.borderBottom = '1px solid #F8FAFC';
+            item.style.cursor = 'pointer';
+            item.onmouseover = () => item.style.background = '#F8FAFC';
+            item.onmouseout = () => item.style.background = 'white';
+            
+            let color, icon, titleText, urlPrefix;
+            if (n.type === 'violation') {
+                color = '#EF4444';
+                icon = '⚠️';
+                titleText = 'Xe đỗ sai quy định';
+                urlPrefix = '/violations?id=';
+            } else {
+                color = '#F59E0B';
+                icon = '🟠';
+                titleText = 'Cảnh báo ùn tắc (Mức ' + n.title + ')';
+                urlPrefix = '/congestion?id=';
+            }
+            
+            // Format time string
+            const timeObj = new Date(n.time);
+            const timeStr = timeObj.toLocaleString('vi-VN', {hour: '2-digit', minute:'2-digit', day:'2-digit', month:'2-digit'});
+            
+            item.innerHTML = `
+                <div style="display: flex; gap: 10px;">
+                    ${n.image ? `<img src="/${n.image}" style="width: 50px; height: 35px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #eee;">` : ''}
+                    <div style="flex: 1;">
+                        <div style="font-size: 12px; font-weight: 600; color: ${color};">${icon} ${titleText}</div>
+                        <div style="font-size: 11px; color: #64748B; margin-top: 2px;">${n.type === 'violation' ? 'BKS: ' + n.title : ''}</div>
+                        <div style="font-size: 10px; color: #94A3B8; margin-top: 4px;">${timeStr}</div>
+                    </div>
+                </div>
+            `;
+            
+            item.onclick = async function() {
+                try {
+                    await window.portalApi.post('/api/notifications/' + n.type + '/' + n.id + '/read', {});
+                    window.location.href = urlPrefix + n.id;
+                } catch(e) {
+                    console.error("Lỗi đọc thông báo", e);
+                }
+            };
+            listContainer.appendChild(item);
+        });
+    }
+
+    window.portalApi.fetchNotifications = fetchNotifications;
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        if (document.getElementById('bell-icon')) {
+            fetchNotifications();
+            notificationPollingInterval = setInterval(fetchNotifications, 10000); // 10s
+        }
+    });
 })();

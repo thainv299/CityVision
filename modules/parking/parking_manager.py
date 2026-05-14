@@ -364,10 +364,6 @@ class ParkingManager:
                 state_str = "WAITING"
                 if just_changed:
                     img_t0 = clean_frame.copy()
-                    
-                    # Vẽ vùng ROI màu đỏ vào ảnh bằng chứng T0
-                    self.draw_polygon_overlay(img_t0, f_thick)
-                    
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t0, (x1, y1), (x2, y2), box_color, f_thick + 1)
@@ -391,10 +387,6 @@ class ParkingManager:
                     start_time = waiting_data.get('start_time', datetime.datetime.now())
                     
                     img_t1 = clean_frame.copy()
-                    
-                    # Vẽ vùng ROI màu đỏ vào ảnh bằng chứng T1
-                    self.draw_polygon_overlay(img_t1, f_thick)
-                    
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t1, (x1, y1), (x2, y2), box_color, f_thick + 2)

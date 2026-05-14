@@ -11,6 +11,23 @@
     </div>
 </div>
 
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Framing</p>
+            <h3>Lọc Ngày</h3>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: auto auto 1fr; gap: 12px; align-items: end;">
+        <label class="field">
+            <span>Chọn Ngày</span>
+            <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 8px;">
+        </label>
+        <button class="button primary" onclick="filterByDate()">Tìm kiếm</button>
+        <button class="button secondary" onclick="loadLatestPlates()">Mới nhất</button>
+    </div>
+</section>
+
 <section class="panel margin-top">
     <div class="panel-header">
         <div>
@@ -116,6 +133,22 @@
         if (currentPage < totalPages) loadLatestPlates(currentPage + 1);
     });
 
+    async function filterByDate() {
+        const date = document.getElementById('filterDate').value;
+        if (!date) {
+            portalApi.showToast('Vui lòng chọn ngày', 'warning', 'Cảnh báo');
+            return;
+        }
+
+        try {
+            const response = await portalApi.get(`/api/vehicles/date/${date}`);
+            displayPlates(response.plates || []);
+        } catch (error) {
+            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+            console.error(error);
+        }
+    }
+
     function displayPlates(plates) {
         const container = document.getElementById('platesList');
 
@@ -136,7 +169,6 @@
                     <tr>
                         <th style="text-align: center; width: 50px;">STT</th>
                         <th>Biển Số</th>
-                        <th style="text-align: center;">Camera</th>
                         <th style="text-align: center;">Ngày</th>
                         <th style="text-align: center;">Giờ</th>
                         <th style="text-align: center;">Ảnh Xem Lại</th>
@@ -151,9 +183,6 @@
                             <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
                                 <strong>${plate.license_plate || 'N/A'}</strong>
-                            </td>
-                            <td style="text-align: center;">
-                                <span class="badge indigo">${plate.camera_name || 'N/A'}</span>
                             </td>
                             <td style="text-align: center; font-weight: 500;">
                                 ${plate.detected_date || 'N/A'}
@@ -190,7 +219,12 @@
             if (response.ok) {
                 portalApi.showToast('Đã xóa bản ghi thành công', 'success', 'Thông báo');
                 // Reload danh sách hiện tại
-                loadLatestPlates();
+                const date = document.getElementById('filterDate').value;
+                if (date) {
+                    filterByDate();
+                } else {
+                    loadLatestPlates();
+                }
             } else {
                 portalApi.showToast('Không thể xóa bản ghi', 'error', 'Lỗi');
             }

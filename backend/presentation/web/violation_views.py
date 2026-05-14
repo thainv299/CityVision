@@ -46,13 +46,17 @@ async def api_violations(
     date = request.query_params.get("date")
     hour = request.query_params.get("hour")
     camera_id = request.query_params.get("camera_id")
+    record_id = request.query_params.get("id")
     if camera_id:
         try: camera_id = int(camera_id)
         except: camera_id = None
+    if record_id:
+        try: record_id = int(record_id)
+        except: record_id = None
 
     offset = (page - 1) * limit
     from database.sqlite_db import get_illegal_parking_violations, get_total_records_count
-    violations = get_illegal_parking_violations(limit, offset, filter_type, date, hour, camera_id)
+    violations = get_illegal_parking_violations(limit, offset, filter_type, date, hour, camera_id, record_id)
     
     # Tính tổng để phân trang (với bộ lọc)
     conds = []
@@ -70,6 +74,9 @@ async def api_violations(
     if camera_id is not None:
         conds.append("id_camera = ?")
         params.append(camera_id)
+    if record_id is not None:
+        conds.append("id = ?")
+        params.append(record_id)
 
     total_all = get_total_records_count("vi_pham_do_xe", " AND ".join(conds) if conds else "", params)
     return {

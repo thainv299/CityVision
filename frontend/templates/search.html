@@ -9,94 +9,14 @@
         <p class="muted" style="font-size: 1.1rem;">Tra cứu biển số xe, vị trí camera và lịch sử vi phạm trên toàn hệ thống</p>
     </div>
 
-    <div class="search-main-container" style="width: 100%; max-width: 900px; position: relative;">
+    <div class="search-main-container" style="width: 100%; max-width: 700px; position: relative;">
         <div class="search-input-wrapper" style="position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-radius: 16px; background: #fff; border: 1px solid var(--border); transition: all 0.3s ease;">
             <i class="fas fa-search" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: var(--brand-blue);"></i>
             <input type="text" id="main-search-input" placeholder="Nhập biển số hoặc tên camera..." 
-                   style="width: 100%; padding: 22px 100px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
+                   style="width: 100%; padding: 22px 60px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
                    autocomplete="off">
-            
-            <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px;">
-                <div id="search-loading" style="display: none;">
-                    <div class="loader-spinner" style="width: 20px; height: 20px; border-width: 2px;"></div>
-                </div>
-                <button id="toggle-image-search" title="Tìm kiếm bằng hình ảnh" style="background: var(--bg-main); border: 1px solid var(--border); width: 44px; height: 44px; border-radius: 12px; color: var(--brand-blue); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;">
-                    <i class="fas fa-camera" style="font-size: 1.1rem;"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Image Search Panel (Hidden by default) -->
-        <div id="image-search-panel" style="display: none; margin-top: 16px; background: #fff; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 15px 30px rgba(0,0,0,0.1); padding: 24px; animation: slideDown 0.3s ease-out;">
-            <!-- Top: Controls -->
-            <div style="border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 24px;">
-                <p class="eyebrow" style="margin-bottom: 16px; color: var(--brand-blue);">1. Cấu hình tìm kiếm AI</p>
-                <div style="display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap;">
-                    <!-- Upload Zone -->
-                    <div id="drop-zone" style="flex: 1; min-width: 320px; background: var(--bg-main); border: 2px dashed var(--border); border-radius: 12px; padding: 40px 20px; text-align: center; cursor: pointer; transition: all 0.3s; position: relative; overflow: hidden;">
-                        <input type="file" id="image-file-input" accept="image/*" style="display:none;">
-                        <div id="drop-placeholder">
-                            <i class="fas fa-cloud-upload-alt" style="font-size: 2.5rem; color: var(--brand-blue); margin-bottom: 16px; opacity: 0.8;"></i>
-                            <p style="font-size: 1rem; font-weight: 700; color: var(--text-main); margin: 0;">Kéo thả hoặc Click để chọn ảnh</p>
-                            <p class="muted" style="font-size: 0.8rem; margin-top: 6px;">Tải ảnh xe/biển số bạn muốn so khớp AI</p>
-                        </div>
-                        <div id="image-preview-container" style="display:none;">
-                            <img id="image-search-preview-img" style="max-width: 100%; max-height: 180px; border-radius: 8px; object-fit: contain; box-shadow: var(--shadow-lg);">
-                            <div style="margin-top: 12px; font-size: 0.75rem; color: var(--brand-blue); font-weight: 600;">Đã chọn ảnh thành công <i class="fas fa-check-circle"></i></div>
-                        </div>
-                    </div>
-
-                    <!-- Slider & Button -->
-                    <div style="width: 300px; display: flex; flex-direction: column; gap: 20px;">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                <label class="eyebrow" style="margin: 0;">Độ chính xác: <span id="score-val" style="color: var(--brand-blue); font-weight: 800; font-size: 1.1rem;">30%</span></label>
-                                <span title="Độ tương đồng tối thiểu để hiển thị kết quả" style="cursor: help; color: var(--text-muted); font-size: 0.8rem;"><i class="fas fa-question-circle"></i></span>
-                            </div>
-                            <input type="range" id="min-score" min="0" max="95" value="30" step="5" style="width: 100%; accent-color: var(--brand-blue); cursor: pointer; height: 8px;">
-                            <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.7rem; color: var(--text-muted); font-weight: 500;">
-                                <span>Rộng (nhiều kết quả)</span>
-                                <span>Khắt khe</span>
-                            </div>
-                        </div>
-                        
-                        <button id="search-image-btn" disabled class="button brand" style="width: 100%; padding: 16px; font-weight: 700; font-size: 1rem; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 10px 20px rgba(37, 99, 235, 0.15);">
-                            <i class="fas fa-microchip"></i> PHÂN TÍCH & SO KHỚP
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bottom: Results -->
-            <div id="isr-container" style="min-height: 250px;">
-                <div id="isr-idle" style="display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); text-align: center; padding: 60px 20px;">
-                    <div style="width: 80px; height: 80px; border-radius: 50%; background: var(--bg-main); display: flex; align-items: center; justify-content: center; margin-bottom: 20px;">
-                        <i class="fas fa-search-location" style="font-size: 2rem; opacity: 0.3;"></i>
-                    </div>
-                    <h4 style="color: var(--text-main); margin-bottom: 8px;">Chưa có dữ liệu tìm kiếm</h4>
-                    <p style="max-width: 400px; font-size: 0.9rem;">Vui lòng tải ảnh lên và nhấn nút phân tích để hệ thống AI bắt đầu tìm kiếm các phương tiện tương đồng trong CSDL.</p>
-                </div>
-
-                <div id="isr-loading" style="display: none; padding: 60px 20px; text-align: center;">
-                    <div class="loader-spinner" style="width: 48px; height: 48px; margin: 0 auto 20px;"></div>
-                    <h4 style="color: var(--brand-blue);">Hệ thống đang so khớp AI...</h4>
-                    <p class="muted">Quá trình này có thể mất vài giây tùy vào số lượng ảnh trong hệ thống.</p>
-                </div>
-
-                <div id="isr-content" style="display: none;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 4px;">
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span class="badge blue" id="isr-count" style="padding: 6px 16px; font-size: 0.85rem;"></span>
-                            <span class="muted" style="font-size: 0.8rem;">(Sắp xếp theo độ tương đồng giảm dần)</span>
-                        </div>
-                        <button onclick="clearImageSearch()" class="button secondary outline sm">
-                            <i class="fas fa-times-circle" style="margin-right: 6px;"></i> Xóa kết quả
-                        </button>
-                    </div>
-                    <div id="isr-grid">
-                        <!-- table injected here -->
-                    </div>
-                </div>
+            <div id="search-loading" style="position: absolute; right: 24px; top: 50%; transform: translateY(-50%); display: none;">
+                <div class="loader-spinner" style="width: 20px; height: 20px; border-width: 2px;"></div>
             </div>
         </div>
 
@@ -113,21 +33,6 @@
         <button class="tag-btn" onclick="quickSearch('NoPlate')">Không biển số</button>
     </div>
 </div>
-
-<style>
-    @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    #toggle-image-search:hover {
-        background: var(--brand-blue-light);
-        border-color: var(--brand-blue);
-    }
-    #toggle-image-search.active {
-        background: var(--brand-blue);
-        color: #fff;
-    }
-</style>
 
 <style>
     .search-input-wrapper:focus-within {
@@ -177,24 +82,6 @@
         border-color: var(--brand-blue);
         color: var(--brand-blue);
         background: rgba(37, 99, 235, 0.05);
-    }
-    .plate-thumbnail {
-        width: 100px;
-        height: 60px;
-        object-fit: cover;
-        border-radius: 8px;
-        border: 2px solid var(--border);
-        transition: all 0.3s var(--ease);
-        cursor: pointer;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        display: block;
-        margin: 0 auto;
-    }
-
-    .plate-thumbnail:hover {
-        transform: scale(1.1) translateY(-2px);
-        border-color: var(--brand-blue);
-        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
     }
 </style>
 
@@ -268,153 +155,6 @@
         fetchSuggestions(tag);
         searchInput.focus();
     }
-
-    // ─── TÌM KIẾM BẰNG HÌNH ẢNH ──────────────────────────────────────────────
-    const toggleImgBtn = document.getElementById('toggle-image-search');
-    const imagePanel = document.getElementById('image-search-panel');
-    const dropZone = document.getElementById('drop-zone');
-    const fileInput = document.getElementById('image-file-input');
-    const previewImg = document.getElementById('image-search-preview-img');
-    const previewContainer = document.getElementById('image-preview-container');
-    const placeholder = document.getElementById('drop-placeholder');
-    const scoreSlider = document.getElementById('min-score');
-    const scoreVal = document.getElementById('score-val');
-    const searchImgBtn = document.getElementById('search-image-btn');
-
-    let selectedImage = null;
-
-    toggleImgBtn.onclick = () => {
-        const isHidden = imagePanel.style.display === 'none';
-        imagePanel.style.display = isHidden ? 'block' : 'none';
-        toggleImgBtn.classList.toggle('active', isHidden);
-        if (isHidden) suggestionsBox.style.display = 'none';
-    };
-
-    scoreSlider.oninput = () => { scoreVal.textContent = scoreSlider.value + '%'; };
-
-    dropZone.onclick = () => fileInput.click();
-    dropZone.ondragover = (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--brand-blue)'; };
-    dropZone.ondragleave = () => { dropZone.style.borderColor = 'var(--border)'; };
-    dropZone.ondrop = (e) => {
-        e.preventDefault();
-        dropZone.style.borderColor = 'var(--border)';
-        if (e.dataTransfer.files[0]) setImage(e.dataTransfer.files[0]);
-    };
-    fileInput.onchange = () => { if (fileInput.files[0]) setImage(fileInput.files[0]); };
-
-    function setImage(file) {
-        selectedImage = file;
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            previewImg.src = e.target.result;
-            placeholder.style.display = 'none';
-            previewContainer.style.display = 'block';
-        };
-        reader.readAsDataURL(file);
-        searchImgBtn.disabled = false;
-    }
-
-    searchImgBtn.onclick = async () => {
-        if (!selectedImage) return;
-        
-        showIsrState('loading');
-        searchImgBtn.disabled = true;
-
-        const fd = new FormData();
-        fd.append('file', selectedImage);
-        fd.append('top_k', 12);
-        fd.append('search_scope', 'plates');
-        fd.append('min_score', (parseInt(scoreSlider.value) / 100).toFixed(2));
-
-        try {
-            const resp = await fetch('/api/image-search', {
-                method: 'POST',
-                body: fd,
-                credentials: 'same-origin',
-            });
-            const data = await resp.json();
-            if (data.ok) {
-                renderImageResults(data.results);
-            } else {
-                throw new Error(data.detail || 'Lỗi server');
-            }
-        } catch (err) {
-            portalApi.showToast('Lỗi tìm kiếm: ' + err.message, 'error');
-            showIsrState('idle');
-        } finally {
-            searchImgBtn.disabled = false;
-        }
-    };
-
-    function showIsrState(state) {
-        ['idle', 'loading', 'content'].forEach(s => {
-            document.getElementById('isr-' + s).style.display = (s === state ? (s === 'idle' ? 'flex' : 'block') : 'none');
-        });
-    }
-
-    function renderImageResults(results) {
-        if (!results || results.length === 0) {
-            document.getElementById('isr-idle').innerHTML = '<i class="fas fa-search" style="font-size: 1.5rem; margin-bottom: 10px; opacity: 0.2;"></i><p>Không tìm thấy ảnh tương tự</p>';
-            showIsrState('idle');
-            return;
-        }
-
-        showIsrState('content');
-        document.getElementById('isr-count').textContent = `Tìm thấy ${results.length} kết quả`;
-        
-        const grid = document.getElementById('isr-grid');
-        grid.innerHTML = `
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th style="text-align: center; width: 60px;">Độ khớp</th>
-                            <th>Biển số</th>
-                            <th style="text-align: center;">Camera</th>
-                            <th style="text-align: center;">Ngày</th>
-                            <th style="text-align: center;">Giờ</th>
-                            <th style="text-align: center;">Ảnh</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${results.map(res => `
-                            <tr>
-                                <td style="text-align: center;">
-                                    <span class="badge blue">${res.score_pct}%</span>
-                                </td>
-                                <td>
-                                    <strong>${res.license_plate || 'N/A'}</strong>
-                                </td>
-                                <td style="text-align: center;">
-                                    <span class="badge indigo">${res.camera_name || 'N/A'}</span>
-                                </td>
-                                <td style="text-align: center;">
-                                    ${res.detected_date || 'N/A'}
-                                </td>
-                                <td style="text-align: center;">
-                                    <span class="pill success">${res.detected_time || 'N/A'}</span>
-                                </td>
-                                <td style="text-align: center;">
-                                    <img src="/${res.path}" class="plate-thumbnail" 
-                                         onclick="portalApi.previewImage('/${res.path}', 'Khớp: ${res.score_pct}% — ${res.camera_name}')"
-                                         title="Xem ảnh lớn">
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    }
-
-    window.clearImageSearch = () => {
-        selectedImage = null;
-        fileInput.value = '';
-        previewContainer.style.display = 'none';
-        placeholder.style.display = 'block';
-        searchImgBtn.disabled = true;
-        showIsrState('idle');
-    };
 
     // Đóng gợi ý khi click ra ngoài
     document.addEventListener('click', (e) => {

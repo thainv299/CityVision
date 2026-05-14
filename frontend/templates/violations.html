@@ -14,6 +14,7 @@
 <section class="panel margin-top">
     <div class="panel-header">
         <div>
+            <p class="eyebrow">Dữ liệu theo thời gian thực</p>
             <h3>Danh Sách Vi Phạm Chờ Xử Lý</h3>
         </div>
         <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
@@ -27,8 +28,7 @@
     </div>
 
     <!-- Pagination Controls -->
-    <div id="pagination-controls"
-        style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
         <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
             <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
         </button>
@@ -46,10 +46,9 @@
     <div class="modal-content">
         <button id="closeModalBtn" class="close-btn">&times;</button>
         <h3>Bằng chứng Video (15s)</h3>
-
+        
         <!-- Không có src ban đầu, preload="none" để chắc chắn không tải trước -->
-        <video id="violationVideoPlayer" width="100%" controls preload="none"
-            style="border-radius: 8px; background: #000;">
+        <video id="violationVideoPlayer" width="100%" controls preload="none" style="border-radius: 8px; background: #000;">
             Trình duyệt của bạn không hỗ trợ thẻ video.
         </video>
     </div>
@@ -68,24 +67,22 @@
         display: block;
         margin: 0 auto;
     }
-
     .plate-thumbnail:hover {
         transform: scale(1.1) translateY(-2px);
         border-color: var(--brand-blue);
         box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
     }
-
     .data-table td {
         vertical-align: middle;
     }
-
+    
     .video-thumbnail {
         position: relative;
         display: inline-block;
         cursor: pointer;
         margin: 0 auto;
     }
-
+    
     .play-overlay {
         position: absolute;
         top: 50%;
@@ -96,7 +93,7 @@
         pointer-events: none;
         transition: all 0.3s var(--ease);
     }
-
+    
     .video-thumbnail:hover .play-overlay {
         color: rgba(255, 255, 255, 1);
         transform: translate(-50%, -50%) scale(1.1);
@@ -115,7 +112,7 @@
         justify-content: center;
         backdrop-filter: blur(4px);
     }
-
+    
     .modal-content {
         position: relative;
         background: var(--surface);
@@ -125,12 +122,12 @@
         max-width: 800px;
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     }
-
+    
     .modal-content h3 {
         margin-top: 0;
         margin-bottom: 15px;
     }
-
+    
     .close-btn {
         position: absolute;
         top: 15px;
@@ -143,83 +140,86 @@
         cursor: pointer;
         transition: color 0.2s;
     }
-
+    
     .close-btn:hover {
         color: var(--text);
     }
 </style>
 
 <script>
-    let currentPage = 1;
-    let totalRecords = 0;
-    const limit = 30;
+let currentPage = 1;
+let totalRecords = 0;
+const limit = 30;
 
-    async function loadViolations(page = 1) {
-        currentPage = page;
-        try {
-            const params = new URLSearchParams(window.location.search);
-            const filter = params.get('filter');
-
-            // Cập nhật tiêu đề trang dựa theo filter
-            const pageTitle = document.querySelector('.page-title');
-            if (filter === 'has_plate') pageTitle.textContent = 'Vi phạm có Phát hiện biển số';
-            else if (filter === 'no_plate') pageTitle.textContent = 'Vi phạm Không phát hiện biển số';
-
-            let url = `/api/violations?limit=${limit}&page=${currentPage}`;
-            if (filter) url += `&filter=${filter}`;
-
-            const response = await portalApi.get(url);
-            displayViolations(response.violations || []);
-
-            // Update pagination UI
-            totalRecords = response.total || 0;
-            const totalPages = Math.ceil(totalRecords / limit) || 1;
-            document.getElementById('current-page').textContent = currentPage;
-            document.getElementById('total-pages').textContent = totalPages;
-            document.getElementById('prev-page').disabled = currentPage <= 1;
-            document.getElementById('next-page').disabled = currentPage >= totalPages;
-        } catch (error) {
-            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
-            console.error(error);
-        }
-    }
-
-    // Pagination events
-    document.getElementById('prev-page').addEventListener('click', () => {
-        if (currentPage > 1) loadViolations(currentPage - 1);
-    });
-    document.getElementById('next-page').addEventListener('click', () => {
+async function loadViolations(page = 1) {
+    currentPage = page;
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const filter = params.get('filter');
+        const id = params.get('id');
+        
+        // Cập nhật tiêu đề trang dựa theo filter
+        const pageTitle = document.querySelector('.page-title');
+        if (filter === 'has_plate') pageTitle.textContent = 'Vi phạm có Phát hiện biển số';
+        else if (filter === 'no_plate') pageTitle.textContent = 'Vi phạm Không phát hiện biển số';
+        else if (id) pageTitle.textContent = 'Chi tiết vi phạm đỗ xe';
+        
+        let url = `/api/violations?limit=${limit}&page=${currentPage}`;
+        if (filter) url += `&filter=${filter}`;
+        if (id) url += `&id=${id}`;
+        
+        const response = await portalApi.get(url);
+        displayViolations(response.violations || []);
+        
+        // Update pagination UI
+        totalRecords = response.total || 0;
         const totalPages = Math.ceil(totalRecords / limit) || 1;
-        if (currentPage < totalPages) loadViolations(currentPage + 1);
-    });
-
-    async function resolveViolation(id) {
-        if (!confirm("Xác nhận đã xử lý vi phạm này?")) return;
-        try {
-            await portalApi.post(`/api/violations/${id}/resolve`);
-            portalApi.showToast('Đã đánh dấu xử lý vi phạm thành công', 'success');
-
-            // Refresh danh sách
-            setTimeout(loadViolations, 500);
-        } catch (err) {
-            portalApi.showToast('Lỗi xử lý: ' + err.message, 'error');
-        }
+        document.getElementById('current-page').textContent = currentPage;
+        document.getElementById('total-pages').textContent = totalPages;
+        document.getElementById('prev-page').disabled = currentPage <= 1;
+        document.getElementById('next-page').disabled = currentPage >= totalPages;
+    } catch (error) {
+        portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+        console.error(error);
     }
+}
 
-    function displayViolations(violations) {
-        const container = document.getElementById('violationList');
+// Pagination events
+document.getElementById('prev-page').addEventListener('click', () => {
+    if (currentPage > 1) loadViolations(currentPage - 1);
+});
+document.getElementById('next-page').addEventListener('click', () => {
+    const totalPages = Math.ceil(totalRecords / limit) || 1;
+    if (currentPage < totalPages) loadViolations(currentPage + 1);
+});
 
-        if (!violations || violations.length === 0) {
-            container.innerHTML = `
+async function resolveViolation(id) {
+    if(!confirm("Xác nhận đã xử lý vi phạm này?")) return;
+    try {
+        await portalApi.post(`/api/violations/${id}/resolve`);
+        portalApi.showToast('Đã đánh dấu xử lý vi phạm thành công', 'success');
+        
+        // Refresh danh sách
+        setTimeout(loadViolations, 500); 
+    } catch(err) {
+        portalApi.showToast('Lỗi xử lý: ' + err.message, 'error');
+    }
+}
+
+function displayViolations(violations) {
+    const container = document.getElementById('violationList');
+    
+    if (!violations || violations.length === 0) {
+        container.innerHTML = `
             <div class="empty-state">
                 <span class="empty-icon">✅</span>
                 <p class="muted">Tuyệt vời, không có vi phạm đỗ xe nào cần xử lý!</p>
             </div>
         `;
-            return;
-        }
-
-        container.innerHTML = `
+        return;
+    }
+    
+    container.innerHTML = `
         <div class="table-wrap">
             <table class="data-table">
                 <thead>
@@ -237,8 +237,8 @@
                 </thead>
                 <tbody>
                     ${violations.map((v, index) => {
-            const framePath = v.frame_path ? v.frame_path.replace(/^\/+/, '') : '';
-            return `
+                        const framePath = v.frame_path ? v.frame_path.replace(/^\/+/,'') : '';
+                        return `
                         <tr>
                             <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
@@ -262,13 +262,13 @@
                             </td>
                             <td style="text-align: center;">
                                 ${framePath ? (() => {
-                    const videoPath = framePath.substring(0, framePath.lastIndexOf('/') + 1) + 'video_record.mp4';
-                    return `
+                                    const videoPath = framePath.substring(0, framePath.lastIndexOf('/') + 1) + 'video_record.mp4';
+                                    return `
                                     <button class="button secondary xs video-btn" data-video-url="/${videoPath}" style="display: inline-flex; align-items: center; gap: 5px;">
                                         <i class="fas fa-play-circle"></i> Xem Video
                                     </button>
                                     `;
-                })() : '<span class="badge muted">N/A</span>'}
+                                })() : '<span class="badge muted">N/A</span>'}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill ${v.is_resolved ? 'success' : 'danger'}">
@@ -284,58 +284,58 @@
                             </td>
                         </tr>
                         `;
-        }).join('')}
+                    }).join('')}
                 </tbody>
             </table>
         </div>
     `;
 
-        // Gắn sự kiện cho các nút Xem Video
-        const videoBtns = container.querySelectorAll('.video-btn');
-        const modal = document.getElementById('videoModal');
-        const videoPlayer = document.getElementById('violationVideoPlayer');
+    // Gắn sự kiện cho các nút Xem Video
+    const videoBtns = container.querySelectorAll('.video-btn');
+    const modal = document.getElementById('videoModal');
+    const videoPlayer = document.getElementById('violationVideoPlayer');
 
-        videoBtns.forEach(btn => {
-            btn.addEventListener('click', function () {
-                const videoUrl = this.getAttribute('data-video-url');
-                videoPlayer.src = videoUrl;
-                videoPlayer.load();
-                modal.style.display = 'flex';
-                setTimeout(() => {
-                    videoPlayer.play().catch(e => {
-                        console.log("Play failed", e);
-                        portalApi.showToast('Trình duyệt không hỗ trợ định dạng video này hoặc bị chặn tự động phát.', 'warning');
-                    });
-                }, 100);
-            });
+    videoBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const videoUrl = this.getAttribute('data-video-url');
+            videoPlayer.src = videoUrl;
+            videoPlayer.load();
+            modal.style.display = 'flex';
+            setTimeout(() => {
+                videoPlayer.play().catch(e => {
+                    console.log("Play failed", e);
+                    portalApi.showToast('Trình duyệt không hỗ trợ định dạng video này hoặc bị chặn tự động phát.', 'warning');
+                }); 
+            }, 100);
         });
+    });
+}
+
+// Load dữ liệu khi trang mở
+document.addEventListener('DOMContentLoaded', () => {
+    loadViolations();
+
+    const modal = document.getElementById('videoModal');
+    const videoPlayer = document.getElementById('violationVideoPlayer');
+    const closeBtn = document.getElementById('closeModalBtn');
+
+    function closeModal() {
+        modal.style.display = 'none';
+        videoPlayer.pause();
+        videoPlayer.src = "";
     }
 
-    // Load dữ liệu khi trang mở
-    document.addEventListener('DOMContentLoaded', () => {
-        loadViolations();
-
-        const modal = document.getElementById('videoModal');
-        const videoPlayer = document.getElementById('violationVideoPlayer');
-        const closeBtn = document.getElementById('closeModalBtn');
-
-        function closeModal() {
-            modal.style.display = 'none';
-            videoPlayer.pause();
-            videoPlayer.src = "";
-        }
-
-        if (closeBtn) {
-            closeBtn.addEventListener('click', closeModal);
-        }
-
-        if (modal) {
-            modal.addEventListener('click', function (e) {
-                if (e.target === modal) {
-                    closeModal();
-                }
-            });
-        }
-    });
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeModal);
+    }
+    
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+    }
+});
 </script>
 {% endblock %}

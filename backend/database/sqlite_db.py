@@ -224,6 +224,20 @@ def init_db() -> None:
                 "ALTER TABLE nhat_ky_un_tac ADD COLUMN duong_dan_anh TEXT"
             )
 
+        # Cột da_doc cho tính năng thông báo
+        violation_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(vi_pham_do_xe)").fetchall()
+        }
+        if "da_doc" not in violation_columns:
+            connection.execute(
+                "ALTER TABLE vi_pham_do_xe ADD COLUMN da_doc INTEGER NOT NULL DEFAULT 0"
+            )
+        if "da_doc" not in congestion_columns:
+            connection.execute(
+                "ALTER TABLE nhat_ky_un_tac ADD COLUMN da_doc INTEGER NOT NULL DEFAULT 0"
+            )
+
         # Cấu hình mặc định
         default_settings = {
             "confidence": "0.32",
@@ -259,7 +273,7 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:
     """Lấy danh sách xe đỗ sai có phân trang và bộ lọc"""
     query = """
         SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
@@ -287,6 +301,10 @@ def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type
     if camera_id is not None:
         conditions.append("pv.id_camera = ?")
         params.append(camera_id)
+
+    if record_id is not None:
+        conditions.append("pv.id = ?")
+        params.append(record_id)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -347,7 +365,7 @@ def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:
     """Lấy lịch sử ùn tắc có phân trang và bộ lọc"""
     query = """
         SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
@@ -375,6 +393,10 @@ def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, 
     if camera_id is not None:
         conditions.append("n.id_camera = ?")
         params.append(camera_id)
+
+    if record_id is not None:
+        conditions.append("n.id = ?")
+        params.append(record_id)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -423,6 +445,75 @@ def get_latest_violations(limit: int = 5) -> list:
             (limit,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+def get_unread_notifications(limit: int = 10) -> dict:
+    """Lấy danh sách thông báo chưa đọc (vi phạm và ùn tắc) kết hợp, sắp xếp theo thời gian mới nhất."""
+    with connect() as connection:
+        v_rows = connection.execute(
+            """
+            SELECT pv.id, pv.id_camera, c.ten_camera, pv.bien_so, pv.thoi_gian_vi_pham as time, pv.duong_dan_anh, 'violation' as type
+            FROM vi_pham_do_xe pv
+            LEFT JOIN camera c ON pv.id_camera = c.id
+            WHERE pv.da_doc = 0
+            ORDER BY pv.thoi_gian_vi_pham DESC
+            LIMIT ?
+            """, (limit,)
+        ).fetchall()
+        
+        c_rows = connection.execute(
+            """
+            SELECT n.id, n.id_camera, c.ten_camera, n.muc_do_un_tac as level, n.thoi_gian_bat_dau as time, n.duong_dan_anh, 'congestion' as type
+            FROM nhat_ky_un_tac n
+            LEFT JOIN camera c ON n.id_camera = c.id
+            WHERE n.da_doc = 0
+            ORDER BY n.thoi_gian_bat_dau DESC
+            LIMIT ?
+            """, (limit,)
+        ).fetchall()
+        
+        # Gộp và sắp xếp
+        combined = []
+        for row in v_rows:
+            combined.append({
+                "id": row["id"],
+                "camera_name": row["ten_camera"],
+                "license_plate": row["bien_so"],
+                "time": row["time"],
+                "image_path": row["duong_dan_anh"],
+                "type": "violation"
+            })
+        for row in c_rows:
+            combined.append({
+                "id": row["id"],
+                "camera_name": row["ten_camera"],
+                "level": row["level"],
+                "time": row["time"],
+                "image_path": row["duong_dan_anh"],
+                "type": "congestion"
+            })
+        
+        combined.sort(key=lambda x: x["time"], reverse=True)
+        
+        # Tính tổng chưa đọc
+        count_v = connection.execute("SELECT COUNT(*) as c FROM vi_pham_do_xe WHERE da_doc = 0").fetchone()["c"]
+        count_c = connection.execute("SELECT COUNT(*) as c FROM nhat_ky_un_tac WHERE da_doc = 0").fetchone()["c"]
+        
+        return {
+            "unread_count": count_v + count_c,
+            "items": combined[:limit]
+        }
+
+def mark_notification_as_read(notif_type: str, record_id: int) -> bool:
+    """Đánh dấu thông báo là đã đọc"""
+    with connect() as connection:
+        if notif_type == "violation":
+            cursor = connection.execute("UPDATE vi_pham_do_xe SET da_doc = 1 WHERE id = ?", (record_id,))
+        elif notif_type == "congestion":
+            cursor = connection.execute("UPDATE nhat_ky_un_tac SET da_doc = 1 WHERE id = ?", (record_id,))
+        else:
+            return False
+        connection.commit()
+        return cursor.rowcount > 0
 
 def get_total_vehicle_count(start_date: str = None, end_date: str = None) -> int:
     """Lấy tổng số xe đi qua trực tiếp từ bảng lịch sử (loại bỏ person và license_plate)"""
@@ -601,32 +692,30 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
 def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: str = None, search_query: str = None, camera_id: int = None) -> list:
     """Lấy danh sách biển số được phát hiện với bộ lọc, tìm kiếm và phân trang"""
     query = """
-        SELECT b.id, b.bien_so as license_plate, b.ngay_phat_hien as detected_date, b.thoi_gian_phat_hien as detected_time, 
-               b.so_lan_phat_hien as detection_count, b.do_chinh_xac_tb as avg_confidence, b.duong_dan_anh as image_paths,
-               c.ten_camera as camera_name
-        FROM bien_so_phat_hien b
-        LEFT JOIN camera c ON b.id_camera = c.id
+        SELECT id, bien_so as license_plate, ngay_phat_hien as detected_date, thoi_gian_phat_hien as detected_time, 
+               so_lan_phat_hien as detection_count, do_chinh_xac_tb as avg_confidence, duong_dan_anh as image_paths
+        FROM bien_so_phat_hien
     """
     params = []
     conditions = []
 
     if filter_type == "has_plate":
-        conditions.append("(b.bien_so != 'Không phát hiện biển số xe' AND b.bien_so != '' AND b.bien_so IS NOT NULL)")
+        conditions.append("(bien_so != 'Không phát hiện biển số xe' AND bien_so != '' AND bien_so IS NOT NULL)")
     elif filter_type == "no_plate":
-        conditions.append("(b.bien_so = 'Không phát hiện biển số xe' OR b.bien_so = '' OR b.bien_so IS NULL)")
+        conditions.append("(bien_so = 'Không phát hiện biển số xe' OR bien_so = '' OR bien_so IS NULL)")
     
     if search_query:
-        conditions.append("b.bien_so LIKE ?")
+        conditions.append("bien_so LIKE ?")
         params.append(f"%{search_query}%")
 
     if camera_id is not None:
-        conditions.append("b.id_camera = ?")
+        conditions.append("id_camera = ?")
         params.append(camera_id)
         
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
         
-    query += " ORDER BY b.ngay_phat_hien DESC, b.thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
+    query += " ORDER BY ngay_phat_hien DESC, thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     
     with connect() as connection:

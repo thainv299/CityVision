@@ -464,7 +464,7 @@ def process_video(
         input_video_path = Path(temp_path)
         should_cleanup_temp = True
     elif input_path is not None:
-        input_str = str(input_path).strip()
+        input_str = str(input_path).strip().strip('"').strip("'")
         if input_str.startswith(("rtsp://", "http://", "https://", "rtmp://")) or input_str.isdigit():
             input_video_path = input_str if not input_str.isdigit() else int(input_str)
             should_cleanup_temp = False

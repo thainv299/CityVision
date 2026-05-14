@@ -46,6 +46,7 @@ async def api_congestion(
     date = request.query_params.get("date")
     hour = request.query_params.get("hour")
     camera_id = request.query_params.get("camera_id")
+    record_id = request.query_params.get("id")
 
     if level:
         try: level = int(level)
@@ -53,10 +54,13 @@ async def api_congestion(
     if camera_id:
         try: camera_id = int(camera_id)
         except: camera_id = None
+    if record_id:
+        try: record_id = int(record_id)
+        except: record_id = None
 
     offset = (page - 1) * limit
     from database.sqlite_db import get_congestion_history, get_total_records_count
-    logs = get_congestion_history(limit, offset, level, date, hour, camera_id)
+    logs = get_congestion_history(limit, offset, level, date, hour, camera_id, record_id)
     
     # Tính tổng để phân trang (với bộ lọc)
     conds = []
@@ -73,6 +77,9 @@ async def api_congestion(
     if camera_id is not None:
         conds.append("id_camera = ?")
         params.append(camera_id)
+    if record_id is not None:
+        conds.append("id = ?")
+        params.append(record_id)
 
     total_all = get_total_records_count("nhat_ky_un_tac", " AND ".join(conds) if conds else "", params)
     return {

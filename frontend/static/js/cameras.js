@@ -222,7 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const targetId = btn.dataset.target;
             try {
                 let frameUrl = null;
-                const sourceValue = fields.streamSourceHidden.value.trim();
+                const sourceValue = fields.streamSource.value.trim();
                 
                 // Chuẩn hóa đường dẫn để so sánh chính xác (tránh lỗi dấu / và \)
                 const normalizePath = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
@@ -412,7 +412,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                                 <div class="muted small">${(v.size / (1024 * 1024)).toFixed(1)} MB • Video File</div>
                                             </div>
                                         </div>
-                                        <button type="button" class="button primary sm select-file-btn" data-filename="${v.filename}" data-path="${v.path}" style="flex-shrink: 0; padding: 6px 16px; border-radius: 6px;">Chọn</button>
+                                        <button type="button" class="button primary sm select-file-btn" data-path="${v.path}" style="flex-shrink: 0; padding: 6px 16px; border-radius: 6px;">Chọn</button>
                                     </div>
                                 `).join("")}
                             </div>
