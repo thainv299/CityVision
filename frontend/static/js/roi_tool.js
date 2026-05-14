@@ -38,9 +38,13 @@ window.roiDrawingTool = {
             this.originalWidth = img.naturalWidth || img.width;
             this.originalHeight = img.naturalHeight || img.height;
 
-            const maxWidth = Math.min(800, window.innerWidth - 40);
-            this.canvas.width = maxWidth;
-            this.canvas.height = (maxWidth / this.originalWidth) * this.originalHeight;
+            const maxWidth = Math.min(800, window.innerWidth - 60);
+            const maxHeight = window.innerHeight * 0.65; // Dành không gian cho text và nút bấm
+
+            const scale = Math.min(maxWidth / this.originalWidth, maxHeight / this.originalHeight);
+
+            this.canvas.width = this.originalWidth * scale;
+            this.canvas.height = this.originalHeight * scale;
             this.drawCanvas();
         };
         img.onerror = () => {

@@ -529,6 +529,7 @@ img, video { display: block; max-width: 100%; }
 .badge.warning { background: rgba(245, 158, 11, 0.1); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.2); }
 .badge.danger  { background: rgba(239,  68,  68, 0.1); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.2); }
 .badge.blue    { background: rgba(59,  130, 246, 0.1); color: var(--brand-blue); border: 1px solid rgba(59, 130, 246, 0.2); }
+.badge.indigo  { background: rgba(79,  70,  229, 0.1); color: #4F46E5; border: 1px solid rgba(79, 70, 229, 0.2); }
 .badge.muted   { background: var(--bg-main); color: var(--text-muted); border: 1px solid var(--border); }
 
 /* FORMS */

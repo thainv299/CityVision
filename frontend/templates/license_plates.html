@@ -11,7 +11,6 @@
     </div>
 </div>
 
-
 <section class="panel margin-top">
     <div class="panel-header">
         <div>
@@ -137,6 +136,7 @@
                     <tr>
                         <th style="text-align: center; width: 50px;">STT</th>
                         <th>Biển Số</th>
+                        <th style="text-align: center;">Camera</th>
                         <th style="text-align: center;">Ngày</th>
                         <th style="text-align: center;">Giờ</th>
                         <th style="text-align: center;">Ảnh Xem Lại</th>
@@ -151,6 +151,9 @@
                             <td style="text-align: center;"><strong>${index + 1}</strong></td>
                             <td>
                                 <strong>${plate.license_plate || 'N/A'}</strong>
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="badge indigo">${plate.camera_name || 'N/A'}</span>
                             </td>
                             <td style="text-align: center; font-weight: 500;">
                                 ${plate.detected_date || 'N/A'}

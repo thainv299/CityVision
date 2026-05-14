@@ -464,16 +464,23 @@ def process_video(
         input_video_path = Path(temp_path)
         should_cleanup_temp = True
     elif input_path is not None:
-        input_video_path = Path(input_path)
-        should_cleanup_temp = False
+        input_str = str(input_path).strip()
+        if input_str.startswith(("rtsp://", "http://", "https://", "rtmp://")) or input_str.isdigit():
+            input_video_path = input_str if not input_str.isdigit() else int(input_str)
+            should_cleanup_temp = False
+        else:
+            input_video_path = Path(input_path)
+            should_cleanup_temp = False
     else:
         raise ValueError("Yêu cầu cung cấp input_stream hoặc input_path")
 
-    if not input_video_path.exists():
+    if isinstance(input_video_path, Path) and not input_video_path.exists():
         raise FileNotFoundError(f"Không tìm thấy video đầu vào: {input_video_path}")
 
     # FIX #2: Detect HEVC một lần duy nhất, dùng lại kết quả cho cả remux và VideoStream
-    is_hevc = _is_hevc(input_video_path)
+    is_hevc = False
+    if isinstance(input_video_path, Path):
+        is_hevc = _is_hevc(input_video_path)
 
     if is_hevc:
         remuxed_path = _remux_to_faststart(input_video_path)

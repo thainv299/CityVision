@@ -88,7 +88,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         fields.streamSourceHidden.value = camera?.stream_source || "";
         let displaySource = fields.streamSourceHidden.value;
-        if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+        if (displaySource && (displaySource.startsWith('rtsp') || displaySource.startsWith('http'))) {
+            displaySource = camera?.description || "Nguồn Camera Mạng (Bảo mật)";
+        } else if (displaySource && displaySource !== "0") {
             displaySource = displaySource.split(/[\\\/]/).pop();
         }
         fields.streamSource.value = displaySource;
@@ -220,7 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const targetId = btn.dataset.target;
             try {
                 let frameUrl = null;
-                const sourceValue = fields.streamSource.value.trim();
+                const sourceValue = fields.streamSourceHidden.value.trim();
                 
                 // Chuẩn hóa đường dẫn để so sánh chính xác (tránh lỗi dấu / và \)
                 const normalizePath = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
@@ -362,7 +364,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             fields.streamSourceHidden.value = `rtsp://${auth}${ip}:${port}${finalPath}`;
-            fields.streamSource.value = fields.streamSourceHidden.value;
+            fields.streamSource.value = fields.description.value || "Nguồn Camera Mạng (Bảo mật)";
         };
 
         ['rtsp_user', 'rtsp_pass', 'rtsp_ip', 'rtsp_port', 'rtsp_path'].forEach(id => {
@@ -410,7 +412,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                                 <div class="muted small">${(v.size / (1024 * 1024)).toFixed(1)} MB • Video File</div>
                                             </div>
                                         </div>
-                                        <button type="button" class="button primary sm select-file-btn" data-path="${v.path}" style="flex-shrink: 0; padding: 6px 16px; border-radius: 6px;">Chọn</button>
+                                        <button type="button" class="button primary sm select-file-btn" data-filename="${v.filename}" data-path="${v.path}" style="flex-shrink: 0; padding: 6px 16px; border-radius: 6px;">Chọn</button>
                                     </div>
                                 `).join("")}
                             </div>
@@ -531,7 +533,10 @@ document.addEventListener("DOMContentLoaded", () => {
             let displaySource = camera.stream_source || "Chưa có nguồn";
             let titleSource = displaySource;
             
-            if (displaySource && !displaySource.startsWith('rtsp') && !displaySource.startsWith('http') && displaySource !== "0") {
+            if (displaySource && (displaySource.startsWith('rtsp') || displaySource.startsWith('http'))) {
+                displaySource = camera.description || "Nguồn Camera Mạng (Bảo mật)";
+                titleSource = displaySource;
+            } else if (displaySource && displaySource !== "0") {
                 const filename = displaySource.split(/[\\\/]/).pop();
                 displaySource = `${filename}`;
                 titleSource = displaySource; // Không hiển thị đường dẫn thật trong tooltip
