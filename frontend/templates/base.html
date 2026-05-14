@@ -134,8 +134,14 @@
                 <a id="nav-test-video" class="nav-link {% if page == 'test-video' %}active{% endif %}" href="{{ url_for('test_video.test_video_page') }}">
                     Xem Camera
                 </a>
-                
-                <div style="flex-grow: 1;"></div>
+
+                <a id="nav-image-search" class="nav-link {% if page == 'image-search' %}active{% endif %}" href="/image-search">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fas fa-image"></i>
+                        <span>Tìm kiếm bằng ảnh</span>
+                    </div>
+                </a>
+
                 
                 <a class="nav-link {% if page == 'settings' %}active{% endif %}" href="/settings" style="margin-top: 20px;">
                     <span>Settings</span>
