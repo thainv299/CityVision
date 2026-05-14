@@ -186,19 +186,22 @@ async def api_image_search(
         "all": None,
         "plates": ["plates"],
         "violations": ["violations"],
-        "congestion": ["congestion"],
+        "congestion": ["traffic"], 
     }
     search_dirs = scope_map.get(search_scope)
 
     try:
         from modules.image_search.image_search_service import get_image_search_service
         service = get_image_search_service()
+        
+        # Thực hiện tìm kiếm
         results = service.search_similar(
             query_image=image_bytes,
             top_k=min(top_k, 50),
             search_dirs=search_dirs,
             min_score=min_score,
         )
+        
         return {
             "ok": True,
             "total": len(results),
@@ -206,12 +209,6 @@ async def api_image_search(
             "search_scope": search_scope,
             "results": results,
         }
-    except ImportError as e:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            {"ok": False, "detail": f"Chưa cài thư viện: {e}. Chạy: pip install torch torchvision pillow"},
-            status_code=503
-        )
     except Exception as e:
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False, "detail": str(e)}, status_code=500)

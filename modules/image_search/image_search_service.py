@@ -96,13 +96,8 @@ class ImageSearchService:
         # Chọn device
         if use_gpu and _torch.cuda.is_available():
             self.device = _torch.device("cuda")
-            print(f"[ImageSearch] Sử dụng GPU: {_torch.cuda.get_device_name(0)}")
         else:
             self.device = _torch.device("cpu")
-            if use_gpu:
-                print("[ImageSearch] Không tìm thấy GPU, fallback sang CPU")
-            else:
-                print("[ImageSearch] Chạy trên CPU")
 
         # Load ResNet50 model (bỏ lớp FC classifier cuối)
         self.model = self._load_model()
@@ -110,7 +105,6 @@ class ImageSearchService:
         # Cache embedding: {absolute_path_str: numpy_vector}
         self._embedding_cache: dict[str, np.ndarray] = {}
 
-        print(f"[ImageSearch] Khởi tạo xong. Logs dir: {self.logs_dir}")
 
     def _load_model(self):
         """Load ResNet50 pretrained, bỏ lớp FC cuối để lấy 2048D embedding."""
@@ -128,7 +122,6 @@ class ImageSearchService:
         model = model.to(self.device)
         model.eval()  # Chế độ inference (không train)
 
-        print("[ImageSearch] Đã load ResNet50 pretrained (IMAGENET1K_V2)")
         return model
 
     def get_embedding(self, image_source) -> np.ndarray:
@@ -213,7 +206,7 @@ class ImageSearchService:
                 count += 1
 
         elapsed = time.time() - t0
-        print(f"[ImageSearch] Đã index {count} ảnh trong {elapsed:.2f}s")
+        print(f"[ImageSearch] Indexed {count} images in {elapsed:.2f}s")
         return count
 
     def search_similar(
@@ -250,14 +243,23 @@ class ImageSearchService:
         try:
             query_emb = self.get_embedding(query_image)
         except Exception as e:
-            print(f"[ImageSearch] Lỗi đọc ảnh query: {e}")
+            print(f"[ImageSearch] Error reading query image: {e}")
             return []
 
         # Xác định thư mục cần tìm
         if search_dirs:
-            scan_roots = [self.logs_dir / d for d in search_dirs]
+            # Map 'congestion' to 'traffic' folder if needed
+            mapped_dirs = []
+            for d in search_dirs:
+                if d == "congestion": mapped_dirs.append("traffic")
+                else: mapped_dirs.append(d)
+            scan_roots = [self.logs_dir / d for d in mapped_dirs]
         else:
             scan_roots = [self.logs_dir]
+
+        # Đảm bảo đã index ít nhất một lần nếu cache trống
+        if not self._embedding_cache:
+            self.index_all_images()
 
         # Thu thập tất cả ảnh và tính similarity
         results = []
@@ -309,7 +311,7 @@ class ImageSearchService:
     def clear_cache(self):
         """Xóa toàn bộ embedding cache (giải phóng RAM)."""
         self._embedding_cache.clear()
-        print("[ImageSearch] Đã xóa embedding cache")
+        print("[ImageSearch] Embedding cache cleared")
 
     def get_cache_stats(self) -> dict:
         """Trả về thông tin về cache hiện tại."""

@@ -74,7 +74,7 @@ async def search_by_image(
         "all": None,
         "plates": ["plates"],
         "violations": ["violations"],
-        "congestion": ["congestion"],
+        "congestion": ["traffic"],
         "vehicles": ["vehicles"],
     }
     search_dirs = scope_map.get(search_scope, None)
