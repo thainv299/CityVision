@@ -4,7 +4,7 @@ from werkzeug.security import check_password_hash
 
 from core.config import DEFAULT_MODEL_PATH, templates
 from core.security import get_current_user_from_request, require_login, require_admin
-from frontend.database import (
+from backend.database import (
     get_user_record_by_username,
     get_dashboard_stats,
     list_cameras,
@@ -73,3 +73,8 @@ def test_video_page(request: Request, user=Depends(require_login)):
 @router.get("/license-plates", response_class=HTMLResponse)
 def license_plates_page(request: Request, user=Depends(require_login)):
     return render(request, "license_plates.html", {"page": "license-plates"})
+
+@router.get("/image-search", response_class=HTMLResponse, name="image_search")
+def image_search_page(request: Request, user=Depends(require_login)):
+    return render(request, "image_search.html", {"page": "image-search"})
+
