@@ -61,3 +61,21 @@ async def api_update_settings(request: Request, user=Depends(login_required)):
 async def api_global_search(q: str = "", user=Depends(login_required)):
     results = container.dashboard_use_cases.search(q)
     return {"ok": True, "results": results}
+@dashboard_router.get("/api/notifications")
+async def api_notifications(limit: int = 10, user=Depends(login_required)):
+    results = container.dashboard_use_cases.get_notifications(limit)
+    return {"ok": True, "results": results}
+
+@dashboard_router.post("/api/notifications/read")
+async def api_mark_notification_read(request: Request, user=Depends(login_required)):
+    try:
+        payload = await request.json()
+        notif_type = payload.get("type")
+        record_id = payload.get("id")
+        if not notif_type or not record_id:
+            return {"ok": False, "message": "Missing type or id"}
+        
+        success = container.dashboard_use_cases.mark_notification_read(notif_type, int(record_id))
+        return {"ok": success}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
