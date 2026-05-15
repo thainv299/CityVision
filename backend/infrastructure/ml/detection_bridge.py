@@ -869,32 +869,30 @@ def process_video(
 
             # Cập nhật Traffic Monitor
             if traffic_monitor is not None:
-                avg_spd, st_txt, st_clr, lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
-                traffic_monitor.draw_status(frame, avg_spd, st_txt, st_clr, f_scale, f_thick)
-                latest_status = st_txt
-
-                traffic_alert_manager.update_traffic_state(lvl, clean_frame)
-
+                # 1. Lấy dữ liệu thô (Instantaneous)
+                avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
+                
+                # 2. Cập nhật Debounce Manager
+                traffic_alert_manager.update_traffic_state(raw_lvl, clean_frame)
                 confirmed_lvl = traffic_alert_manager.confirmed_level
+                
+                # 3. Lấy Text và Màu dựa trên mức đã được CONFIRMED (Debounced)
+                conf_st_txt, conf_st_clr = traffic_monitor.get_status_for_level(confirmed_lvl, avg_spd)
+                
+                # 4. Vẽ lên Frame và cập nhật status
+                traffic_monitor.draw_status(frame, avg_spd, conf_st_txt, conf_st_clr, f_scale, f_thick)
+                latest_status = conf_st_txt
 
-                if confirmed_lvl == 0:
-                    if clear_start_time == 0:
-                        clear_start_time = current_time
-                    elif current_time - clear_start_time >= true_clear_seconds:
-                        if last_db_traffic_level > 0 and last_congestion_record_id and save_to_db:
-                            io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
-                            last_congestion_record_id = None
-                        last_db_traffic_level = 0
-                else:
-                    clear_start_time = 0
-
+                # --- ĐỒNG BỘ DATABASE (Sync based on Confirmed Level) ---
                 if confirmed_lvl != last_db_traffic_level:
-                    if last_db_traffic_level > 0 and confirmed_lvl == 0 and last_congestion_record_id and save_to_db:
+                    # Nếu đang có một record cũ (mức khác) -> Kết thúc nó ngay
+                    if last_congestion_record_id and save_to_db:
                         io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
                         last_congestion_record_id = None
-                    elif confirmed_lvl > 0:
-                        # 1. Tạo đường dẫn ảnh bằng chứng theo yêu cầu
-                        # traffic/năm/tháng/ngày/{mức độ}_giờ_phút/{mức độ}_giờ_phút.jpg
+                    
+                    # Nếu mức mới > 0 -> Tạo record mới
+                    if confirmed_lvl > 0 and save_to_db:
+                        # Tạo đường dẫn ảnh bằng chứng
                         now = datetime.now()
                         lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
                         time_folder = now.strftime(f"{lvl_name}_%H%M")
@@ -913,15 +911,13 @@ def process_video(
                         rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
                         abs_path = str(abs_dir / img_name)
                         
-                        # 2. Lưu ảnh qua io_worker (Async)
-                        if save_to_db:
-                            if io_worker:
-                                io_worker.enqueue_save_image(abs_path, clean_frame)
-                            else:
-                                cv2.imwrite(abs_path, clean_frame)
+                        # Lưu ảnh qua io_worker (Async)
+                        io_worker.enqueue_save_image(abs_path, clean_frame)
                                 
-                            # 3. Ghi vào Database (Sync để lấy ID)
-                            last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
+                        # Ghi vào Database (Sync để lấy ID)
+                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
+                    
+                    # Cập nhật mức đã lưu DB gần nhất
                     last_db_traffic_level = confirmed_lvl
 
             # Tính và vẽ FPS

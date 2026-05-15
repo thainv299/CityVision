@@ -118,29 +118,36 @@ class TrafficMonitor:
 
         self.last_occupancy = occupancy_percent # Lưu lại để vẽ lên màn hình
 
-        # 3. ĐÁNH GIÁ MỨC ĐỘ
+        # 3. ĐÁNH GIÁ MỨC ĐỘ (RAW)
         is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR)
 
         if not is_high_count and occupancy_percent < CONG_AREA_PERCENT_THR:
             traffic_level = 0
-            status_text, status_color = "Trang thai: Thong thoang (MUC 0)", (0, 255, 0)
         elif is_high_count and occupancy_percent < CONG_AREA_PERCENT_THR:
             traffic_level = 1
-            if self.vehicle_count >= CONG_COUNT_THR:
-                status_text, status_color = f"Trang thai: Dong duc (MUC 1) - {self.vehicle_count} xe", (0, 165, 255)
-            else:
-                status_text, status_color = f"Trang thai: Dong duc (MUC 1) - {self.people_count} nguoi", (0, 165, 255)
         elif occupancy_percent >= CONG_AREA_PERCENT_THR and avg_speed > CONG_SPEED_THR:
             traffic_level = 2
-            status_text, status_color = f"Trang thai: Rat dong (MUC 2) - {occupancy_percent:.1f}% dien tich", (0, 100, 255)
         elif occupancy_percent >= CONG_AREA_PERCENT_THR and avg_speed <= CONG_SPEED_THR:
             traffic_level = 3
-            status_text, status_color = f"Trang thai: TAC NGHEN (MUC 3) - {avg_speed:.1f} px/s", (0, 0, 255)
         else:
             traffic_level = 0
-            status_text, status_color = "Trang thai: Thong thoang (MUC 0)", (0, 255, 0)
             
+        status_text, status_color = self.get_status_for_level(traffic_level, avg_speed)
         return avg_speed, status_text, status_color, traffic_level
+
+    def get_status_for_level(self, level, avg_speed=0.0):
+        """Chuyển đổi từ level số sang text và màu sắc hiển thị"""
+        if level == 1:
+            if self.vehicle_count >= CONG_COUNT_THR:
+                return f"Trang thai: Dong duc (MUC 1) - {self.vehicle_count} xe", (0, 165, 255)
+            else:
+                return f"Trang thai: Dong duc (MUC 1) - {self.people_count} nguoi", (0, 165, 255)
+        elif level == 2:
+            return f"Trang thai: Rat dong (MUC 2) - {self.last_occupancy:.1f}% dien tich", (0, 100, 255)
+        elif level == 3:
+            return f"Trang thai: TAC NGHEN (MUC 3) - {avg_speed:.1f} px/s", (0, 0, 255)
+        else:
+            return "Trang thai: Thong thoang (MUC 0)", (0, 255, 0)
 
     def draw_status(self, frame, avg_speed, status_text, status_color, f_scale=0.7, f_thick=2):
         # Tính toán offset dọc dựa trên font_scale để các dòng không bị đè lên nhau trên 4K
