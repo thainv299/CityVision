@@ -107,6 +107,13 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
     elif camera:
         enable_license_plate = camera.enable_license_plate
 
+    enable_ai = True
+    if "enable_ai" in form_data:
+        val = form_data.get("enable_ai")
+        enable_ai = str(val).lower() in {"1", "true", "yes", "on"}
+    elif camera:
+        enable_ai = camera.enable_ai
+
     def _parse_float(val, d):
         try:
             return float(val) if val not in (None, "") else d
@@ -125,6 +132,7 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
         "enable_congestion": enable_congestion,
         "enable_illegal_parking": enable_illegal_parking,
         "enable_license_plate": enable_license_plate,
+        "enable_ai": enable_ai,
         "stop_seconds": _parse_float(form_data.get("stop_seconds"), 30.0),
         "parking_move_threshold_px": _parse_float(form_data.get("parking_move_threshold_px"), 10.0),
         "process_every_n_frames": _parse_int(form_data.get("process_every_n_frames"), sys_settings.get("frame_skip", 2)),
@@ -299,6 +307,7 @@ async def api_create_test_job(
     enable_congestion: Optional[str] = Form(None),
     enable_illegal_parking: Optional[str] = Form(None),
     enable_license_plate: Optional[str] = Form(None),
+    enable_ai: Optional[str] = Form(None),
     stop_seconds: Optional[str] = Form(None),
     parking_move_threshold_px: Optional[str] = Form(None),
     process_every_n_frames: Optional[str] = Form(None),
@@ -363,6 +372,7 @@ async def api_create_test_job(
         "enable_congestion": enable_congestion,
         "enable_illegal_parking": enable_illegal_parking,
         "enable_license_plate": enable_license_plate,
+        "enable_ai": enable_ai,
         "stop_seconds": stop_seconds,
         "parking_move_threshold_px": parking_move_threshold_px,
         "process_every_n_frames": process_every_n_frames,

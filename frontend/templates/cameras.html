@@ -144,6 +144,18 @@
                 
                 <!-- Công tắc cho các tính năng AI -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                    <!-- Master Toggle: Xử lý AI -->
+                    <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 12px; border-radius: 8px; border: 1px solid rgba(37, 99, 235, 0.25); grid-column: span 2; box-shadow: var(--shadow-sm); transition: all 0.2s;">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="enable_ai" name="enable_ai" checked>
+                            <span class="slider"></span>
+                        </label>
+                        <div style="display: flex; flex-direction: column;">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: var(--brand-main);">Xử lý AI</span>
+                            <span class="muted" style="font-size: 0.7rem;">Bật/Tắt toàn bộ các chức năng phân tích AI</span>
+                        </div>
+                    </div>
+
                     <div style="display: flex; align-items: center; gap: 12px; background: var(--bg-dim); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
                         <label class="toggle-switch">
                             <input type="checkbox" id="enable_congestion" name="enable_congestion" checked>

@@ -15,6 +15,7 @@ class Camera:
     enable_congestion: bool = True
     enable_illegal_parking: bool = True
     enable_license_plate: bool = True
+    enable_ai: bool = True
     is_active: bool = True
     model_path: str = ""
     created_at: Optional[str] = None
@@ -33,6 +34,7 @@ class Camera:
             "enable_congestion": self.enable_congestion,
             "enable_illegal_parking": self.enable_illegal_parking,
             "enable_license_plate": self.enable_license_plate,
+            "enable_ai": self.enable_ai,
             "is_active": self.is_active,
             "model_path": self.model_path,
             "created_at": self.created_at,

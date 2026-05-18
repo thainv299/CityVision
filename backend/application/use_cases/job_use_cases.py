@@ -334,6 +334,7 @@ class JobUseCases:
                         "enable_congestion": cam.enable_congestion,
                         "enable_illegal_parking": cam.enable_illegal_parking,
                         "enable_license_plate": cam.enable_license_plate,
+                        "enable_ai": cam.enable_ai,
                         "model_path": cam.model_path,
                         "confidence_threshold": sys_settings.get("confidence", 0.32),
                         "process_every_n_frames": sys_settings.get("frame_skip", 2),

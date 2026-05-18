@@ -493,16 +493,18 @@ def process_video(
             input_video_path = remuxed_path
             should_cleanup_temp = True
 
+    enable_ai = bool(settings.get("enable_ai", True))
+
     # Các cài đặt từ settings
     model_path = Path(str(settings["model_path"]))
-    if not model_path.exists():
+    if enable_ai and not model_path.exists():
         raise FileNotFoundError(f"Không tìm thấy mô hình YOLO tại: {model_path}")
 
     # Các ngưỡng cấu hình
     confidence_threshold = float(settings.get("confidence_threshold", 0.25))
-    enable_congestion = bool(settings.get("enable_congestion", True))
-    enable_illegal_parking = bool(settings.get("enable_illegal_parking", True))
-    enable_license_plate = bool(settings.get("enable_license_plate", True))
+    enable_congestion = bool(settings.get("enable_congestion", True)) if enable_ai else False
+    enable_illegal_parking = bool(settings.get("enable_illegal_parking", True)) if enable_ai else False
+    enable_license_plate = bool(settings.get("enable_license_plate", True)) if enable_ai else False
     stop_seconds = float(settings.get("stop_seconds", 30.0))
     move_threshold_px = float(settings.get("parking_move_threshold_px", 10.0))
     process_stride = max(1, int(settings.get("process_every_n_frames", 2)))
@@ -557,7 +559,7 @@ def process_video(
             }
         )
 
-    model = _load_model(model_path)
+    model = _load_model(model_path) if enable_ai else None
     traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon) if enable_congestion else None
 
     # AsyncIOWorker: Xử lý I/O nền (Telegram, ghi file, ghi DB)
@@ -636,10 +638,10 @@ def process_video(
     # OCR Manager setup
     import logging
     logging.getLogger("ppocr").setLevel(logging.ERROR)
-    ocr_reader = PaddleOCR(lang='en')
-    ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
-    ocr_manager.save_to_db = save_to_db
-    if enable_license_plate:
+    ocr_reader = PaddleOCR(lang='en') if enable_license_plate else None
+    ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger) if enable_license_plate else None
+    if ocr_manager is not None:
+        ocr_manager.save_to_db = save_to_db
         ocr_manager.start_worker()
 
     # FIX #4: Tính drawing params 1 lần trước vòng lặp — kết quả không đổi theo frame
@@ -692,11 +694,14 @@ def process_video(
 
             # Tracking
             # Chỉ chạy AI Model (YOLO) theo bước nhảy (Stride)
-            if process_stride > 1 and frame_index % process_stride != 0 and last_results is not None:
-                results = last_results
+            if enable_ai:
+                if process_stride > 1 and frame_index % process_stride != 0 and last_results is not None:
+                    results = last_results
+                else:
+                    results = model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, imgsz=640)
+                    last_results = results
             else:
-                results = model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, imgsz=640)
-                last_results = results
+                results = []
 
             if traffic_monitor is not None:
                 traffic_monitor.reset_counters()
@@ -930,7 +935,7 @@ def process_video(
             cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                         cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
-            # 3. GỬI TIẾN ĐỘ LÊN WEB (Throttled - 10 FPS cho UI là đủ)
+            # 3. GỬI TIẾN ĐỘ LÊN WEB
             if progress_callback is not None and frame_index % 2 == 0:
                 if preview_queue.empty():
                     preview_queue.put(frame)
@@ -969,7 +974,7 @@ def process_video(
     finally:
         preview_state["stop"] = True
         capture.release()
-        if enable_license_plate:
+        if enable_license_plate and ocr_manager is not None:
             ocr_manager.stop_worker()
         if last_congestion_record_id and save_to_db:
             update_congestion_end_time(last_congestion_record_id)

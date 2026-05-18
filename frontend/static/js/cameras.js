@@ -34,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
         enableCongestion: document.getElementById("enable_congestion"),
         enableIllegalParking: document.getElementById("enable_illegal_parking"),
         enableLicensePlate: document.getElementById("enable_license_plate"),
+        enableAi: document.getElementById("enable_ai"),
         isActive: document.getElementById("camera_is_active"),
     };
 
@@ -124,10 +125,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         fields.noParkingFilePicker.value = "";
 
+        fields.enableAi.checked = camera ? Boolean(camera.enable_ai) : true;
         fields.enableCongestion.checked = camera ? Boolean(camera.enable_congestion) : true;
         fields.enableIllegalParking.checked = camera ? Boolean(camera.enable_illegal_parking) : true;
         fields.enableLicensePlate.checked = camera ? Boolean(camera.enable_license_plate) : true;
         fields.isActive.checked = camera ? Boolean(camera.is_active) : true;
+
+        if (typeof updateAiSubToggles === "function") {
+            updateAiSubToggles();
+        }
 
         formTitle.textContent = camera ? `Cập nhật camera #${camera.id}` : "Thêm camera mới";
 
@@ -314,6 +320,38 @@ document.addEventListener("DOMContentLoaded", () => {
         fields.streamSource.addEventListener("input", function() {
             fields.streamSourceHidden.value = this.value;
         });
+    }
+
+    function updateAiSubToggles() {
+        if (!fields.enableAi) return;
+        const aiEnabled = fields.enableAi.checked;
+        fields.enableCongestion.disabled = !aiEnabled;
+        fields.enableIllegalParking.disabled = !aiEnabled;
+        fields.enableLicensePlate.disabled = !aiEnabled;
+        
+        [fields.enableCongestion, fields.enableIllegalParking, fields.enableLicensePlate].forEach(el => {
+            if (!el) return;
+            const container = el.closest("div");
+            if (container) {
+                if (!aiEnabled) {
+                    container.style.opacity = "0.45";
+                    container.style.pointerEvents = "none";
+                } else {
+                    container.style.opacity = "1";
+                    container.style.pointerEvents = "auto";
+                }
+            }
+        });
+
+        if (!aiEnabled) {
+            fields.enableCongestion.checked = false;
+            fields.enableIllegalParking.checked = false;
+            fields.enableLicensePlate.checked = false;
+        }
+    }
+
+    if (fields.enableAi) {
+        fields.enableAi.addEventListener("change", updateAiSubToggles);
     }
 
     // ── LOGIC DUYỆT VIDEO TRÊN SERVER ──────────────────────────
@@ -546,7 +584,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 <tr class="camera-row" data-id="${camera.id}" style="cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='var(--bg-dim)'" onmouseout="this.style.background='transparent'">
                     <td style="text-align: center;">${index + 1}</td>
                     <td>
-                        <div style="font-weight: 700; color: var(--text-main); margin-bottom: 4px;">${camera.name}</div>
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                            <div style="font-weight: 700; color: var(--text-main);">${camera.name}</div>
+                            ${!camera.enable_ai ? '<span style="font-size: 0.65rem; padding: 2px 6px; background: rgba(100, 116, 139, 0.1); border: 1px solid rgba(100, 116, 139, 0.2); border-radius: 4px; color: var(--text-subtle); font-weight: 600;">RAW Stream</span>' : ''}
+                        </div>
                         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                             ${camera.enable_congestion ? '<span data-tooltip="Phát hiện Tắc nghẽn" style="width:10px; height:10px; border-radius:50%; background:#ef4444; display:inline-block;"></span>' : ''}
                             ${camera.enable_illegal_parking ? '<span data-tooltip="Phát hiện Đỗ sai" style="width:10px; height:10px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>' : ''}
@@ -590,6 +631,7 @@ document.addEventListener("DOMContentLoaded", () => {
             enable_simulation: fields.enableSimulation.checked,
             enable_illegal_parking: fields.enableIllegalParking.checked,
             enable_license_plate: fields.enableLicensePlate.checked,
+            enable_ai: fields.enableAi.checked,
             is_active: fields.isActive.checked,
         };
         const isEditing = fields.id.value !== "";
