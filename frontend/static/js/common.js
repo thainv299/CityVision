@@ -254,8 +254,53 @@
         }
     });
 })();
-// Notification Polling Logic
+// Logic thông báo
 let notificationPollingInterval = null;
+let shownNotificationIds = null;
+
+function showNotificationToast(n) {
+    let type = n.type === 'violation' ? 'error' : 'warning';
+    let titleText = n.type === 'violation' ? 'Xe đỗ sai quy định' : 'Cảnh báo ùn tắc (Mức ' + n.title + ')';
+    let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : 'Đã phát hiện ùn tắc tại khu vực giám sát';
+
+    // Tạo toast thông báo (Hiển thị 8 giây cho người dùng dễ theo dõi)
+    const toast = showToast(messageText, type, titleText, 8000);
+    if (!toast) return;
+
+    // Thêm hình ảnh preview vào toast nếu có để tăng độ trực quan
+    if (n.image) {
+        const toastContent = toast.querySelector('.toast-content');
+        if (toastContent) {
+            const imgDiv = document.createElement('div');
+            imgDiv.style.marginTop = '8px';
+            imgDiv.innerHTML = `<img src="/${n.image}" style="width: 100%; height: 80px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.05);">`;
+            toastContent.appendChild(imgDiv);
+        }
+    }
+
+    // Nhấp vào thanh thông báo để đọc, đánh dấu là đã đọc và điều hướng
+    toast.style.cursor = 'pointer';
+    toast.addEventListener('click', async (e) => {
+        // Nếu click trúng nút đóng toast-close thì chỉ đóng toast, không điều hướng
+        if (e.target.closest('.toast-close')) return;
+
+        try {
+            // Đánh dấu là đã đọc
+            await window.portalApi.post('/api/notifications/' + n.type + '/' + n.id + '/read', {});
+            // Cập nhật lại giao diện thông báo của chuông lập tức
+            fetchNotifications();
+            // Đóng toast
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 300);
+
+            // Điều hướng đến trang chi tiết
+            let urlPrefix = n.type === 'violation' ? '/violations?id=' : '/congestion?id=';
+            window.location.href = urlPrefix + n.id;
+        } catch (err) {
+            console.error("Lỗi xử lý click thông báo toast:", err);
+        }
+    });
+}
 
 async function fetchNotifications() {
     try {
@@ -277,6 +322,21 @@ function updateNotificationUI(count, notifications) {
     const listContainer = document.getElementById('notif-list-content');
 
     if (!badge || !listContainer) return;
+
+    // Kiểm tra và hiển thị toast cho các thông báo mới
+    if (shownNotificationIds === null) {
+        // Lần đầu tải trang: Chỉ khởi tạo danh sách đã có để tránh spam thông báo cũ
+        shownNotificationIds = new Set(notifications.map(n => `${n.type}_${n.id}`));
+    } else {
+        // Các lần quét sau: Tìm thông báo mới và hiển thị dưới dạng toast
+        notifications.forEach(n => {
+            const key = `${n.type}_${n.id}`;
+            if (!shownNotificationIds.has(key)) {
+                shownNotificationIds.add(key);
+                showNotificationToast(n);
+            }
+        });
+    }
 
     // Update badge
     if (count > 0) {
@@ -342,11 +402,46 @@ function updateNotificationUI(count, notifications) {
     });
 }
 
+// Thiết lập Server-Sent Events (SSE) để nhận thông báo tức thời mà không cần polling liên tục
+function setupNotificationSSE() {
+    if (!document.getElementById('bell-icon')) return;
+
+    const eventSource = new EventSource('/api/notifications/stream');
+
+    eventSource.onmessage = function (event) {
+        try {
+            const n = JSON.parse(event.data);
+            if (n && n.id) {
+                if (shownNotificationIds === null) {
+                    shownNotificationIds = new Set();
+                }
+                const key = `${n.type}_${n.id}`;
+                if (!shownNotificationIds.has(key)) {
+                    shownNotificationIds.add(key);
+                    // Hiển thị thông báo Toast nền trắng lập tức khi camera phát hiện
+                    showNotificationToast(n);
+                    // Cập nhật biểu tượng Chuông và danh sách dropdown tức thì
+                    fetchNotifications();
+                }
+            }
+        } catch (err) {
+            console.error("Lỗi phân tích dữ liệu SSE:", err);
+        }
+    };
+
+    eventSource.onerror = function (err) {
+        // EventSource tự động kết nối lại khi kết nối gián đoạn
+        console.warn("Mất kết nối dòng sự kiện SSE thông báo. Đang chờ tự động kết nối lại...");
+    };
+}
+
 window.portalApi.fetchNotifications = fetchNotifications;
 
 document.addEventListener('DOMContentLoaded', function () {
     if (document.getElementById('bell-icon')) {
         fetchNotifications();
-        notificationPollingInterval = setInterval(fetchNotifications, 10000); // 10s
+        setupNotificationSSE();
+        // Giữ fallback polling ở mức 15s làm kênh dự phòng dự phòng an toàn
+        notificationPollingInterval = setInterval(fetchNotifications, 15000);
     }
 });

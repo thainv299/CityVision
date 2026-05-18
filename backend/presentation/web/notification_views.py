@@ -33,3 +33,32 @@ async def api_mark_notification_read(
     if success:
         return {"ok": True}
     return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể đánh dấu thông báo này"})
+
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
+from database.sqlite_db import active_sse_queues
+
+@notification_router.get("/api/notifications/stream")
+async def stream_notifications(request: Request, user=Depends(login_required)):
+    """SSE endpoint đẩy thông báo thời gian thực khi hệ thống phát hiện sự kiện mới"""
+    queue = asyncio.Queue()
+    active_sse_queues.append(queue)
+    
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Chờ lấy thông báo mới từ Queue (timeout 15.0s để gửi keep-alive giữ kết nối)
+                    notif = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(notif)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            if queue in active_sse_queues:
+                active_sse_queues.remove(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

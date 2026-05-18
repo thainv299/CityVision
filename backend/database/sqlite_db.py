@@ -487,6 +487,25 @@ def get_latest_violations(limit: int = 5) -> list:
         ).fetchall()
     return [dict(row) for row in rows]
 
+# Danh sách queues lắng nghe thông báo thời gian thực phục vụ SSE
+active_sse_queues = []
+
+def broadcast_notification(notification_data: dict):
+    """Gửi thông báo mới tức thời tới tất cả các kết nối SSE đang hoạt động, tương thích đa luồng"""
+    import asyncio
+    for queue in list(active_sse_queues):
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.call_soon_threadsafe(queue.put_nowait, notification_data)
+            else:
+                queue.put_nowait(notification_data)
+        except Exception:
+            try:
+                queue.put_nowait(notification_data)
+            except Exception:
+                pass
+
 def get_unread_notifications(limit: int = 10) -> dict:
     """Lấy danh sách thông báo chưa đọc từ bảng thong_bao tập trung."""
     with connect() as connection:
@@ -611,6 +630,17 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
         )
         connection.commit()
 
+        # Query và broadcast thời gian thực qua SSE
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
+
 
 def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong_dan_anh: str = None) -> int:
     """Ghi lại sự kiện tắc nghẽn và trả về ID của record"""
@@ -643,6 +673,18 @@ def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong
             )
         )
         connection.commit()
+
+        # Query và broadcast thời gian thực qua SSE
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
+
         return congestion_id
 
 

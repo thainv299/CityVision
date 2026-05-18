@@ -2,9 +2,9 @@ import numpy as np
 import cv2
 
 # --- NGƯỠNG CẢNH BÁO GIAO THÔNG (CONGESTION THRESHOLDS) ---
-CONG_COUNT_THR = 10              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
-CONG_PEOPLE_THR = 20             # Cấp 1: Số người tối thiểu để được coi là "Đông đúc L1"
-CONG_AREA_PERCENT_THR = 40.0     # Cấp 2: % Diện tích vùng giám sát tối thiểu bị lấp đầy để coi là "Rất đông L2"
+CONG_COUNT_THR = 20              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
+CONG_PEOPLE_THR = 15             # Cấp 1: Số người tối thiểu để được coi là "Đông đúc L1"
+CONG_AREA_PERCENT_THR = 35.0     # Cấp 2: % Diện tích vùng giám sát tối thiểu bị lấp đầy để coi là "Rất đông L2"
 CONG_SPEED_THR = 10.0            # Cấp 3: Vận tốc di chuyển tối đa (px/s) để bị coi là "Tắc nghẽn L3"
 MAX_VEHICLE_AREA_RATIO = 0.3     # Bỏ qua những hộp Box nhiễu có diện tích lớn hơn 30% vùng giám sát (Tránh lỗi YOLO)
 
