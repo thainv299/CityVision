@@ -232,11 +232,30 @@ class JobUseCases:
             with self.job_lock:
                 self.pause_events.pop(job_id, None)
         except Exception as exc:
+            # Kiểm tra xem có phải lỗi thiếu file model YOLO không
+            is_model_missing = isinstance(exc, FileNotFoundError) and "mô hình YOLO" in str(exc)
+            
+            error_msg = str(exc)
+            if is_model_missing:
+                error_msg = f"LỖI HỆ THỐNG: {error_msg}. Camera này đã bị tự động tắt hoạt động để bảo vệ hệ thống."
+                
+                # Tự động tắt kích hoạt camera trong database
+                camera_id = settings.get("camera_id")
+                if camera_id:
+                    try:
+                        from database import camera_repo
+                        from domain.entities.camera import Camera
+                        deactivated_camera = Camera(id=int(camera_id), is_active=False)
+                        camera_repo.update(deactivated_camera)
+                        print(f"[System] TỰ ĐỘNG TẮT HOẠT ĐỘNG camera ID {camera_id} thành công do thiếu file mô hình!")
+                    except Exception as db_exc:
+                        print(f"[System] Không thể tự động tắt kích hoạt camera {camera_id}: {db_exc}")
+
             self.set_job(
                 job_id,
                 status="failed",
-                message="Xử lý video thất bại.",
-                error=str(exc),
+                message="Xử lý video thất bại." if not is_model_missing else "Lỗi hệ thống: Thiếu mô hình YOLO.",
+                error=error_msg,
                 summary=None,
                 output_filename=None,
                 finished_at=time.time(),
