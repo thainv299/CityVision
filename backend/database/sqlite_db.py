@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
-
+import asyncio
 from core.config import DATABASE_PATH
 
 
@@ -502,7 +502,6 @@ def broadcast_notification(notification_data: dict):
                 pass
     else:
         # Fallback trong trường hợp main_loop chưa được gán
-        import asyncio
         for queue in list(active_sse_queues):
             try:
                 loop = asyncio.get_event_loop()
