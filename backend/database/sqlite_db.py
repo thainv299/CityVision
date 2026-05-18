@@ -489,22 +489,32 @@ def get_latest_violations(limit: int = 5) -> list:
 
 # Danh sách queues lắng nghe thông báo thời gian thực phục vụ SSE
 active_sse_queues = []
+main_loop = None
 
 def broadcast_notification(notification_data: dict):
     """Gửi thông báo mới tức thời tới tất cả các kết nối SSE đang hoạt động, tương thích đa luồng"""
-    import asyncio
-    for queue in list(active_sse_queues):
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.call_soon_threadsafe(queue.put_nowait, notification_data)
-            else:
-                queue.put_nowait(notification_data)
-        except Exception:
+    global main_loop
+    if main_loop is not None:
+        for queue in list(active_sse_queues):
             try:
-                queue.put_nowait(notification_data)
-            except Exception:
+                main_loop.call_soon_threadsafe(queue.put_nowait, notification_data)
+            except Exception as e:
                 pass
+    else:
+        # Fallback trong trường hợp main_loop chưa được gán
+        import asyncio
+        for queue in list(active_sse_queues):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.call_soon_threadsafe(queue.put_nowait, notification_data)
+                else:
+                    queue.put_nowait(notification_data)
+            except Exception:
+                try:
+                    queue.put_nowait(notification_data)
+                except Exception:
+                    pass
 
 def get_unread_notifications(limit: int = 10) -> dict:
     """Lấy danh sách thông báo chưa đọc từ bảng thong_bao tập trung."""

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from presentation.middlewares.auth import login_required
 from database.sqlite_db import get_unread_notifications, mark_notification_as_read
-
+import database.sqlite_db as db
 notification_router = APIRouter()
 
 @notification_router.get("/api/notifications/unread")
@@ -43,6 +43,8 @@ from database.sqlite_db import active_sse_queues
 @notification_router.get("/api/notifications/stream")
 async def stream_notifications(request: Request, user=Depends(login_required)):
     """SSE endpoint đẩy thông báo thời gian thực khi hệ thống phát hiện sự kiện mới"""
+    db.main_loop = asyncio.get_running_loop()
+    
     queue = asyncio.Queue()
     active_sse_queues.append(queue)
     

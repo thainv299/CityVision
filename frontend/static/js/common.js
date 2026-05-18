@@ -261,7 +261,7 @@ let shownNotificationIds = null;
 function showNotificationToast(n) {
     let type = n.type === 'violation' ? 'error' : 'warning';
     let titleText = n.type === 'violation' ? 'Xe đỗ sai quy định' : 'Cảnh báo ùn tắc (Mức ' + n.title + ')';
-    let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : 'Đã phát hiện ùn tắc tại khu vực giám sát';
+    let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : (n.noi_dung || 'Đã phát hiện ùn tắc tại khu vực giám sát');
 
     // Tạo toast thông báo (Hiển thị 8 giây cho người dùng dễ theo dõi)
     const toast = showToast(messageText, type, titleText, 8000);
@@ -384,7 +384,7 @@ function updateNotificationUI(count, notifications) {
                     ${n.image ? `<img src="/${n.image}" style="width: 50px; height: 35px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #eee;">` : ''}
                     <div style="flex: 1;">
                         <div style="font-size: 12px; font-weight: 600; color: ${color};">${icon} ${titleText}</div>
-                        <div style="font-size: 11px; color: #64748B; margin-top: 2px;">${n.type === 'violation' ? 'BKS: ' + n.title : ''}</div>
+                        <div style="font-size: 11px; color: #64748B; margin-top: 2px;">${n.type === 'violation' ? 'BKS: ' + n.title : (n.noi_dung || 'Phát hiện ùn tắc')}</div>
                         <div style="font-size: 10px; color: #94A3B8; margin-top: 4px;">${timeStr}</div>
                     </div>
                 </div>
