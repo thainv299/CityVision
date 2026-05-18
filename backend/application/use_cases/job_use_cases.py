@@ -63,6 +63,22 @@ class JobUseCases:
             job.progress["requested_quality"] = quality
             return True
 
+    def update_camera_job_settings(self, camera_id: int, settings: Dict[str, Any]):
+        """Cập nhật cấu hình tính năng AI cho job của camera đang chạy"""
+        with self.job_lock:
+            for job_id, job in self.jobs.items():
+                if str(job.camera_id) == str(camera_id) and job.status in {"queued", "running"}:
+                    if not job.progress:
+                        job.progress = {}
+                    # Lưu các cài đặt AI cần cập nhật vào progress
+                    job.progress["requested_settings"] = {
+                        "enable_ai": settings.get("enable_ai"),
+                        "enable_congestion": settings.get("enable_congestion"),
+                        "enable_illegal_parking": settings.get("enable_illegal_parking"),
+                        "enable_license_plate": settings.get("enable_license_plate"),
+                    }
+                    print(f"[System] Đã lưu yêu cầu cập nhật cấu hình AI cho job {job_id}")
+
     def get_queue_position(self, job_id: str) -> Optional[int]:
         with self.job_lock:
             active_jobs = [
@@ -121,12 +137,14 @@ class JobUseCases:
         delete_after_job: bool = False
     ) -> None:
         def handle_progress(progress: Dict[str, Any]) -> None:
-            # Kiểm tra lệnh đổi chất lượng NGAY ĐẦU HÀM để tránh bị set_job ghi đè
+            # Kiểm tra lệnh đổi chất lượng hoặc đổi cài đặt NGAY ĐẦU HÀM để tránh bị set_job ghi đè
             req_q = None
+            req_settings = None
             with self.job_lock:
                 job = self.jobs.get(job_id)
                 if job and job.progress:
                     req_q = job.progress.get("requested_quality")
+                    req_settings = job.progress.get("requested_settings")
 
             # Kiểm tra xem người dùng có đóng tab hay ngắt Stream chưa để dừng xử lý sớm
             with self.job_lock:
@@ -165,15 +183,23 @@ class JobUseCases:
                 progress=progress_payload,
             )
             
-            # Trả về lệnh đổi chất lượng cho Bridge nếu có
+            # Trả về lệnh đổi chất lượng hoặc đổi cài đặt cho Bridge nếu có
+            actions = {}
             if req_q:
-                # Xóa flag sau khi đã lấy ra để gửi đi
                 with self.job_lock:
                     job = self.jobs.get(job_id)
                     if job and job.progress:
                         job.progress.pop("requested_quality", None)
-                return {"new_quality": req_q}
-            return None
+                actions["new_quality"] = req_q
+                
+            if req_settings:
+                with self.job_lock:
+                    job = self.jobs.get(job_id)
+                    if job and job.progress:
+                        job.progress.pop("requested_settings", None)
+                actions["new_settings"] = req_settings
+
+            return actions if actions else None
 
         self.set_job(
             job_id,

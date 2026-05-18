@@ -29,6 +29,7 @@ from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
 from modules.utils.async_io_worker import AsyncIOWorker
 from database.sqlite_db import (
+    connect,
     log_passed_vehicle,
     log_congestion,
     update_congestion_end_time,
@@ -692,6 +693,8 @@ def process_video(
             frame_index += 1
             current_time = time.time()
 
+
+
             # Tracking
             # Chỉ chạy AI Model (YOLO) theo bước nhảy (Stride)
             if enable_ai:
@@ -703,7 +706,7 @@ def process_video(
             else:
                 results = []
 
-            if traffic_monitor is not None:
+            if enable_congestion and traffic_monitor is not None:
                 traffic_monitor.reset_counters()
 
             current_plate_ids = set()
@@ -873,7 +876,7 @@ def process_video(
                         del pending_alpr_tracks[tid]
 
             # Cập nhật Traffic Monitor
-            if traffic_monitor is not None:
+            if enable_congestion and traffic_monitor is not None:
                 # 1. Lấy dữ liệu thô (Instantaneous)
                 avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
                 
@@ -964,6 +967,52 @@ def process_video(
                         preview_state["pw"], preview_state["ph"] = 1920, 1080
                         preview_state["q"] = 98
                     print(f"[AI] Đã đổi chất lượng sang: {q} ({preview_state['pw']}x{preview_state['ph']}, quality={preview_state['q']})")
+                
+                # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
+                if response and "new_settings" in response:
+                    new_s = response["new_settings"]
+                    db_enable_ai = new_s.get("enable_ai")
+                    db_enable_congestion = new_s.get("enable_congestion") if db_enable_ai else False
+                    db_enable_illegal_parking = new_s.get("enable_illegal_parking") if db_enable_ai else False
+                    db_enable_license_plate = new_s.get("enable_license_plate") if db_enable_ai else False
+                    
+                    # Bật tắt xử lý AI
+                    if db_enable_ai != enable_ai:
+                        enable_ai = db_enable_ai
+                        print(f"[Dynamic Settings] Xử lý AI updated to: {enable_ai}")
+                        if enable_ai and model is None:
+                            print("[Dynamic Settings] Loading YOLO model...")
+                            model = _load_model(model_path)
+                    
+                    # Bật tắt phát hiện tắc nghẽn
+                    if db_enable_congestion != enable_congestion:
+                        enable_congestion = db_enable_congestion
+                        print(f"[Dynamic Settings] Phát hiện tắc nghẽn updated to: {enable_congestion}")
+                        if enable_congestion and traffic_monitor is None:
+                            traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon)
+                        elif not enable_congestion:
+                            if last_congestion_record_id and save_to_db:
+                                io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
+                                last_congestion_record_id = None
+                            last_db_traffic_level = 0
+                    
+                    # Bật tắt phát hiện đỗ xe trái phép
+                    if db_enable_illegal_parking != enable_illegal_parking:
+                        enable_illegal_parking = db_enable_illegal_parking
+                        print(f"[Dynamic Settings] Phát hiện đỗ trái phép updated to: {enable_illegal_parking}")
+                        if enable_illegal_parking:
+                            parking_manager.setup_detection(fps)
+                    
+                    # Bật tắt nhận diện biển số
+                    if db_enable_license_plate != enable_license_plate:
+                        enable_license_plate = db_enable_license_plate
+                        print(f"[Dynamic Settings] Nhận diện biển số updated to: {enable_license_plate}")
+                        if enable_license_plate and ocr_manager is None:
+                            print("[Dynamic Settings] Loading PaddleOCR model...")
+                            ocr_reader = PaddleOCR(lang='en')
+                            ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
+                            ocr_manager.save_to_db = save_to_db
+                            ocr_manager.start_worker()
 
             # 4. THROTTLE & PROFILING
             elapsed = time.time() - frame_start_time

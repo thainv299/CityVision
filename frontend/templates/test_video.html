@@ -11,7 +11,7 @@
 </div>
 
 <div class="split-layout" style="display: grid; grid-template-columns: 1fr; gap: 24px;">
-    <!-- Camera Selection Grid -->
+    <!-- Danh sách Camera khả dụng -->
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -62,8 +62,9 @@
                 <img id="stream-output" class="preview-frame" alt="AI Analysis Stream"
                     style="width: 100%; height: auto; max-height: 80vh; object-fit: contain; display: block; margin: 0 auto; z-index: 1;">
 
-                <!-- Quality Settings Gear (Bottom Right for better reach) -->
-                <div id="quality-settings-container" class="video-overlay-control" style="position: absolute; bottom: 12px; right: 12px; z-index: 100;">
+                <!-- Thay đổi chất lượng Video -->
+                <div id="quality-settings-container" class="video-overlay-control"
+                    style="position: absolute; bottom: 12px; right: 12px; z-index: 100;">
                     <div id="quality-menu" class="quality-menu" style="display: none;">
                         <p class="menu-title">Chất lượng</p>
                         <button type="button" class="quality-option" data-quality="low">Thấp (480p)</button>
@@ -72,7 +73,12 @@
                         <button type="button" class="quality-option" data-quality="ultra">Siêu nét (Full HD)</button>
                     </div>
                     <button type="button" id="quality-gear-btn" class="gear-btn" title="Chất lượng video">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path
+                                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
                     </button>
                 </div>
 
@@ -91,11 +97,11 @@
             </div>
         </article>
 
-        <!-- Information & Results Area below video -->
+        <!-- Thông tin & Kết quả -->
         <div
             style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; background: var(--bg-panel); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
             <div id="result-summary-container">
-                <p class="eyebrow">Kết quả Phân tích</p>
+                <p class="eyebrow">Cấu hình AI Hoạt động</p>
                 <div id="result-summary"
                     style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
                 </div>
@@ -104,16 +110,12 @@
             <div id="job-info-container">
                 <p class="eyebrow">Trạng thái Hệ thống</p>
                 <div id="job-status-panel" style="margin-top: 12px;"></div>
-                <p id="stream-output-note" class="muted" style="margin-top: 12px; font-size: 0.9rem; font-weight: 500;">
-                    <span style="color: var(--success);">●</span> Hệ thống đang theo dõi và phân tích dữ liệu thời gian
-                    thực.
-                </p>
             </div>
         </div>
     </div>
 </section>
 
-<!-- ROI Drawing Modal -->
+<!-- Cửa sổ vẽ vùng quan sát (ROI) -->
 <div id="roi-drawing-modal"
     style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center;">
     <div
@@ -150,5 +152,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/roi_tool.js') }}?v=2.0"></script>
-<script src="{{ url_for('static', filename='js/test_video.js') }}?v=4.2"></script>
+<script src="{{ url_for('static', filename='js/test_video.js') }}?v=4.3"></script>
 {% endblock %}
