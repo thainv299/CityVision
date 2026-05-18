@@ -511,6 +511,18 @@ def process_video(
     process_stride = max(1, int(settings.get("process_every_n_frames", 2)))
     save_to_db = bool(settings.get("save_to_db", True))
 
+    # Cấu hình hiển thị (Overlay settings)
+    show_roi_surveillance = bool(settings.get("show_roi_surveillance", True))
+    show_roi_parking = bool(settings.get("show_roi_parking", True))
+    show_fps = bool(settings.get("show_fps", True))
+    show_box_person = bool(settings.get("show_box_person", True))
+    show_box_bicycle = bool(settings.get("show_box_bicycle", True))
+    show_box_car = bool(settings.get("show_box_car", True))
+    show_box_motorcycle = bool(settings.get("show_box_motorcycle", True))
+    show_box_plate = bool(settings.get("show_box_plate", True))
+    show_box_bus = bool(settings.get("show_box_bus", True))
+    show_box_truck = bool(settings.get("show_box_truck", True))
+
     # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
     capture = VideoStream(input_video_path, force_single_thread=is_hevc).start()
     frame_width = capture.width
@@ -846,16 +858,33 @@ def process_video(
                                 unique_passed_count += 1
                                 pending_alpr_tracks[track_id]["is_passed_logged"] = True
 
-                    # 5. Vẽ nhãn lên frame
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
+                    # 5. Vẽ nhãn lên frame nếu được bật
+                    show_box = True
+                    if label == "person":
+                        show_box = show_box_person
+                    elif label == "bicycle":
+                        show_box = show_box_bicycle
+                    elif label == "car":
+                        show_box = show_box_car
+                    elif label == "motorcycle":
+                        show_box = show_box_motorcycle
+                    elif label == "license plate":
+                        show_box = show_box_plate
+                    elif label == "bus":
+                        show_box = show_box_bus
+                    elif label == "truck":
+                        show_box = show_box_truck
 
-                    (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
-                    text_y = max(th + 10, y1 - 5)
-                    cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
+                    if show_box:
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
 
-                    brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
-                    text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
-                    cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
+                        (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+                        text_y = max(th + 10, y1 - 5)
+                        cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
+
+                        brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
+                        text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
+                        cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
 
             # --- LOGIC DỌN DẸP VÀ CHỐT LOG (VỚI THỜI GIAN ĐỢI RE-ID) ---
             current_track_ids = {int(box.id) for res in last_results for box in res.boxes if box.id is not None} if last_results else set()
@@ -928,6 +957,18 @@ def process_video(
                     # Cập nhật mức đã lưu DB gần nhất
                     last_db_traffic_level = confirmed_lvl
 
+            # --- VẼ CÁC VÙNG QUAN SÁT (ROI OVERLAY) ---
+            if show_roi_surveillance and roi_polygon is not None and len(roi_polygon) > 0:
+                cv2.polylines(frame, [roi_polygon], True, (255, 120, 0), f_thick)
+                cv2.putText(frame, "VUNG GIAM SAT (ROI)", (int(roi_polygon[0][0]), int(roi_polygon[0][1] - 5)),
+                            cv2.FONT_HERSHEY_SIMPLEX, f_scale * 0.7, (255, 255, 255), f_thick)
+
+            if show_roi_parking and parking_manager.no_park_polygon is not None and len(parking_manager.no_park_polygon) > 0:
+                no_park_poly = parking_manager.no_park_polygon
+                cv2.polylines(frame, [no_park_poly], True, (0, 0, 255), f_thick)
+                cv2.putText(frame, "VUNG CAM DO", (int(no_park_poly[0][0]), int(no_park_poly[0][1] - 5)),
+                            cv2.FONT_HERSHEY_SIMPLEX, f_scale * 0.7, (255, 255, 255), f_thick)
+
             # Tính và vẽ FPS
             fps_frame_count += 1
             fps_now = time.time()
@@ -935,8 +976,9 @@ def process_video(
                 current_fps = fps_frame_count / (fps_now - fps_prev_time)
                 fps_prev_time = fps_now
                 fps_frame_count = 0
-            cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
+            if show_fps:
+                cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
             # 3. GỬI TIẾN ĐỘ LÊN WEB
             if progress_callback is not None and frame_index % 2 == 0:
@@ -971,48 +1013,73 @@ def process_video(
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
                 if response and "new_settings" in response:
                     new_s = response["new_settings"]
-                    db_enable_ai = new_s.get("enable_ai")
-                    db_enable_congestion = new_s.get("enable_congestion") if db_enable_ai else False
-                    db_enable_illegal_parking = new_s.get("enable_illegal_parking") if db_enable_ai else False
-                    db_enable_license_plate = new_s.get("enable_license_plate") if db_enable_ai else False
-                    
                     # Bật tắt xử lý AI
-                    if db_enable_ai != enable_ai:
-                        enable_ai = db_enable_ai
-                        print(f"[Dynamic Settings] Xử lý AI updated to: {enable_ai}")
-                        if enable_ai and model is None:
-                            print("[Dynamic Settings] Loading YOLO model...")
-                            model = _load_model(model_path)
+                    if "enable_ai" in new_s:
+                        db_enable_ai = new_s["enable_ai"]
+                        if db_enable_ai != enable_ai:
+                            enable_ai = db_enable_ai
+                            print(f"[Dynamic Settings] Xử lý AI updated to: {enable_ai}")
+                            if enable_ai and model is None:
+                                print("[Dynamic Settings] Loading YOLO model...")
+                                model = _load_model(model_path)
                     
                     # Bật tắt phát hiện tắc nghẽn
-                    if db_enable_congestion != enable_congestion:
-                        enable_congestion = db_enable_congestion
-                        print(f"[Dynamic Settings] Phát hiện tắc nghẽn updated to: {enable_congestion}")
-                        if enable_congestion and traffic_monitor is None:
-                            traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon)
-                        elif not enable_congestion:
-                            if last_congestion_record_id and save_to_db:
-                                io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
-                                last_congestion_record_id = None
-                            last_db_traffic_level = 0
+                    if "enable_congestion" in new_s:
+                        db_enable_congestion = new_s["enable_congestion"] if (new_s.get("enable_ai") if "enable_ai" in new_s else enable_ai) else False
+                        if db_enable_congestion != enable_congestion:
+                            enable_congestion = db_enable_congestion
+                            print(f"[Dynamic Settings] Phát hiện tắc nghẽn updated to: {enable_congestion}")
+                            if enable_congestion and traffic_monitor is None:
+                                traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon)
+                            elif not enable_congestion:
+                                if last_congestion_record_id and save_to_db:
+                                    io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
+                                    last_congestion_record_id = None
+                                last_db_traffic_level = 0
                     
                     # Bật tắt phát hiện đỗ xe trái phép
-                    if db_enable_illegal_parking != enable_illegal_parking:
-                        enable_illegal_parking = db_enable_illegal_parking
-                        print(f"[Dynamic Settings] Phát hiện đỗ trái phép updated to: {enable_illegal_parking}")
-                        if enable_illegal_parking:
-                            parking_manager.setup_detection(fps)
+                    if "enable_illegal_parking" in new_s:
+                        db_enable_illegal_parking = new_s["enable_illegal_parking"] if (new_s.get("enable_ai") if "enable_ai" in new_s else enable_ai) else False
+                        if db_enable_illegal_parking != enable_illegal_parking:
+                            enable_illegal_parking = db_enable_illegal_parking
+                            print(f"[Dynamic Settings] Phát hiện đỗ trái phép updated to: {enable_illegal_parking}")
+                            if enable_illegal_parking:
+                                parking_manager.setup_detection(fps)
                     
                     # Bật tắt nhận diện biển số
-                    if db_enable_license_plate != enable_license_plate:
-                        enable_license_plate = db_enable_license_plate
-                        print(f"[Dynamic Settings] Nhận diện biển số updated to: {enable_license_plate}")
-                        if enable_license_plate and ocr_manager is None:
-                            print("[Dynamic Settings] Loading PaddleOCR model...")
-                            ocr_reader = PaddleOCR(lang='en')
-                            ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
-                            ocr_manager.save_to_db = save_to_db
-                            ocr_manager.start_worker()
+                    if "enable_license_plate" in new_s:
+                        db_enable_license_plate = new_s["enable_license_plate"] if (new_s.get("enable_ai") if "enable_ai" in new_s else enable_ai) else False
+                        if db_enable_license_plate != enable_license_plate:
+                            enable_license_plate = db_enable_license_plate
+                            print(f"[Dynamic Settings] Nhận diện biển số updated to: {enable_license_plate}")
+                            if enable_license_plate and ocr_manager is None:
+                                print("[Dynamic Settings] Loading PaddleOCR model...")
+                                ocr_reader = PaddleOCR(lang='en')
+                                ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
+                                ocr_manager.save_to_db = save_to_db
+                                ocr_manager.start_worker()
+                    
+                    # Cập nhật cài đặt hiển thị (Overlay settings) từ Front-end
+                    if "show_roi_surveillance" in new_s:
+                        show_roi_surveillance = bool(new_s["show_roi_surveillance"])
+                    if "show_roi_parking" in new_s:
+                        show_roi_parking = bool(new_s["show_roi_parking"])
+                    if "show_fps" in new_s:
+                        show_fps = bool(new_s["show_fps"])
+                    if "show_box_person" in new_s:
+                        show_box_person = bool(new_s["show_box_person"])
+                    if "show_box_bicycle" in new_s:
+                        show_box_bicycle = bool(new_s["show_box_bicycle"])
+                    if "show_box_car" in new_s:
+                        show_box_car = bool(new_s["show_box_car"])
+                    if "show_box_motorcycle" in new_s:
+                        show_box_motorcycle = bool(new_s["show_box_motorcycle"])
+                    if "show_box_plate" in new_s:
+                        show_box_plate = bool(new_s["show_box_plate"])
+                    if "show_box_bus" in new_s:
+                        show_box_bus = bool(new_s["show_box_bus"])
+                    if "show_box_truck" in new_s:
+                        show_box_truck = bool(new_s["show_box_truck"])
 
             # 4. THROTTLE & PROFILING
             elapsed = time.time() - frame_start_time

@@ -168,6 +168,21 @@ function initTestVideoForm() {
 
         renderActiveFeatures(camera);
 
+        // Reset tất cả ô checkbox khi khởi động (True)
+        const checkBoxes = [
+            "show-roi-surveillance-chk",
+            "show-roi-parking-chk",
+            "show-fps-chk",
+            "show-box-person-chk",
+            "show-box-bicycle-chk",
+            "show-box-car-chk",
+            "show-box-plate-chk"
+        ];
+        checkBoxes.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.checked = true;
+        });
+
         const payload = {
             camera_id: camera.id,
             roi_points: camera.roi_points ? JSON.stringify({ points: camera.roi_points, ...(camera.roi_meta || {}) }) : "",
@@ -176,7 +191,15 @@ function initTestVideoForm() {
             enable_illegal_parking: camera.enable_illegal_parking ? "on" : "off",
             enable_license_plate: camera.enable_license_plate ? "on" : "off",
             enable_ai: camera.enable_ai ? "on" : "off",
-            model_path: camera.model_path || ""
+            model_path: camera.model_path || "",
+            // Luôn mặc định hiển thị toàn bộ khi mới khởi động
+            show_roi_surveillance: "on",
+            show_roi_parking: "on",
+            show_fps: "on",
+            show_box_person: "on",
+            show_box_bicycle: "on",
+            show_box_car: "on",
+            show_box_plate: "on"
         };
 
         try {
@@ -251,9 +274,15 @@ function initTestVideoForm() {
                 try {
                     await window.portalApi.post(`/api/test-jobs/${currentJobId}/quality`, { quality });
 
-                    // Update UI
-                    qualityOptions.forEach(o => o.classList.remove("active"));
+                    // Update UI (Ghi đè thuộc tính CSS inline để di chuyển nền xanh sang tab được chọn)
+                    qualityOptions.forEach(o => {
+                        o.classList.remove("active");
+                        o.style.background = "rgba(255, 255, 255, 0.05)";
+                        o.style.color = "#E2E8F0";
+                    });
                     opt.classList.add("active");
+                    opt.style.background = "#2563EB";
+                    opt.style.color = "#fff";
                     qualityMenu.style.display = "none";
 
                     window.portalApi.showToast(`Đã chuyển sang chất lượng ${opt.textContent}`, "success");
@@ -265,7 +294,55 @@ function initTestVideoForm() {
         });
     };
 
+    // ── DISPLAY & OVERLAY SETTINGS ──────────────────────────
+    const setupDisplaySettings = () => {
+        const checkBoxes = [
+            { id: "show-roi-surveillance-chk", key: "show_roi_surveillance" },
+            { id: "show-roi-parking-chk", key: "show_roi_parking" },
+            { id: "show-fps-chk", key: "show_fps" },
+            { id: "show-box-person-chk", key: "show_box_person" },
+            { id: "show-box-bicycle-chk", key: "show_box_bicycle" },
+            { id: "show-box-car-chk", key: "show_box_car" },
+            { id: "show-box-plate-chk", key: "show_box_plate" }
+        ];
+
+        // 1. Đặt tất cả các checkbox mặc định là checked (True) khi khởi tạo giao diện
+        checkBoxes.forEach(item => {
+            const el = document.getElementById(item.id);
+            if (el) {
+                el.checked = true;
+            }
+        });
+
+        // 2. Đăng ký bộ lắng nghe sự kiện thay đổi của từng checkbox (Không lưu bộ nhớ trình duyệt)
+        checkBoxes.forEach(item => {
+            const el = document.getElementById(item.id);
+            if (el) {
+                el.addEventListener("change", async () => {
+                    // Nếu có job đang chạy, gửi cập nhật in-memory lập tức sang backend
+                    if (currentJobId) {
+                        try {
+                            const payload = {};
+                            payload[item.key] = el.checked;
+
+                            // Nếu xe hơi được toggle, tự động cập nhật các lớp xe bus và xe tải tương tự cho tiện lợi
+                            if (item.key === "show_box_car") {
+                                payload["show_box_bus"] = el.checked;
+                                payload["show_box_truck"] = el.checked;
+                            }
+
+                            await window.portalApi.post(`/api/test-jobs/${currentJobId}/settings`, payload);
+                        } catch (error) {
+                            console.error("Lỗi cập nhật cấu hình hiển thị:", error);
+                        }
+                    }
+                });
+            }
+        });
+    };
+
     setupQualitySettings();
+    setupDisplaySettings();
 
     // ── CAMERA DASHBOARD GRID ──────────────────────────────
     function renderPreviewGrid() {

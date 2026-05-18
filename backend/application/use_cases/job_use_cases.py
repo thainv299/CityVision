@@ -70,14 +70,12 @@ class JobUseCases:
                 if str(job.camera_id) == str(camera_id) and job.status in {"queued", "running"}:
                     if not job.progress:
                         job.progress = {}
-                    # Lưu các cài đặt AI cần cập nhật vào progress
-                    job.progress["requested_settings"] = {
-                        "enable_ai": settings.get("enable_ai"),
-                        "enable_congestion": settings.get("enable_congestion"),
-                        "enable_illegal_parking": settings.get("enable_illegal_parking"),
-                        "enable_license_plate": settings.get("enable_license_plate"),
-                    }
-                    print(f"[System] Đã lưu yêu cầu cập nhật cấu hình AI cho job {job_id}")
+                    # Lưu tất cả các cài đặt (bao gồm cấu hình AI và cấu hình hiển thị) vào progress
+                    req_s = job.progress.get("requested_settings") or {}
+                    for k, v in settings.items():
+                        req_s[k] = v
+                    job.progress["requested_settings"] = req_s
+                    print(f"[System] Đã cập nhật cấu hình cho job {job_id} trong RAM")
 
     def get_queue_position(self, job_id: str) -> Optional[int]:
         with self.job_lock:
