@@ -1,0 +1,66 @@
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
+from presentation.middlewares.auth import login_required
+from database.sqlite_db import get_unread_notifications, mark_notification_as_read
+import database.sqlite_db as db
+notification_router = APIRouter()
+
+@notification_router.get("/api/notifications/unread")
+async def api_get_unread_notifications(
+    request: Request,
+    user=Depends(login_required),
+    limit: int = 10
+):
+    """Lấy danh sách thông báo chưa đọc"""
+    result = get_unread_notifications(limit=limit)
+    return {
+        "ok": True,
+        "unread_count": result["unread_count"],
+        "notifications": result["items"]
+    }
+
+@notification_router.post("/api/notifications/{notif_type}/{record_id}/read")
+async def api_mark_notification_read(
+    notif_type: str,
+    record_id: int,
+    user=Depends(login_required)
+):
+    """Đánh dấu thông báo là đã đọc"""
+    if notif_type not in ["violation", "congestion"]:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "Loại thông báo không hợp lệ"})
+        
+    success = mark_notification_as_read(notif_type, record_id)
+    if success:
+        return {"ok": True}
+    return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể đánh dấu thông báo này"})
+
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
+from database.sqlite_db import active_sse_queues
+
+@notification_router.get("/api/notifications/stream")
+async def stream_notifications(request: Request, user=Depends(login_required)):
+    """SSE endpoint đẩy thông báo thời gian thực khi hệ thống phát hiện sự kiện mới"""
+    db.main_loop = asyncio.get_running_loop()
+    
+    queue = asyncio.Queue()
+    active_sse_queues.append(queue)
+    
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    # Chờ lấy thông báo mới từ Queue (timeout 15.0s để gửi keep-alive giữ kết nối)
+                    notif = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(notif)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            if queue in active_sse_queues:
+                active_sse_queues.remove(queue)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

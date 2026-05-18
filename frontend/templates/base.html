@@ -178,15 +178,9 @@
                         <div id="notif-dropdown" style="display: none; position: absolute; top: 45px; right: 0; width: 280px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 9999; padding: 10px 0;">
                             <div style="padding: 0 15px 10px; border-bottom: 1px solid var(--border); font-weight: 700; color: #1E293B; font-size: 14px;">Thông báo vi phạm</div>
                             
-                            <div style="max-height: 250px; overflow-y: auto;">
-                                <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                    <div style="font-size: 12px; font-weight: 600; color: #EF4444;">⚠️ Xe đỗ sai quy định</div>
-                                    <div style="font-size: 11px; color: #64748B;">Camera 01 - BKS: 15A-999.xx</div>
-                                </div>
-                                <div style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer;">
-                                    <div style="font-size: 12px; font-weight: 600; color: #F59E0B;">🟠 Cảnh báo ùn tắc</div>
-                                    <div style="font-size: 11px; color: #64748B;">Nút giao Phố Lạch Tray (75%)</div>
-                                </div>
+                            <div id="notif-list-content" style="max-height: 250px; overflow-y: auto;">
+                                <!-- Dữ liệu từ common.js sẽ được đổ vào đây -->
+                                <div style="padding: 20px; text-align: center; color: #94A3B8; font-size: 13px;">Đang tải thông báo...</div>
                             </div>
                             <div style="padding: 10px 15px 0; text-align: center; font-size: 11px; color: #4379EE; font-weight: 600; cursor: pointer;">
                                 <a href="{{ url_for('vehicles.vehicles_page') }}" style="font-size: 11px; color: #4379EE; font-weight: 600; text-decoration: none;">Xem tất cả nhật ký</a>

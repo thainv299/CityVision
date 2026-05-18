@@ -13,6 +13,8 @@ from database.sqlite_db import (
     get_daily_vehicle_stats,
     get_latest_violations,
     get_vehicle_type_distribution,
+    get_unread_notifications,
+    mark_notification_as_read,
 )
 
 
@@ -84,3 +86,9 @@ class DashboardUseCases:
 
     def search(self, query: str) -> Dict[str, Any]:
         return global_search(query)
+
+    def get_notifications(self, limit: int = 10) -> Dict[str, Any]:
+        return get_unread_notifications(limit)
+
+    def mark_notification_read(self, notif_type: str, record_id: int) -> bool:
+        return mark_notification_as_read(notif_type, record_id)

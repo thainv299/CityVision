@@ -1,5 +1,7 @@
 import sqlite3
-
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 
 from core.config import DATABASE_PATH
@@ -14,44 +16,80 @@ def connect() -> sqlite3.Connection:
 
 
 def cleanup_old_data(days_to_keep: int = 90) -> None:
-    """Xóa dữ liệu lịch sử cũ hơn N ngày để tránh phình CSDL (Mặc định 3 tháng)"""
-    from datetime import datetime, timedelta
-    # Định dạng ISO cho các bảng lịch sử chi tiết
+    """Xóa dữ liệu lịch sử cũ hơn N ngày (Cả DB và file vật lý)"""
+    # Định dạng thời gian
     cutoff_datetime = (datetime.now() - timedelta(days=days_to_keep)).strftime("%Y-%m-%d %H:%M:%S")
-    # Định dạng ngày (YYYY-MM-DD) cho bảng thống kê gộp
     cutoff_date_only = (datetime.now() - timedelta(days=days_to_keep)).strftime("%Y-%m-%d")
     
     print(f"[Database] Đang dọn dẹp dữ liệu cũ hơn {days_to_keep} ngày...")
+    
     try:
+        files_to_delete = []
+        
         with connect() as connection:
-            # 1. Xóa lịch sử phương tiện chi tiết
-            connection.execute(
-                "DELETE FROM lich_su_phuong_tien WHERE thoi_gian_di_qua < ?",
-                (cutoff_datetime,)
-            )
-            # 2. Xóa lịch sử biển số
-            connection.execute(
-                "DELETE FROM bien_so_phat_hien WHERE ngay_tao < ?",
-                (cutoff_datetime,)
-            )
-            # 3. Xóa vi phạm đỗ xe cũ
-            connection.execute(
-                "DELETE FROM vi_pham_do_xe WHERE thoi_gian_vi_pham < ?",
-                (cutoff_datetime,)
-            )
-            # 4. Xóa thống kê gộp cũ (Để đồng nhất biểu đồ)
-            connection.execute(
-                "DELETE FROM thong_ke_giao_thong WHERE ngay_ghi_nhan < ?",
-                (cutoff_date_only,)
-            )
+            # 1. Thu thập đường dẫn ảnh vi phạm đỗ xe
+            rows = connection.execute("SELECT duong_dan_anh FROM vi_pham_do_xe WHERE thoi_gian_vi_pham < ?", (cutoff_datetime,)).fetchall()
+            for r in rows:
+                if r["duong_dan_anh"]: files_to_delete.append(r["duong_dan_anh"])
+                
+            # 2. Thu thập đường dẫn ảnh ùn tắc
+            rows = connection.execute("SELECT duong_dan_anh FROM nhat_ky_un_tac WHERE thoi_gian_bat_dau < ?", (cutoff_datetime,)).fetchall()
+            for r in rows:
+                if r["duong_dan_anh"]: files_to_delete.append(r["duong_dan_anh"])
+                
+            # 3. Thu thập đường dẫn ảnh biển số (có thể có nhiều ảnh cách nhau dấu phẩy)
+            rows = connection.execute("SELECT duong_dan_anh FROM bien_so_phat_hien WHERE ngay_tao < ?", (cutoff_datetime,)).fetchall()
+            for r in rows:
+                if r["duong_dan_anh"]:
+                    paths = r["duong_dan_anh"].split(',')
+                    for p in paths:
+                        files_to_delete.append(p.strip())
+            
+            # --- THỰC HIỆN XÓA TRONG DATABASE ---
+            
+            # Xóa vi phạm đỗ xe
+            connection.execute("DELETE FROM vi_pham_do_xe WHERE thoi_gian_vi_pham < ?", (cutoff_datetime,))
+            # Xóa nhật ký ùn tắc
+            connection.execute("DELETE FROM nhat_ky_un_tac WHERE thoi_gian_bat_dau < ?", (cutoff_datetime,))
+            # Xóa lịch sử phương tiện chi tiết
+            connection.execute("DELETE FROM lich_su_phuong_tien WHERE thoi_gian_di_qua < ?", (cutoff_datetime,))
+            # Xóa lịch sử biển số
+            connection.execute("DELETE FROM bien_so_phat_hien WHERE ngay_tao < ?", (cutoff_datetime,))
+            # Xóa thông báo cũ
+            connection.execute("DELETE FROM thong_bao WHERE ngay_tao < ?", (cutoff_datetime,))
+            # Xóa thống kê gộp cũ
+            connection.execute("DELETE FROM thong_ke_giao_thong WHERE ngay_ghi_nhan < ?", (cutoff_date_only,))
             
             connection.commit()
+
+        # --- THỰC HIỆN XÓA FILE VẬT LÝ ---
+        deleted_files_count = 0
+        for rel_path in set(files_to_delete): # Dùng set để tránh xóa trùng
+            if not rel_path: continue
+            # Đảm bảo đường dẫn là tuyệt đối từ project root
+            # rel_path thường có dạng: logs/violations/... hoặc logs/plates/...
+            abs_path = Path(os.getcwd()) / rel_path.replace("/", os.sep)
             
+            if abs_path.exists():
+                try:
+                    if abs_path.is_file():
+                        os.remove(abs_path)
+                        deleted_files_count += 1
+                    # Nếu là thư mục (trong trường hợp vi phạm lưu cả cụm), xóa cả thư mục
+                    elif abs_path.is_dir():
+                        import shutil
+                        shutil.rmtree(abs_path)
+                        deleted_files_count += 1
+                except Exception as e:
+                    print(f"[Database] Không thể xóa file/thư mục {abs_path}: {e}")
+
         # VACUUM để thu hồi dung lượng đĩa
         conn = sqlite3.connect(DATABASE_PATH)
         conn.execute("VACUUM")
         conn.close()
-        print(f"[Database] Đã dọn dẹp toàn bộ dữ liệu cũ hơn {days_to_keep} ngày và nén CSDL thành công.")
+        
+        print(f"[Database] Dọn dẹp hoàn tất: Đã xóa {deleted_files_count} file và nén CSDL thành công.")
+        
     except Exception as e:
         print(f"[Database] Lỗi trong quá trình dọn dẹp định kỳ: {e}")
 
@@ -123,6 +161,7 @@ def init_db() -> None:
                 bat_phat_hien_un_tac INTEGER NOT NULL DEFAULT 1,
                 bat_phat_hien_do_sai INTEGER NOT NULL DEFAULT 1,
                 bat_phat_hien_bien_so INTEGER NOT NULL DEFAULT 1,
+                bat_xu_ly_ai INTEGER NOT NULL DEFAULT 1,
                 trang_thai_hoat_dong INTEGER NOT NULL DEFAULT 1,
                 mo_hinh_yolo TEXT,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -188,6 +227,17 @@ def init_db() -> None:
                 khoa TEXT PRIMARY KEY,
                 gia_tri TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS thong_bao (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loai_thong_bao TEXT NOT NULL, -- 'violation', 'congestion', 'system'
+                id_ban_ghi INTEGER,          -- ID của vi_pham_do_xe hoặc nhat_ky_un_tac
+                tieu_de TEXT,
+                noi_dung TEXT,
+                duong_dan_anh TEXT,
+                da_doc INTEGER NOT NULL DEFAULT 0,
+                ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             """
         )
 
@@ -198,6 +248,10 @@ def init_db() -> None:
         if "bat_phat_hien_bien_so" not in camera_columns:
             connection.execute(
                 "ALTER TABLE camera ADD COLUMN bat_phat_hien_bien_so INTEGER NOT NULL DEFAULT 1"
+            )
+        if "bat_xu_ly_ai" not in camera_columns:
+            connection.execute(
+                "ALTER TABLE camera ADD COLUMN bat_xu_ly_ai INTEGER NOT NULL DEFAULT 1"
             )
         if "mo_hinh_yolo" not in camera_columns:
             connection.execute(
@@ -223,6 +277,7 @@ def init_db() -> None:
             connection.execute(
                 "ALTER TABLE nhat_ky_un_tac ADD COLUMN duong_dan_anh TEXT"
             )
+
 
         # Cấu hình mặc định
         default_settings = {
@@ -259,7 +314,7 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:
     """Lấy danh sách xe đỗ sai có phân trang và bộ lọc"""
     query = """
         SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
@@ -287,7 +342,11 @@ def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type
     if camera_id is not None:
         conditions.append("pv.id_camera = ?")
         params.append(camera_id)
-
+    
+    if record_id is not None:
+        conditions.append("pv.id = ?")
+        params.append(record_id)
+        
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
 
@@ -347,7 +406,7 @@ def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None) -> list:
+def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:    
     """Lấy lịch sử ùn tắc có phân trang và bộ lọc"""
     query = """
         SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
@@ -375,6 +434,10 @@ def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, 
     if camera_id is not None:
         conditions.append("n.id_camera = ?")
         params.append(camera_id)
+    
+    if record_id is not None:
+        conditions.append("n.id = ?")
+        params.append(record_id)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -423,6 +486,65 @@ def get_latest_violations(limit: int = 5) -> list:
             (limit,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+# Danh sách queues lắng nghe thông báo thời gian thực phục vụ SSE
+active_sse_queues = []
+main_loop = None
+
+def broadcast_notification(notification_data: dict):
+    """Gửi thông báo mới tức thời tới tất cả các kết nối SSE đang hoạt động, tương thích đa luồng"""
+    global main_loop
+    if main_loop is not None:
+        for queue in list(active_sse_queues):
+            try:
+                main_loop.call_soon_threadsafe(queue.put_nowait, notification_data)
+            except Exception as e:
+                pass
+    else:
+        # Fallback trong trường hợp main_loop chưa được gán
+        import asyncio
+        for queue in list(active_sse_queues):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.call_soon_threadsafe(queue.put_nowait, notification_data)
+                else:
+                    queue.put_nowait(notification_data)
+            except Exception:
+                try:
+                    queue.put_nowait(notification_data)
+                except Exception:
+                    pass
+
+def get_unread_notifications(limit: int = 10) -> dict:
+    """Lấy danh sách thông báo chưa đọc từ bảng thong_bao tập trung."""
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE da_doc = 0
+            ORDER BY ngay_tao DESC
+            LIMIT ?
+            """, (limit,)
+        ).fetchall()
+        
+        count = connection.execute("SELECT COUNT(*) as c FROM thong_bao WHERE da_doc = 0").fetchone()["c"]
+        
+        return {
+            "unread_count": count,
+            "items": [dict(row) for row in rows]
+        }
+
+def mark_notification_as_read(notif_type: str, record_id: int) -> bool:
+    """Đánh dấu thông báo là đã đọc trong bảng thong_bao tập trung"""
+    # Lưu ý: record_id ở đây có thể là ID của bảng thong_bao hoặc ID bản ghi gốc tùy logic gọi
+    # Để tương thích với frontend click: urlPrefix + n.id -> n.id là id của thong_bao
+    with connect() as connection:
+        cursor = connection.execute("UPDATE thong_bao SET da_doc = 1 WHERE id = ?", (record_id,))
+        connection.commit()
+        return cursor.rowcount > 0
+
 
 def get_total_vehicle_count(start_date: str = None, end_date: str = None) -> int:
     """Lấy tổng số xe đi qua trực tiếp từ bảng lịch sử (loại bỏ person và license_plate)"""
@@ -493,14 +615,41 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
         frame_path = frame_path.replace("runtime/violations/", "logs/violations/")
     
     with connect() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             INSERT INTO vi_pham_do_xe (id_camera, bien_so, thoi_gian_vi_pham, thoi_gian_do_giay, duong_dan_anh)
             VALUES (?, ?, ?, ?, ?)
             """,
             (camera_id, license_plate, violation_time, duration, frame_path)
         )
+        violation_id = cursor.lastrowid
+        
+        # Thêm vào bảng thong_bao tập trung
+        connection.execute(
+            """
+            INSERT INTO thong_bao (loai_thong_bao, id_ban_ghi, tieu_de, noi_dung, duong_dan_anh)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                'violation', 
+                violation_id, 
+                license_plate if license_plate else "Không biển số",
+                f"Phát hiện vi phạm đỗ xe tại Camera {camera_id}",
+                frame_path
+            )
+        )
         connection.commit()
+
+        # Query và broadcast thời gian thực qua SSE
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
 
 
 def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong_dan_anh: str = None) -> int:
@@ -517,8 +666,36 @@ def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong
             """,
             (camera_id, level, start_time, duong_dan_anh)
         )
+        congestion_id = cursor.lastrowid
+        
+        # Thêm vào bảng thong_bao tập trung
+        connection.execute(
+            """
+            INSERT INTO thong_bao (loai_thong_bao, id_ban_ghi, tieu_de, noi_dung, duong_dan_anh)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                'congestion', 
+                congestion_id, 
+                str(level),
+                f"Cảnh báo ùn tắc mức {level} tại Camera {camera_id}",
+                duong_dan_anh
+            )
+        )
         connection.commit()
-        return cursor.lastrowid
+
+        # Query và broadcast thời gian thực qua SSE
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
+
+        return congestion_id
 
 
 def update_congestion_end_time(congestion_id: int, end_time: str = None) -> None:
