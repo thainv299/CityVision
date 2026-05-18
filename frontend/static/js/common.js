@@ -264,7 +264,7 @@ function showNotificationToast(n) {
     let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : (n.noi_dung || 'Đã phát hiện ùn tắc tại khu vực giám sát');
 
     // Tạo toast thông báo (Hiển thị 8 giây cho người dùng dễ theo dõi)
-    const toast = showToast(messageText, type, titleText, 8000);
+    const toast = window.portalApi.showToast(messageText, type, titleText, 8000);
     if (!toast) return;
 
     // Thêm hình ảnh preview vào toast nếu có để tăng độ trực quan

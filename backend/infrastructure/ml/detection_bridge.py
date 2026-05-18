@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from database.sqlite_db import broadcast_notification
 import os
 import sys
 import time
@@ -594,7 +594,19 @@ def process_video(
     parking_manager.stop_seconds = stop_seconds
     parking_manager.move_thr_px = move_threshold_px
     parking_manager.camera_id = camera_id
-    parking_manager.violation_callback = log_parking_violation if save_to_db else None
+    def test_violation_callback(camera_id, license_plate=None, violation_time=None, duration=0, frame_path=None):
+        notif_row = {
+            "id": -int(time.time()),
+            "type": "violation",
+            "id_ban_ghi": -99,
+            "title": license_plate if license_plate else "Không biển số",
+            "noi_dung": f"Phát hiện vi phạm đỗ xe tại Camera {camera_id}",
+            "image": frame_path if frame_path else "",
+            "time": datetime.now().isoformat()
+        }
+        broadcast_notification(notif_row)
+
+    parking_manager.violation_callback = log_parking_violation if save_to_db else test_violation_callback
     parking_manager.save_to_db = save_to_db
     parking_manager.io_worker = io_worker
     parking_manager.setup_detection(fps)
@@ -928,7 +940,7 @@ def process_video(
                         last_congestion_record_id = None
                     
                     # Nếu mức mới > 0 -> Tạo record mới
-                    if confirmed_lvl > 0 and save_to_db:
+                    if confirmed_lvl > 0:
                         # Tạo đường dẫn ảnh bằng chứng
                         now = datetime.now()
                         lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
@@ -951,8 +963,20 @@ def process_video(
                         # Lưu ảnh qua io_worker (Async)
                         io_worker.enqueue_save_image(abs_path, clean_frame)
                                 
-                        # Ghi vào Database (Sync để lấy ID)
-                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
+                        if save_to_db:
+                            last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
+                        else:
+                            # Phát thông báo thời gian thực giả lập qua SSE cho người dùng thử nghiệm
+                            notif_row = {
+                                "id": -int(time.time()),
+                                "type": "congestion",
+                                "id_ban_ghi": -99,
+                                "title": str(confirmed_lvl),
+                                "noi_dung": f"Cảnh báo ùn tắc mức {confirmed_lvl} tại Camera {camera_id}",
+                                "image": rel_path,
+                                "time": datetime.now().isoformat()
+                            }
+                            broadcast_notification(notif_row)
                     
                     # Cập nhật mức đã lưu DB gần nhất
                     last_db_traffic_level = confirmed_lvl
