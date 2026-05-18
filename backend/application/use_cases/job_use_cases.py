@@ -135,33 +135,24 @@ class JobUseCases:
         delete_after_job: bool = False
     ) -> None:
         def handle_progress(progress: Dict[str, Any]) -> None:
-            # Kiểm tra lệnh đổi chất lượng hoặc đổi cài đặt NGAY ĐẦU HÀM để tránh bị set_job ghi đè
-            req_q = None
-            req_settings = None
+            # Lấy job một lần duy nhất với lock
             with self.job_lock:
                 job = self.jobs.get(job_id)
-                if job and job.progress:
-                    req_q = job.progress.get("requested_quality")
-                    req_settings = job.progress.get("requested_settings")
-
-            # Kiểm tra xem người dùng có đóng tab hay ngắt Stream chưa để dừng xử lý sớm
-            with self.job_lock:
-                current = self.jobs.get(job_id)
-                if current and current.status == "aborted":
+                if not job:
+                    return None
+                if job.status == "aborted":
                     raise RuntimeError("Job da bi huy boi luong stream.")
+                
+                req_q = job.progress.get("requested_quality") if job.progress else None
+                req_settings = job.progress.get("requested_settings") if job.progress else None
 
             progress_payload = dict(progress)
             preview_jpeg = progress_payload.pop("preview_jpeg", None)
             if preview_jpeg:
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if job:
-                        job.latest_frame = preview_jpeg
+                job.latest_frame = preview_jpeg  # Gán atomic không cần lock
 
             phase = progress.get("phase")
-            percent = progress.get("progress_percent")
             processed_frames = progress.get("processed_frames")
-            total_frames = progress.get("source_total_frames")
 
             if phase == "loading_model":
                 message = "Đang tải model YOLO..."
@@ -172,30 +163,26 @@ class JobUseCases:
             else:
                 message = "Đang xử lý video..."
 
-            self.set_job(
-                job_id,
-                status="running",
-                message=message,
-                error=None,
-                started_at=time.time(),
-                progress=progress_payload,
-            )
+            # Cập nhật thông số trực tiếp không cần acquire lock liên tục (atomic / GIL-safe)
+            job.status = "running"
+            job.message = message
+            job.error = None
+            if job.started_at is None:
+                job.started_at = time.time()
+            job.progress = progress_payload
             
             # Trả về lệnh đổi chất lượng hoặc đổi cài đặt cho Bridge nếu có
             actions = {}
-            if req_q:
+            if req_q or req_settings:
                 with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if job and job.progress:
+                    if req_q and job.progress:
                         job.progress.pop("requested_quality", None)
-                actions["new_quality"] = req_q
-                
-            if req_settings:
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if job and job.progress:
+                    if req_settings and job.progress:
                         job.progress.pop("requested_settings", None)
-                actions["new_settings"] = req_settings
+                if req_q:
+                    actions["new_quality"] = req_q
+                if req_settings:
+                    actions["new_settings"] = req_settings
 
             return actions if actions else None
 
@@ -331,24 +318,25 @@ class JobUseCases:
 
     def stream_job_frames(self, job_id: str):
         import asyncio
+        with self.job_lock:
+            job = self.jobs.get(job_id)
+        if not job:
+            return
+
         try:
             while True:
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                if not job:
-                    break
-                
-                if job.latest_frame:
-                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + job.latest_frame + b"\r\n"
-                
+                # Đọc trực tiếp trạng thái mà không cần lock liên tục (atomic & GIL-safe)
                 if job.status in ("completed", "failed", "aborted"):
                     break
+                
+                frame_bytes = job.latest_frame
+                if frame_bytes:
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                 
                 time.sleep(0.03)  # Điều tiết tốc độ khung hình stream MJPEG để tránh quá tải CPU
         finally:
             with self.job_lock:
-                job = self.jobs.get(job_id)
-                if job and job.status in ("queued", "running"):
+                if job.status in ("queued", "running"):
                     job.status = "aborted"
                     job.message = "Stream bị ngắt kết nối."
     def start_active_cameras(self, camera_use_cases: Any):
