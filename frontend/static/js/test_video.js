@@ -175,7 +175,10 @@ function initTestVideoForm() {
             "show-fps-chk",
             "show-box-person-chk",
             "show-box-bicycle-chk",
+            "show-box-motorcycle-chk",
             "show-box-car-chk",
+            "show-box-bus-chk",
+            "show-box-truck-chk",
             "show-box-plate-chk"
         ];
         checkBoxes.forEach(id => {
@@ -198,7 +201,10 @@ function initTestVideoForm() {
             show_fps: "on",
             show_box_person: "on",
             show_box_bicycle: "on",
+            show_box_motorcycle: "on",
             show_box_car: "on",
+            show_box_bus: "on",
+            show_box_truck: "on",
             show_box_plate: "on"
         };
 
@@ -302,7 +308,10 @@ function initTestVideoForm() {
             { id: "show-fps-chk", key: "show_fps" },
             { id: "show-box-person-chk", key: "show_box_person" },
             { id: "show-box-bicycle-chk", key: "show_box_bicycle" },
+            { id: "show-box-motorcycle-chk", key: "show_box_motorcycle" },
             { id: "show-box-car-chk", key: "show_box_car" },
+            { id: "show-box-bus-chk", key: "show_box_bus" },
+            { id: "show-box-truck-chk", key: "show_box_truck" },
             { id: "show-box-plate-chk", key: "show_box_plate" }
         ];
 
@@ -324,12 +333,6 @@ function initTestVideoForm() {
                         try {
                             const payload = {};
                             payload[item.key] = el.checked;
-
-                            // Nếu xe hơi được toggle, tự động cập nhật các lớp xe bus và xe tải tương tự cho tiện lợi
-                            if (item.key === "show_box_car") {
-                                payload["show_box_bus"] = el.checked;
-                                payload["show_box_truck"] = el.checked;
-                            }
 
                             await window.portalApi.post(`/api/test-jobs/${currentJobId}/settings`, payload);
                         } catch (error) {
