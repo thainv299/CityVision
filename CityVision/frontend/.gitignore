@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+runtime/portal.db
+runtime/*.bak
+runtime/inputs/
+runtime/outputs/

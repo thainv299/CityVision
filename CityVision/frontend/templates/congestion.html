@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Nhật ký Ùn tắc | CityVision AI Portal{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <p class="eyebrow">Giám sát Giao thông</p>
+        <h2 class="page-title">Nhật ký Đường ùn tắc</h2>
+        <p class="muted">Danh sách các khung giờ và khu vực phát hiện có dấu hiệu ùn tắc giao thông</p>
+    </div>
+</div>
+
+<section class="panel margin-top">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Dữ liệu ghi nhận</p>
+            <h3>Lịch sử Ùn tắc theo Camera</h3>
+        </div>
+        <button class="button secondary" onclick="loadCongestion()">Làm mới</button>
+    </div>
+
+    <div id="congestionList" style="display: grid; gap: 16px;">
+        <div class="empty-state">
+            <span class="empty-icon">📋</span>
+            <p class="muted">Đang tải dữ liệu...</p>
+        </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;">
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
+    </div>
+</section>
+
+<script>
+    let currentPage = 1;
+    let totalRecords = 0;
+    const limit = 30;
+
+    async function loadCongestion(page = 1) {
+        currentPage = page;
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const level = params.get('level');
+            
+            // Cập nhật tiêu đề trang dựa theo filter
+            const pageTitle = document.querySelector('.page-title');
+            if (level === '1') pageTitle.textContent = 'Ùn tắc Mức 1 — Đông đúc';
+            else if (level === '2') pageTitle.textContent = 'Ùn tắc Mức 2 — Rất đông';
+            else if (level === '3') pageTitle.textContent = 'Ùn tắc Mức 3 — Tắc nghẽn';
+            
+            let url = `/api/congestion?limit=${limit}&page=${currentPage}`;
+            if (level) url += `&level=${level}`;
+            
+            const response = await portalApi.get(url);
+            displayCongestion(response.logs || []);
+
+            // Update pagination UI
+            totalRecords = response.total || 0;
+            const totalPages = Math.ceil(totalRecords / limit) || 1;
+            document.getElementById('current-page').textContent = currentPage;
+            document.getElementById('total-pages').textContent = totalPages;
+            document.getElementById('prev-page').disabled = currentPage <= 1;
+            document.getElementById('next-page').disabled = currentPage >= totalPages;
+        } catch (error) {
+            portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+            console.error(error);
+        }
+    }
+
+    // Pagination events
+    document.getElementById('prev-page').addEventListener('click', () => {
+        if (currentPage > 1) loadCongestion(currentPage - 1);
+    });
+    document.getElementById('next-page').addEventListener('click', () => {
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        if (currentPage < totalPages) loadCongestion(currentPage + 1);
+    });
+
+    function displayCongestion(logs) {
+        const container = document.getElementById('congestionList');
+
+        if (!logs || logs.length === 0) {
+            container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">✅</span>
+                <p class="muted">Giao thông thông thoáng, không ghi nhận ùn tắc nào!</p>
+            </div>
+        `;
+            return;
+        }
+
+        container.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
+                        <th>Camera</th>
+                        <th style="text-align: center;">Mức độ</th>
+                        <th style="text-align: center;">Bằng chứng</th>
+                        <th style="text-align: center;">Thời gian bắt đầu</th>
+                        <th style="text-align: center;">Thời gian kết thúc</th>
+                        <th style="text-align: center;">Kéo dài (giây)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${logs.map((log, index) => `
+                        <tr>
+                            <td style="text-align: center;"><strong>${index + 1}</strong></td>
+                            <td>
+                                <strong>${log.camera_name || 'N/A'}</strong>
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.congestion_level > 2 ? `
+                                    <span class="pill danger">Nghiêm trọng (Lv ${log.congestion_level})</span>
+                                ` : log.congestion_level === 2 ? `
+                                    <span class="pill warning">Vừa (Lv 2)</span>
+                                ` : `
+                                    <span class="pill blue">Nhẹ (Lv 1)</span>
+                                `}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.image_path ? `
+                                    <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
+                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border); transition: transform 0.2s;">
+                                    </div>
+                                ` : '<span class="muted">—</span>'}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.start_time || 'N/A'}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.end_time || 'Đang diễn ra'}
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="pill">${log.duration_seconds || 0}s</span>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    }
+
+    // Load dữ liệu khi trang mở
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCongestion();
+    });
+</script>
+{% endblock %}

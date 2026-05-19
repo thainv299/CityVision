@@ -119,17 +119,35 @@ async def api_create_camera(payload: Dict[str, Any], user=Depends(login_required
 @camera_router.put("/api/cameras/{camera_id}")
 async def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
     try:
-        # Kiểm tra trạng thái is_active trước và sau khi update
-        is_active_requested = payload.get("is_active")
-        
+        # Lấy cấu hình cũ trước khi lưu để kiểm tra thay đổi lớn
+        try:
+            old_camera = container.camera_use_cases.get_camera(camera_id)
+        except NotFoundError:
+            old_camera = None
+
         updated = container.camera_use_cases.update_camera(camera_id, payload)
         
-        # Đồng bộ luồng AI: Luôn dừng job cũ để áp dụng cấu hình mới nhất
-        container.job_use_cases.stop_camera_jobs(camera_id)
-        
-        # Nếu camera đang ở trạng thái hoạt động, khởi động lại luồng nền
-        if updated.is_active:
-            container.job_use_cases.start_active_cameras(container.camera_use_cases)
+        # Chỉ dừng và khởi động lại luồng nếu thay đổi các thông số cốt lõi (Source, ROI, hoạt động)
+        critical_changed = True
+        if old_camera:
+            critical_changed = (
+                old_camera.is_active != updated.is_active or
+                old_camera.stream_source != updated.stream_source or
+                old_camera.roi_points != updated.roi_points or
+                old_camera.no_parking_points != updated.no_parking_points or
+                old_camera.model_path != updated.model_path
+            )
+
+        if critical_changed:
+            # Đồng bộ luồng AI: Luôn dừng job cũ để áp dụng cấu hình mới nhất
+            container.job_use_cases.stop_camera_jobs(camera_id)
+            
+            # Nếu camera đang ở trạng thái hoạt động, khởi động lại luồng nền
+            if updated.is_active:
+                container.job_use_cases.start_active_cameras(container.camera_use_cases)
+        else:
+            # Cập nhật cấu hình AI cho luồng đang chạy
+            container.job_use_cases.update_camera_job_settings(camera_id, updated.to_dict())
             
         return {"ok": True, "camera": updated.to_dict()}
     except AppError as exc:

@@ -74,6 +74,7 @@ class CameraUseCases:
             enable_congestion=to_bool(payload.get("enable_congestion"), True),
             enable_illegal_parking=to_bool(payload.get("enable_illegal_parking"), True),
             enable_license_plate=to_bool(payload.get("enable_license_plate"), True),
+            enable_ai=to_bool(payload.get("enable_ai"), True),
             is_active=to_bool(payload.get("is_active"), True),
             model_path=str(payload.get("model_path", "")).strip()
         )

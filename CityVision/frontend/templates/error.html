@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | City Vision Portal{% endblock %}
+
+{% block content %}
+<section class="error-panel panel centered-panel">
+    <p class="eyebrow">{{ status_code }}</p>
+    <h2>{{ title }}</h2>
+    <p class="muted">{{ message }}</p>
+    <a class="button primary" href="{{ url_for('dashboard.dashboard_page') if current_user else url_for('auth.login_page') }}">Quay lại</a>
+</section>
+{% endblock %}

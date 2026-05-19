@@ -189,7 +189,8 @@
                     Xem Camera
                 </a>
 
-                <div style="flex-grow: 1;"></div>
+
+
 
                 <a class="nav-link {% if page == 'settings' %}active{% endif %}" href="/settings"
                     style="margin-top: 20px;">
@@ -244,36 +245,25 @@
                             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
-                        <span class="icon-badge" id="notif-badge" style="display: none; background: #EF4444;">0</span>
+                        <span class="icon-badge">3</span>
 
                         <div id="notif-dropdown"
-                            style="display: none; position: absolute; top: 45px; right: 0; width: 320px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 9999; padding: 10px 0;">
+                            style="display: none; position: absolute; top: 45px; right: 0; width: 280px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 9999; padding: 10px 0;">
                             <div
-                                style="padding: 0 15px 10px; border-bottom: 1px solid var(--border); font-weight: 700; color: #1E293B; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-                                <span>Thông báo mới</span>
-                                <button onclick="fetchNotifications()"
-                                    style="background: none; border: none; cursor: pointer; color: var(--brand-blue); font-size: 12px;"><i
-                                        class="fas fa-sync-alt"></i></button>
-                            </div>
+                                style="padding: 0 15px 10px; border-bottom: 1px solid var(--border); font-weight: 700; color: #1E293B; font-size: 14px;">
+                                Thông báo vi phạm</div>
 
-                            <div id="notif-list" style="max-height: 350px; overflow-y: auto;">
-                                <div style="padding: 15px; text-align: center; color: #64748B; font-size: 12px;">Đang
-                                    tải...</div>
+                            <div id="notif-list-content" style="max-height: 250px; overflow-y: auto;">
+                                <!-- Dữ liệu từ common.js sẽ được đổ vào đây -->
+                                <div style="padding: 20px; text-align: center; color: #94A3B8; font-size: 13px;">Đang
+                                    tải thông báo...</div>
                             </div>
-
                             <div
-                                style="padding: 10px 15px 0; text-align: center; font-size: 11px; font-weight: 600; cursor: pointer;">
-                                <a href="/violations" style="color: #4379EE; text-decoration: none;">Xem tất cả</a>
+                                style="padding: 10px 15px 0; text-align: center; font-size: 11px; color: #4379EE; font-weight: 600; cursor: pointer;">
+                                <a href="{{ url_for('vehicles.vehicles_page') }}"
+                                    style="font-size: 11px; color: #4379EE; font-weight: 600; text-decoration: none;">Xem
+                                    tất cả nhật ký</a>
                             </div>
-                            <!-- <div
-                                style="padding: 10px; text-align: center; display: flex; gap: 5px; justify-content: center; border-top: 1px solid var(--border); margin-top: 10px;">
-                                <button onclick="violationAudio.play()"
-                                    style="background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 10px; cursor: pointer;">🔊
-                                    Test Vi phạm</button>
-                                <button onclick="congestionAudio.play()"
-                                    style="background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: 10px; cursor: pointer;">🔊
-                                    Test Ùn tắc</button>
-                            </div> -->
                         </div>
                     </div>
 
@@ -395,116 +385,6 @@
                                 dropdown.style.display = 'none';
                             };
                         });
-
-                        let knownNotifIds = new Set();
-                        let isFirstLoad = true;
-
-                        const violationAudio = new Audio('/static/audio/violation.mp3');
-                        const congestionAudio1 = new Audio('/static/audio/congestion_1.mp3');
-                        const congestionAudio2 = new Audio('/static/audio/congestion_2.mp3');
-                        const congestionAudio3 = new Audio('/static/audio/congestion_3.mp3');
-
-                        async function fetchNotifications() {
-                            try {
-                                const resp = await portalApi.get('/api/notifications?limit=10');
-                                const badge = document.getElementById('notif-badge');
-                                const list = document.getElementById('notif-list');
-
-                                if (resp.results.unread_count > 0) {
-                                    badge.style.display = 'flex';
-                                    badge.textContent = resp.results.unread_count > 99 ? '99+' : resp.results.unread_count;
-                                } else {
-                                    badge.style.display = 'none';
-                                }
-
-                                const items = resp.results.items;
-                                if (items.length === 0) {
-                                    list.innerHTML = '<div style="padding: 20px 15px; text-align: center; color: #64748B; font-size: 12px;">Không có thông báo mới</div>';
-                                    return;
-                                }
-
-                                let html = '';
-                                let hasNewViolation = false;
-                                let maxCongestionLvl = 0;
-
-                                items.forEach(item => {
-                                    const notifKey = item.type + '_' + item.id;
-                                    if (!isFirstLoad && !knownNotifIds.has(notifKey)) {
-                                        if (item.type === 'violation') hasNewViolation = true;
-                                        if (item.type === 'congestion') {
-                                            let lvl = parseInt(item.level) || 1;
-                                            if (lvl > maxCongestionLvl) maxCongestionLvl = lvl;
-                                        }
-                                    }
-                                    knownNotifIds.add(notifKey);
-
-                                    let icon = '';
-                                    let title = '';
-                                    let desc = '';
-                                    let url = '';
-                                    let imgHtml = '';
-
-                                    if (item.image_path) {
-                                        const imgPath = item.image_path.replace(/^\/+/, '');
-                                        imgHtml = `<div style="width: 50px; height: 35px; border-radius: 4px; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8f0; margin-left: 10px;">
-                                                       <img src="/${imgPath}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
-                                                   </div>`;
-                                    }
-
-                                    if (item.type === 'violation') {
-                                        icon = '⚠️';
-                                        title = '<span style="color: #EF4444;">Xe đỗ sai quy định</span>';
-                                        desc = `Cam: ${item.camera_name} - BKS: ${item.license_plate || 'Không rõ'}`;
-                                        url = `/violations?id=${item.id}`;
-                                    } else if (item.type === 'congestion') {
-                                        icon = '🟠';
-                                        title = `<span style="color: #F59E0B;">Cảnh báo ùn tắc (Mức ${item.level})</span>`;
-                                        desc = `Cam: ${item.camera_name}`;
-                                        url = `/congestion?id=${item.id}`;
-                                    }
-
-                                    html += `
-                                        <div class="notif-item" onclick="handleNotifClick('${item.type}', ${item.id}, '${url}')" style="padding: 10px 15px; border-bottom: 1px solid #F8FAFC; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
-                                            <div>
-                                                <div style="font-size: 12px; font-weight: 600;">${icon} ${title}</div>
-                                                <div style="font-size: 11px; color: #64748B; margin-top: 4px;">${desc}</div>
-                                                <div style="font-size: 10px; color: #94A3B8; margin-top: 2px;">${item.time}</div>
-                                            </div>
-                                            ${imgHtml}
-                                        </div>
-                                    `;
-                                });
-                                list.innerHTML = html;
-
-                                if (maxCongestionLvl > 0) {
-                                    if (maxCongestionLvl === 1) congestionAudio1.play().catch(e => console.log("Audio play blocked:", e));
-                                    else if (maxCongestionLvl === 2) congestionAudio2.play().catch(e => console.log("Audio play blocked:", e));
-                                    else if (maxCongestionLvl >= 3) congestionAudio3.play().catch(e => console.log("Audio play blocked:", e));
-                                } else if (hasNewViolation) {
-                                    violationAudio.play().catch(e => console.log("Audio play blocked:", e));
-                                }
-
-                                isFirstLoad = false;
-
-                            } catch (e) {
-                                console.error("Lỗi lấy thông báo:", e);
-                            }
-                        }
-
-                        window.handleNotifClick = async function (type, id, url) {
-                            try {
-                                await portalApi.post('/api/notifications/read', { type: type, id: id });
-                            } catch (e) {
-                                console.error(e);
-                            }
-                            window.location.href = url;
-                        };
-
-                        document.addEventListener('DOMContentLoaded', function () {
-                            fetchNotifications();
-                            setInterval(fetchNotifications, 5000);
-                        });
-
                         // Thêm vào trong phần script cũ
                         document.addEventListener('click', function (e) {
                             const searchResults = document.getElementById('search-results');
@@ -655,14 +535,14 @@
             </header>
 
             <div class="page-content">
-                {{ page_content }}
+                {{ page_content | safe }}
             </div>
         </div>
     </div>
 
     {% else %}
     <main class="public-layout">
-        {{ page_content }}
+        {{ page_content | safe }}
     </main>
     {% endif %}
 
@@ -686,7 +566,7 @@
             };
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.0"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.2"></script>
     <script>
         // Logic xem trước ảnh toàn cục (Smart Zoom & Pan)
         (function () {

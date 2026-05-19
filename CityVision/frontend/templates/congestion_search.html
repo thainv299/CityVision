@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}Tìm kiếm Ùn tắc | CityVision AI Portal{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <p class="eyebrow">Nhật ký ùn tắc</p>
+        <h2 class="page-title">Tìm kiếm Ùn tắc nâng cao</h2>
+        <p class="muted">Lọc và tìm kiếm nhật ký ùn tắc giao thông theo mức độ, ngày, giờ, camera</p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Bộ lọc</p>
+            <h3>Điều kiện Tìm kiếm</h3>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto auto; gap: 16px; align-items: end;">
+        <label class="field">
+            <span>Mức độ</span>
+            <select id="filterLevel" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+                <option value="">-- Tất cả --</option>
+                <option value="1">Mức 1 — Đông đúc</option>
+                <option value="2">Mức 2 — Rất đông</option>
+                <option value="3">Mức 3 — Tắc nghẽn</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Chọn Ngày</span>
+            <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem;">
+        </label>
+        <label class="field">
+            <span>Chọn Giờ (0-23)</span>
+            <select id="filterHour" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+                <option value="">-- Tất cả --</option>
+                <option value="00">00:00 - 00:59</option>
+                <option value="01">01:00 - 01:59</option>
+                <option value="02">02:00 - 02:59</option>
+                <option value="03">03:00 - 03:59</option>
+                <option value="04">04:00 - 04:59</option>
+                <option value="05">05:00 - 05:59</option>
+                <option value="06">06:00 - 06:59</option>
+                <option value="07">07:00 - 07:59</option>
+                <option value="08">08:00 - 08:59</option>
+                <option value="09">09:00 - 09:59</option>
+                <option value="10">10:00 - 10:59</option>
+                <option value="11">11:00 - 11:59</option>
+                <option value="12">12:00 - 12:59</option>
+                <option value="13">13:00 - 13:59</option>
+                <option value="14">14:00 - 14:59</option>
+                <option value="15">15:00 - 15:59</option>
+                <option value="16">16:00 - 16:59</option>
+                <option value="17">17:00 - 17:59</option>
+                <option value="18">18:00 - 18:59</option>
+                <option value="19">19:00 - 19:59</option>
+                <option value="20">20:00 - 20:59</option>
+                <option value="21">21:00 - 21:59</option>
+                <option value="22">22:00 - 22:59</option>
+                <option value="23">23:00 - 23:59</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Camera</span>
+            <select id="filterCamera" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+                <option value="">-- Tất cả Camera --</option>
+            </select>
+        </label>
+        <button class="button primary" onclick="searchCongestion()" style="height: 44px;">
+            <i class="fas fa-search" style="margin-right: 6px;"></i> Tìm kiếm
+        </button>
+        <button class="button secondary" onclick="resetFilters()" style="height: 44px;">
+            <i class="fas fa-undo" style="margin-right: 6px;"></i> Xoá lọc
+        </button>
+    </div>
+</section>
+
+<section class="panel margin-top">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Kết quả</p>
+            <h3 id="results-title">Nhật ký Ùn tắc</h3>
+        </div>
+        <span id="results-count" class="pill blue" style="font-size: 0.85rem;">0 kết quả</span>
+    </div>
+
+    <div id="congestionList" style="display: grid; gap: 16px;">
+        <div class="empty-state">
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để bắt đầu</p>
+        </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
+    </div>
+</section>
+
+<style>
+    .evidence-thumb img {
+        transition: transform 0.2s ease;
+    }
+    .evidence-thumb img:hover {
+        transform: scale(1.05);
+    }
+    @media (max-width: 1100px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr 1fr 1fr !important;
+        }
+    }
+    @media (max-width: 700px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr !important;
+        }
+    }
+</style>
+
+<script>
+let currentPage = 1;
+let totalRecords = 0;
+const limit = 30;
+
+const LEVEL_LABELS = {
+    1: 'Mức 1 — Đông đúc',
+    2: 'Mức 2 — Rất đông',
+    3: 'Mức 3 — Tắc nghẽn'
+};
+
+// Tải danh sách Camera cho bộ lọc
+async function loadCameraOptions() {
+    try {
+        const resp = await portalApi.get('/api/cameras');
+        const cameras = resp.cameras || resp || [];
+        const select = document.getElementById('filterCamera');
+        cameras.forEach(cam => {
+            const opt = document.createElement('option');
+            opt.value = cam.id;
+            opt.textContent = cam.name || cam.ten_camera || `Camera ${cam.id}`;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Lỗi tải danh sách camera:', e);
+    }
+}
+
+function searchCongestion(page = 1) {
+    currentPage = page;
+    const level = document.getElementById('filterLevel').value;
+    const date = document.getElementById('filterDate').value;
+    const hour = document.getElementById('filterHour').value;
+    const cameraId = document.getElementById('filterCamera').value;
+
+    let url = `/api/congestion?limit=${limit}&page=${currentPage}`;
+    if (level) url += `&level=${level}`;
+    if (date) url += `&date=${date}`;
+    if (hour) url += `&hour=${hour}`;
+    if (cameraId) url += `&camera_id=${cameraId}`;
+
+    // Cập nhật tiêu đề kết quả
+    let titleParts = [];
+    if (level) titleParts.push(LEVEL_LABELS[level] || `Mức ${level}`);
+    if (date) titleParts.push(`Ngày ${date}`);
+    if (hour) titleParts.push(`Giờ ${hour}:00-${hour}:59`);
+    if (cameraId) {
+        const camSelect = document.getElementById('filterCamera');
+        const camName = camSelect.options[camSelect.selectedIndex].textContent;
+        titleParts.push(camName);
+    }
+    document.getElementById('results-title').textContent = titleParts.length > 0
+        ? `Ùn tắc: ${titleParts.join(' | ')}`
+        : 'Nhật ký Ùn tắc';
+
+    portalApi.get(url).then(response => {
+        displayCongestion(response.logs || []);
+        totalRecords = response.total || 0;
+        document.getElementById('results-count').textContent = `${totalRecords} kết quả`;
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        document.getElementById('current-page').textContent = currentPage;
+        document.getElementById('total-pages').textContent = totalPages;
+        document.getElementById('prev-page').disabled = currentPage <= 1;
+        document.getElementById('next-page').disabled = currentPage >= totalPages;
+    }).catch(error => {
+        portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+    });
+}
+
+function resetFilters() {
+    document.getElementById('filterLevel').value = '';
+    document.getElementById('filterDate').value = '';
+    document.getElementById('filterHour').value = '';
+    document.getElementById('filterCamera').value = '';
+    document.getElementById('results-title').textContent = 'Nhật ký Ùn tắc';
+    document.getElementById('results-count').textContent = '0 kết quả';
+    document.getElementById('congestionList').innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để bắt đầu</p>
+        </div>
+    `;
+}
+
+// Pagination events
+document.getElementById('prev-page').addEventListener('click', () => {
+    if (currentPage > 1) searchCongestion(currentPage - 1);
+});
+document.getElementById('next-page').addEventListener('click', () => {
+    const totalPages = Math.ceil(totalRecords / limit) || 1;
+    if (currentPage < totalPages) searchCongestion(currentPage + 1);
+});
+
+function displayCongestion(logs) {
+    const container = document.getElementById('congestionList');
+
+    if (!logs || logs.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">📭</span>
+                <p class="muted">Không tìm thấy nhật ký ùn tắc nào phù hợp với bộ lọc</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
+                        <th>Camera</th>
+                        <th style="text-align: center;">Mức độ</th>
+                        <th style="text-align: center;">Bằng chứng</th>
+                        <th style="text-align: center;">Thời gian bắt đầu</th>
+                        <th style="text-align: center;">Thời gian kết thúc</th>
+                        <th style="text-align: center;">Kéo dài (giây)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${logs.map((log, index) => `
+                        <tr>
+                            <td style="text-align: center;"><strong>${(currentPage - 1) * limit + index + 1}</strong></td>
+                            <td>
+                                <strong>${log.camera_name || 'N/A'}</strong>
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.congestion_level > 2 ? `
+                                    <span class="pill danger">Nghiêm trọng (Lv ${log.congestion_level})</span>
+                                ` : log.congestion_level === 2 ? `
+                                    <span class="pill warning">Vừa (Lv 2)</span>
+                                ` : `
+                                    <span class="pill blue">Nhẹ (Lv 1)</span>
+                                `}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.image_path ? `
+                                    <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
+                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border);">
+                                    </div>
+                                ` : '<span class="muted">—</span>'}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.start_time || 'N/A'}
+                            </td>
+                            <td style="text-align: center;">
+                                ${log.end_time || 'Đang diễn ra'}
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="pill">${log.duration_seconds || 0}s</span>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+// Khởi tạo khi trang mở
+document.addEventListener('DOMContentLoaded', () => {
+    loadCameraOptions();
+});
+</script>
+{% endblock %}

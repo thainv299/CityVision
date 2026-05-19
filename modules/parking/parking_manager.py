@@ -173,14 +173,16 @@ class ParkingManager:
         )
         os.makedirs(save_dir, exist_ok=True)
         
-        img_t0_path = os.path.join(save_dir, "img_T0.jpg")
-        img_t1_path = os.path.join(save_dir, "img_T1.jpg")
         combined_path = os.path.join(save_dir, "combined_alert.jpg")
-        video_path = os.path.join(save_dir, "video_record.mp4")
-        json_path = os.path.join(save_dir, "evidence.json")
         
-        cv2.imwrite(img_t0_path, data['img_t0'])
-        cv2.imwrite(img_t1_path, data['img_t1'])
+        if self.save_to_db:
+            img_t0_path = os.path.join(save_dir, "img_T0.jpg")
+            img_t1_path = os.path.join(save_dir, "img_T1.jpg")
+            video_path = os.path.join(save_dir, "video_record.mp4")
+            json_path = os.path.join(save_dir, "evidence.json")
+            
+            cv2.imwrite(img_t0_path, data['img_t0'])
+            cv2.imwrite(img_t1_path, data['img_t1'])
         
         # Ghép ảnh thông báo nguyên khối (T0 + T1) với nền text
         h1, w1 = data['img_t0'].shape[:2]
@@ -206,9 +208,8 @@ class ParkingManager:
         put_text_with_bg(combined, f"PLATE: {plate_folder}", (int(20*(target_w/1280)), int(100*(comb_h/1440))), f_scale * 1.2, (0, 255, 0), f_thick + 1)
         cv2.imwrite(combined_path, combined)
 
-        
         # Lưu video bằng chứng
-        if data['frames']:
+        if self.save_to_db and data['frames']:
             fh, fw = data['frames'][0].shape[:2]
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             out = cv2.VideoWriter(video_path, fourcc, self.fps, (fw, fh))
@@ -256,8 +257,9 @@ class ParkingManager:
             "start_time": data.get('start_time', datetime.datetime.now()).strftime('%Y-%m-%d %H:%M:%S'),
             "violation_time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
-        with open(json_path, 'w', encoding='utf-8') as jf:
-            json.dump(meta, jf, indent=4)
+        if self.save_to_db:
+            with open(json_path, 'w', encoding='utf-8') as jf:
+                json.dump(meta, jf, indent=4)
             
         # Gọi callback để lưu vi phạm vào Database với đầy đủ thông tin
         if self.violation_callback:
@@ -274,9 +276,9 @@ class ParkingManager:
             except Exception as e:
                 print(f"[ParkingManager] Lỗi gọi callback DB: {e}")
 
-        print(f"[ParkingManager] Đã lưu bằng chứng cho ID:{track_id} tại {save_dir}")
+        print(f"[ParkingManager] Đã xử lý bằng chứng cho ID:{track_id} tại {save_dir}")
             
-        if self.telegram_enabled:
+        if self.telegram_enabled and self.save_to_db:
             caption_img = f"🚨 VI PHẠM CHỐT: Xe {plate_folder} đỗ sai quy định."
             caption_vid = f"Bằng chứng Video 15s cho xe {plate_folder}"
             if self.io_worker is not None:

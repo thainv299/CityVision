@@ -63,6 +63,20 @@ class JobUseCases:
             job.progress["requested_quality"] = quality
             return True
 
+    def update_camera_job_settings(self, camera_id: int, settings: Dict[str, Any]):
+        """Cập nhật cấu hình tính năng AI cho job của camera đang chạy"""
+        with self.job_lock:
+            for job_id, job in self.jobs.items():
+                if str(job.camera_id) == str(camera_id) and job.status in {"queued", "running"}:
+                    if not job.progress:
+                        job.progress = {}
+                    # Lưu tất cả các cài đặt (bao gồm cấu hình AI và cấu hình hiển thị) vào progress
+                    req_s = job.progress.get("requested_settings") or {}
+                    for k, v in settings.items():
+                        req_s[k] = v
+                    job.progress["requested_settings"] = req_s
+                    print(f"[System] Đã cập nhật cấu hình cho job {job_id} trong RAM")
+
     def get_queue_position(self, job_id: str) -> Optional[int]:
         with self.job_lock:
             active_jobs = [
@@ -121,31 +135,24 @@ class JobUseCases:
         delete_after_job: bool = False
     ) -> None:
         def handle_progress(progress: Dict[str, Any]) -> None:
-            # Kiểm tra lệnh đổi chất lượng NGAY ĐẦU HÀM để tránh bị set_job ghi đè
-            req_q = None
+            # Lấy job một lần duy nhất với lock
             with self.job_lock:
                 job = self.jobs.get(job_id)
-                if job and job.progress:
-                    req_q = job.progress.get("requested_quality")
-
-            # Kiểm tra xem người dùng có đóng tab hay ngắt Stream chưa để dừng xử lý sớm
-            with self.job_lock:
-                current = self.jobs.get(job_id)
-                if current and current.status == "aborted":
+                if not job:
+                    return None
+                if job.status == "aborted":
                     raise RuntimeError("Job da bi huy boi luong stream.")
+                
+                req_q = job.progress.get("requested_quality") if job.progress else None
+                req_settings = job.progress.get("requested_settings") if job.progress else None
 
             progress_payload = dict(progress)
             preview_jpeg = progress_payload.pop("preview_jpeg", None)
             if preview_jpeg:
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if job:
-                        job.latest_frame = preview_jpeg
+                job.latest_frame = preview_jpeg  # Gán atomic không cần lock
 
             phase = progress.get("phase")
-            percent = progress.get("progress_percent")
             processed_frames = progress.get("processed_frames")
-            total_frames = progress.get("source_total_frames")
 
             if phase == "loading_model":
                 message = "Đang tải model YOLO..."
@@ -156,24 +163,28 @@ class JobUseCases:
             else:
                 message = "Đang xử lý video..."
 
-            self.set_job(
-                job_id,
-                status="running",
-                message=message,
-                error=None,
-                started_at=time.time(),
-                progress=progress_payload,
-            )
+            # Cập nhật thông số trực tiếp không cần acquire lock liên tục (atomic / GIL-safe)
+            job.status = "running"
+            job.message = message
+            job.error = None
+            if job.started_at is None:
+                job.started_at = time.time()
+            job.progress = progress_payload
             
-            # Trả về lệnh đổi chất lượng cho Bridge nếu có
-            if req_q:
-                # Xóa flag sau khi đã lấy ra để gửi đi
+            # Trả về lệnh đổi chất lượng hoặc đổi cài đặt cho Bridge nếu có
+            actions = {}
+            if req_q or req_settings:
                 with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if job and job.progress:
+                    if req_q and job.progress:
                         job.progress.pop("requested_quality", None)
-                return {"new_quality": req_q}
-            return None
+                    if req_settings and job.progress:
+                        job.progress.pop("requested_settings", None)
+                if req_q:
+                    actions["new_quality"] = req_q
+                if req_settings:
+                    actions["new_settings"] = req_settings
+
+            return actions if actions else None
 
         self.set_job(
             job_id,
@@ -232,11 +243,30 @@ class JobUseCases:
             with self.job_lock:
                 self.pause_events.pop(job_id, None)
         except Exception as exc:
+            # Kiểm tra xem có phải lỗi thiếu file model YOLO không
+            is_model_missing = isinstance(exc, FileNotFoundError) and "mô hình YOLO" in str(exc)
+            
+            error_msg = str(exc)
+            if is_model_missing:
+                error_msg = f"LỖI HỆ THỐNG: {error_msg}. Camera này đã bị tự động tắt hoạt động để bảo vệ hệ thống."
+                
+                # Tự động tắt kích hoạt camera trong database
+                camera_id = settings.get("camera_id")
+                if camera_id:
+                    try:
+                        from database import camera_repo
+                        from domain.entities.camera import Camera
+                        deactivated_camera = Camera(id=int(camera_id), is_active=False)
+                        camera_repo.update(deactivated_camera)
+                        print(f"[System] TỰ ĐỘNG TẮT HOẠT ĐỘNG camera ID {camera_id} thành công do thiếu file mô hình!")
+                    except Exception as db_exc:
+                        print(f"[System] Không thể tự động tắt kích hoạt camera {camera_id}: {db_exc}")
+
             self.set_job(
                 job_id,
                 status="failed",
-                message="Xử lý video thất bại.",
-                error=str(exc),
+                message="Xử lý video thất bại." if not is_model_missing else "Lỗi hệ thống: Thiếu mô hình YOLO.",
+                error=error_msg,
                 summary=None,
                 output_filename=None,
                 finished_at=time.time(),
@@ -288,24 +318,25 @@ class JobUseCases:
 
     def stream_job_frames(self, job_id: str):
         import asyncio
+        with self.job_lock:
+            job = self.jobs.get(job_id)
+        if not job:
+            return
+
         try:
             while True:
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                if not job:
-                    break
-                
-                if job.latest_frame:
-                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + job.latest_frame + b"\r\n"
-                
+                # Đọc trực tiếp trạng thái mà không cần lock liên tục (atomic & GIL-safe)
                 if job.status in ("completed", "failed", "aborted"):
                     break
+                
+                frame_bytes = job.latest_frame
+                if frame_bytes:
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                 
                 time.sleep(0.03)  # Điều tiết tốc độ khung hình stream MJPEG để tránh quá tải CPU
         finally:
             with self.job_lock:
-                job = self.jobs.get(job_id)
-                if job and job.status in ("queued", "running"):
+                if job.status in ("queued", "running"):
                     job.status = "aborted"
                     job.message = "Stream bị ngắt kết nối."
     def start_active_cameras(self, camera_use_cases: Any):
@@ -334,6 +365,7 @@ class JobUseCases:
                         "enable_congestion": cam.enable_congestion,
                         "enable_illegal_parking": cam.enable_illegal_parking,
                         "enable_license_plate": cam.enable_license_plate,
+                        "enable_ai": cam.enable_ai,
                         "model_path": cam.model_path,
                         "confidence_threshold": sys_settings.get("confidence", 0.32),
                         "process_every_n_frames": sys_settings.get("frame_skip", 2),

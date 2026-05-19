@@ -57,6 +57,7 @@ class SqliteCameraRepository(CameraRepository):
             enable_congestion=bool(row["bat_phat_hien_un_tac"]),
             enable_illegal_parking=bool(row["bat_phat_hien_do_sai"]),
             enable_license_plate=bool(row["bat_phat_hien_bien_so"]),
+            enable_ai=bool(row["bat_xu_ly_ai"]),
             is_active=bool(row["trang_thai_hoat_dong"]),
             model_path=row["mo_hinh_yolo"] or "",
             created_at=row["ngay_tao"],
@@ -120,9 +121,9 @@ class SqliteCameraRepository(CameraRepository):
                 """
                 INSERT INTO camera (
                     ten_camera, nguon_phat, mo_ta, toa_do_vung_chon, toa_do_cam_do,
-                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, trang_thai_hoat_dong, mo_hinh_yolo
+                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, bat_xu_ly_ai, trang_thai_hoat_dong, mo_hinh_yolo
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     camera.name,
@@ -133,6 +134,7 @@ class SqliteCameraRepository(CameraRepository):
                     int(camera.enable_congestion),
                     int(camera.enable_illegal_parking),
                     int(camera.enable_license_plate),
+                    int(camera.enable_ai),
                     int(camera.is_active),
                     camera.model_path,
                 ),
@@ -173,6 +175,9 @@ class SqliteCameraRepository(CameraRepository):
         if camera.enable_license_plate is not None:
             assignments.append("bat_phat_hien_bien_so = ?")
             values.append(int(camera.enable_license_plate))
+        if camera.enable_ai is not None:
+            assignments.append("bat_xu_ly_ai = ?")
+            values.append(int(camera.enable_ai))
         if camera.is_active is not None:
             assignments.append("trang_thai_hoat_dong = ?")
             values.append(int(camera.is_active))

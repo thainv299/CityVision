@@ -107,6 +107,13 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
     elif camera:
         enable_license_plate = camera.enable_license_plate
 
+    enable_ai = True
+    if "enable_ai" in form_data:
+        val = form_data.get("enable_ai")
+        enable_ai = str(val).lower() in {"1", "true", "yes", "on"}
+    elif camera:
+        enable_ai = camera.enable_ai
+
     def _parse_float(val, d):
         try:
             return float(val) if val not in (None, "") else d
@@ -119,12 +126,18 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
     from database.sqlite_db import get_system_settings
     sys_settings = get_system_settings()
 
+    def _parse_bool(val, default_val=True):
+        if val in (None, ""):
+            return default_val
+        return str(val).lower() in {"1", "true", "yes", "on", "checked"}
+
     return {
         "model_path": str(model_path),
         "confidence_threshold": _parse_float(form_data.get("confidence_threshold"), sys_settings.get("confidence", 0.32)),
         "enable_congestion": enable_congestion,
         "enable_illegal_parking": enable_illegal_parking,
         "enable_license_plate": enable_license_plate,
+        "enable_ai": enable_ai,
         "stop_seconds": _parse_float(form_data.get("stop_seconds"), 30.0),
         "parking_move_threshold_px": _parse_float(form_data.get("parking_move_threshold_px"), 10.0),
         "process_every_n_frames": _parse_int(form_data.get("process_every_n_frames"), sys_settings.get("frame_skip", 2)),
@@ -132,6 +145,16 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
         "roi_meta": roi_meta,
         "no_parking_points": no_parking_points,
         "no_park_meta": no_park_meta,
+        "show_roi_surveillance": _parse_bool(form_data.get("show_roi_surveillance"), True),
+        "show_roi_parking": _parse_bool(form_data.get("show_roi_parking"), True),
+        "show_fps": _parse_bool(form_data.get("show_fps"), True),
+        "show_box_person": _parse_bool(form_data.get("show_box_person"), True),
+        "show_box_bicycle": _parse_bool(form_data.get("show_box_bicycle"), True),
+        "show_box_car": _parse_bool(form_data.get("show_box_car"), True),
+        "show_box_motorcycle": _parse_bool(form_data.get("show_box_motorcycle"), True),
+        "show_box_plate": _parse_bool(form_data.get("show_box_plate"), True),
+        "show_box_bus": _parse_bool(form_data.get("show_box_bus"), True),
+        "show_box_truck": _parse_bool(form_data.get("show_box_truck"), True),
     }
 
 
@@ -299,6 +322,7 @@ async def api_create_test_job(
     enable_congestion: Optional[str] = Form(None),
     enable_illegal_parking: Optional[str] = Form(None),
     enable_license_plate: Optional[str] = Form(None),
+    enable_ai: Optional[str] = Form(None),
     stop_seconds: Optional[str] = Form(None),
     parking_move_threshold_px: Optional[str] = Form(None),
     process_every_n_frames: Optional[str] = Form(None),
@@ -363,6 +387,7 @@ async def api_create_test_job(
         "enable_congestion": enable_congestion,
         "enable_illegal_parking": enable_illegal_parking,
         "enable_license_plate": enable_license_plate,
+        "enable_ai": enable_ai,
         "stop_seconds": stop_seconds,
         "parking_move_threshold_px": parking_move_threshold_px,
         "process_every_n_frames": process_every_n_frames,
@@ -458,6 +483,18 @@ async def api_update_job_quality(job_id: str, quality: str = Body(..., embed=Tru
     if not success:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job."})
     return {"ok": True, "message": f"Đã yêu cầu đổi sang chất lượng: {quality}"}
+
+
+@test_video_router.post("/api/test-jobs/{job_id}/settings")
+async def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), user=Depends(login_required)):
+    with container.job_use_cases.job_lock:
+        job = container.job_use_cases.jobs.get(job_id)
+        if not job:
+            return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job."})
+        camera_id = job.camera_id
+
+    container.job_use_cases.update_camera_job_settings(camera_id, settings)
+    return {"ok": True, "message": "Đã yêu cầu cập nhật cài đặt."}
 
 
 @test_video_router.get("/api/test-jobs/{job_id}/stream", name="test_video.serve_test_job_stream")
