@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 
 # --- NGƯỠNG CẢNH BÁO GIAO THÔNG (CONGESTION THRESHOLDS) ---
-CONG_COUNT_THR = 20              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
+CONG_COUNT_THR = 15              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
 CONG_PEOPLE_THR = 15             # Cấp 1: Số người tối thiểu để được coi là "Đông đúc L1"
 CONG_AREA_PERCENT_THR = 35.0     # Cấp 2: % Diện tích vùng giám sát tối thiểu bị lấp đầy để coi là "Rất đông L2"
 CONG_SPEED_THR = 10.0            # Cấp 3: Vận tốc di chuyển tối đa (px/s) để bị coi là "Tắc nghẽn L3"
@@ -119,7 +119,7 @@ class TrafficMonitor:
         self.last_occupancy = occupancy_percent # Lưu lại để vẽ lên màn hình
 
         # 3. ĐÁNH GIÁ MỨC ĐỘ (RAW)
-        is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR)
+        is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR) or (self.vehicle_count + self.people_count >= 25)
 
         if not is_high_count and occupancy_percent < CONG_AREA_PERCENT_THR:
             traffic_level = 0

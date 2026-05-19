@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from database.sqlite_db import broadcast_notification
 import os
 import sys
 import time
@@ -399,9 +399,9 @@ def _encode_preview_frame(frame: np.ndarray, preview_w: int = 0, preview_h: int 
     if frame is None or frame.size == 0:
         return None
 
-    # Resize xuống kích thước preview để nén nhanh hơn (INTER_LINEAR cho chất lượng tốt hơn)
+    # Resize xuống kích thước preview để nén nhanh hơn (INTER_NEAREST cho tốc độ nhanh nhất)
     if preview_w > 0 and preview_h > 0 and (frame.shape[1] != preview_w or frame.shape[0] != preview_h):
-        preview = cv2.resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_LINEAR)
+        preview = cv2.resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_NEAREST)
     else:
         preview = frame
 
@@ -951,7 +951,6 @@ def process_video(
                         # Lưu ảnh qua io_worker (Async)
                         io_worker.enqueue_save_image(abs_path, clean_frame)
                                 
-                        # Ghi vào Database (Sync để lấy ID)
                         last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
                     
                     # Cập nhật mức đã lưu DB gần nhất

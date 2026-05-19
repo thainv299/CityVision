@@ -264,16 +264,17 @@ function showNotificationToast(n) {
     let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : (n.noi_dung || 'Đã phát hiện ùn tắc tại khu vực giám sát');
 
     // Tạo toast thông báo (Hiển thị 8 giây cho người dùng dễ theo dõi)
-    const toast = showToast(messageText, type, titleText, 8000);
+    const toast = window.portalApi.showToast(messageText, type, titleText, 8000);
     if (!toast) return;
 
     // Thêm hình ảnh preview vào toast nếu có để tăng độ trực quan
     if (n.image) {
         const toastContent = toast.querySelector('.toast-content');
         if (toastContent) {
+            const cleanImgPath = n.image.replace(/^\/+/, '').replace(/\\/g, '/');
             const imgDiv = document.createElement('div');
             imgDiv.style.marginTop = '8px';
-            imgDiv.innerHTML = `<img src="/${n.image}" style="width: 100%; height: 80px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.05);">`;
+            imgDiv.innerHTML = `<img src="/${cleanImgPath}" style="width: 100%; height: 80px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.05);">`;
             toastContent.appendChild(imgDiv);
         }
     }
@@ -379,9 +380,10 @@ function updateNotificationUI(count, notifications) {
         const timeObj = new Date(n.time);
         const timeStr = timeObj.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
 
+        const cleanImgPath = n.image ? n.image.replace(/^\/+/, '').replace(/\\/g, '/') : '';
         item.innerHTML = `
                 <div style="display: flex; gap: 10px;">
-                    ${n.image ? `<img src="/${n.image}" style="width: 50px; height: 35px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #eee;">` : ''}
+                    ${cleanImgPath ? `<img src="/${cleanImgPath}" style="width: 50px; height: 35px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #eee;">` : ''}
                     <div style="flex: 1;">
                         <div style="font-size: 12px; font-weight: 600; color: ${color};">${icon} ${titleText}</div>
                         <div style="font-size: 11px; color: #64748B; margin-top: 2px;">${n.type === 'violation' ? 'BKS: ' + n.title : (n.noi_dung || 'Phát hiện ùn tắc')}</div>
