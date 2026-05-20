@@ -184,8 +184,8 @@
 
                 <div class="nav-label" style="margin-top: 16px;">Phân tích AI</div>
 
-                <a id="nav-test-video" class="nav-link {% if page == 'test-video' %}active{% endif %}"
-                    href="{{ url_for('test_video.test_video_page') }}">
+                <a id="nav-monitoring" class="nav-link {% if page == 'monitoring' %}active{% endif %}"
+                    href="{{ url_for('monitoring.monitoring_page') }}">
                     Xem Camera
                 </a>
 
@@ -409,7 +409,7 @@
                             { name: "Ùn tắc: Mức 2 (Rất đông)", keywords: "un tac muc 2 rat dong", url: "/congestion?level=2", icon: "fa-traffic-light", color: "#f59e0b" },
                             { name: "Ùn tắc: Mức 3 (Tắc nghẽn)", keywords: "un tac muc 3 tac nghen ket xe", url: "/congestion?level=3", icon: "fa-traffic-light", color: "#ef4444" },
                             { name: "Tìm kiếm Ùn tắc", keywords: "tim kiem un tac search", url: "/congestion/search", icon: "fa-search", color: "#ef4444" },
-                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/test-video", icon: "fa-play-circle", color: "#14b8a6" },
+                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/monitoring", icon: "fa-play-circle", color: "#14b8a6" },
                             { name: "Cài đặt hệ thống", keywords: "cai dat he thong settings telegram bot", url: "/settings", icon: "fa-cog", color: "#64748b" }
                         ];
 

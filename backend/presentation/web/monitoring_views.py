@@ -14,7 +14,7 @@ from presentation.container import container, templates
 from presentation.middlewares.auth import login_required
 from core.config import PROJECT_ROOT  # Đã có trong test_video_views qua resolve_path hoặc config
 
-test_video_router = APIRouter()
+monitoring_router = APIRouter()
 
 
 def _parse_polygon(value: Any) -> Optional[list]:
@@ -158,8 +158,8 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
     }
 
 
-@test_video_router.get("/test-video", name="test_video.test_video_page")
-async def test_video_page(request: Request, user=Depends(login_required)):
+@monitoring_router.get("/monitoring", name="monitoring.monitoring_page")
+async def monitoring_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     
@@ -177,9 +177,9 @@ async def test_video_page(request: Request, user=Depends(login_required)):
     cameras = container.camera_use_cases.list_cameras()
     return container.render_template(
         request,
-        "test_video.html",
+        "monitoring.html",
         {
-            "page": "test-video",
+            "page": "monitoring",
             "cameras": [c.to_dict() for c in cameras],
             "default_model_path": str(DEFAULT_MODEL_PATH),
             "available_models": available_models,
@@ -188,7 +188,7 @@ async def test_video_page(request: Request, user=Depends(login_required)):
 
 
 
-@test_video_router.post("/api/upload-chunk")
+@monitoring_router.post("/api/upload-chunk")
 async def api_upload_chunk(
     upload_id: str = Form(...),
     chunk_index: int = Form(...),
@@ -207,7 +207,7 @@ async def api_upload_chunk(
         
     return JSONResponse(status_code=200, content={"ok": True})
     
-@test_video_router.get("/api/server-videos")
+@monitoring_router.get("/api/server-videos")
 async def api_list_server_videos(user=Depends(login_required)):
     data_root = PROJECT_ROOT / "data"
     if not data_root.exists():
@@ -242,7 +242,7 @@ async def api_list_server_videos(user=Depends(login_required)):
         
     return {"ok": True, "groups": grouped_videos}
 
-@test_video_router.get("/api/server-videos/preview")
+@monitoring_router.get("/api/server-videos/preview")
 async def api_get_server_video_preview(path: Optional[str] = None, rel_path: Optional[str] = None, user=Depends(login_required)):
     final_path = path or rel_path
     if not final_path:
@@ -309,7 +309,7 @@ async def api_get_server_video_preview(path: Optional[str] = None, rel_path: Opt
             try: os.remove(out_jpg)
             except: pass
 
-@test_video_router.post("/api/test-jobs")
+@monitoring_router.post("/api/test-jobs")
 async def api_create_test_job(
     request: Request,
     user=Depends(login_required),
@@ -434,24 +434,24 @@ async def api_create_test_job(
         return JSONResponse(status_code=400, content={"ok": False, "error": exc.message})
 
     payload = job.to_dict()
-    payload["stream_url"] = str(request.url_for("test_video.serve_test_job_stream", job_id=job.id))
+    payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
     return JSONResponse(status_code=202, content={"ok": True, "job": payload})
 
 
-@test_video_router.get("/api/test-jobs/{job_id}")
+@monitoring_router.get("/api/test-jobs/{job_id}")
 async def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)):
     job = container.job_use_cases.get_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job kiểm tra."})
         
     payload = job.to_dict()
-    payload["stream_url"] = str(request.url_for("test_video.serve_test_job_stream", job_id=job.id))
+    payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
     return {"ok": True, "job": payload}
-@test_video_router.post("/api/test-jobs/{job_id}/pause")
+@monitoring_router.post("/api/test-jobs/{job_id}/pause")
 async def api_pause_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.pause_job(job_id)
     if not success:
@@ -459,7 +459,7 @@ async def api_pause_test_job(job_id: str, user=Depends(login_required)):
     return {"ok": True, "message": "Đã tạm dừng quá trình phân tích."}
 
 
-@test_video_router.post("/api/test-jobs/{job_id}/stop")
+@monitoring_router.post("/api/test-jobs/{job_id}/stop")
 async def api_stop_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.stop_job(job_id)
     if not success:
@@ -467,14 +467,14 @@ async def api_stop_test_job(job_id: str, user=Depends(login_required)):
     return {"ok": True, "message": "Đã dừng quá trình phân tích."}
 
 
-@test_video_router.post("/api/test-jobs/{job_id}/resume")
+@monitoring_router.post("/api/test-jobs/{job_id}/resume")
 async def api_resume_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.resume_job(job_id)
     if not success:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể tiếp tục job này."})
     return {"ok": True, "message": "Đã tiếp tục quá trình phân tích."}
     
-@test_video_router.post("/api/test-jobs/{job_id}/quality")
+@monitoring_router.post("/api/test-jobs/{job_id}/quality")
 async def api_update_job_quality(job_id: str, quality: str = Body(..., embed=True), user=Depends(login_required)):
     if quality not in ["low", "medium", "high", "ultra"]:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Chất lượng không hợp lệ."})
@@ -485,7 +485,7 @@ async def api_update_job_quality(job_id: str, quality: str = Body(..., embed=Tru
     return {"ok": True, "message": f"Đã yêu cầu đổi sang chất lượng: {quality}"}
 
 
-@test_video_router.post("/api/test-jobs/{job_id}/settings")
+@monitoring_router.post("/api/test-jobs/{job_id}/settings")
 async def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), user=Depends(login_required)):
     with container.job_use_cases.job_lock:
         job = container.job_use_cases.jobs.get(job_id)
@@ -497,7 +497,7 @@ async def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(.
     return {"ok": True, "message": "Đã yêu cầu cập nhật cài đặt."}
 
 
-@test_video_router.get("/api/test-jobs/{job_id}/stream", name="test_video.serve_test_job_stream")
+@monitoring_router.get("/api/test-jobs/{job_id}/stream", name="monitoring.serve_test_job_stream")
 async def serve_test_job_stream(job_id: str, user=Depends(login_required)):
     return StreamingResponse(
         container.job_use_cases.stream_job_frames(job_id), 
@@ -505,7 +505,7 @@ async def serve_test_job_stream(job_id: str, user=Depends(login_required)):
     )
 
 
-@test_video_router.post("/api/test-video/extract-frame")
+@monitoring_router.post("/api/monitoring/extract-frame")
 async def api_extract_video_frame(
     video_file: Optional[UploadFile] = File(None), 
     server_filename: Optional[str] = Form(None),
@@ -571,7 +571,7 @@ async def api_extract_video_frame(
                 if os.path.exists(p): os.remove(p)
             except: pass
 
-@test_video_router.get("/job-previews/{job_id}.jpg", name="test_video.serve_test_job_preview")
+@monitoring_router.get("/job-previews/{job_id}.jpg", name="monitoring.serve_test_job_preview")
 async def serve_test_job_preview(job_id: str, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user

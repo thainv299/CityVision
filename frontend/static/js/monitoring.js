@@ -1,5 +1,5 @@
 // Initialize immediately since script loads at end of page (after DOM is ready)
-function initTestVideoForm() {
+function initMonitoringForm() {
     const feedback = document.getElementById("test-job-feedback");
     const statusPanel = document.getElementById("job-status-panel");
     const viewerPanel = document.getElementById("viewer-panel");
@@ -547,4 +547,4 @@ function initTestVideoForm() {
     refreshTimer = setInterval(refreshSnapshots, 10000); // 10s refresh for snapshots
 }
 
-document.addEventListener('DOMContentLoaded', initTestVideoForm);
+document.addEventListener('DOMContentLoaded', initMonitoringForm);
