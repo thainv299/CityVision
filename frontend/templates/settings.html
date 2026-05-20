@@ -73,6 +73,17 @@
                 <option value="4">Tiết kiệm cao (Stride 4)</option>
             </select>
         </div>
+
+        <div style="margin-bottom: 20px;">
+            <label for="setting-model-path" style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Mô hình YOLO Phân tích</label>
+            <select id="setting-model-path"
+                style="width: 100%; padding: 11px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                {% for model_file in available_models %}
+                {% set full_model_path = "models/" ~ model_file %}
+                <option value="{{ full_model_path }}">{{ model_file }}</option>
+                {% endfor %}
+            </select>
+        </div>
     </div>
 
     <div class="ds-chart-card"
@@ -196,6 +207,11 @@
                 // Frame Skip (1 - 4)
                 document.getElementById('setting-frame-skip').value = s.frame_skip;
 
+                // Model Path
+                if (s.mo_hinh_yolo) {
+                    document.getElementById('setting-model-path').value = s.mo_hinh_yolo;
+                }
+
                 // Congestion threshold (10 - 95)
                 document.getElementById('setting-congestion-threshold').value = s.congestion_threshold;
                 document.getElementById('cong-val').textContent = s.congestion_threshold;
@@ -236,7 +252,8 @@
             frame_skip: parseInt(document.getElementById('setting-frame-skip').value),
             congestion_threshold: parseInt(document.getElementById('setting-congestion-threshold').value),
             parking_violation_time: parseInt(document.getElementById('setting-parking-violation-time').value),
-            log_retention: document.getElementById('setting-log-retention').value
+            log_retention: document.getElementById('setting-log-retention').value,
+            mo_hinh_yolo: document.getElementById('setting-model-path').value
         };
 
         saveBtn.disabled = true;

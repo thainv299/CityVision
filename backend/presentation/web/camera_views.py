@@ -15,6 +15,7 @@ from core.config import ALLOWED_VIDEO_EXTENSIONS, INPUTS_DIR, PROJECT_ROOT, DEFA
 from core.errors import AppError, NotFoundError
 from presentation.container import container, templates
 from presentation.middlewares.auth import login_required
+from database.sqlite_db import update_camera_settings, connect, get_camera_settings
 
 camera_router = APIRouter()
 
@@ -314,11 +315,12 @@ async def api_test_camera_frame(source: str = Body(..., embed=True), user=Depend
 
 @camera_router.get("/api/cameras/{camera_id}/settings")
 async def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
-    from database.sqlite_db import get_camera_settings
     try:
         # Kiểm tra camera có tồn tại không
-        container.camera_use_cases.get_camera(camera_id)
+        camera = container.camera_use_cases.get_camera(camera_id)
         settings = get_camera_settings(camera_id)
+        # Đính kèm mo_hinh_yolo vào settings để UI nạp lên dropdown
+        settings["mo_hinh_yolo"] = camera.model_path
         return {"ok": True, "settings": settings}
     except NotFoundError:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
@@ -328,14 +330,33 @@ async def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
 
 @camera_router.post("/api/cameras/{camera_id}/settings")
 async def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
-    from database.sqlite_db import update_camera_settings
     try:
         # Kiểm tra camera có tồn tại không
-        container.camera_use_cases.get_camera(camera_id)
+        camera = container.camera_use_cases.get_camera(camera_id)
         update_camera_settings(camera_id, payload)
         
-        # Cập nhật nóng vào luồng AI đang chạy trong RAM
-        container.job_use_cases.update_camera_job_settings(camera_id, payload)
+        # Kiểm tra sự thay đổi mô hình YOLO
+        new_model = payload.get("mo_hinh_yolo")
+        model_changed = False
+        if new_model and new_model != camera.model_path:
+            # Cập nhật mô hình YOLO trong CSDL camera
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE camera SET mo_hinh_yolo = ?, ngay_cap_nhat = CURRENT_TIMESTAMP WHERE id = ?",
+                    (new_model, camera_id)
+                )
+                conn.commit()
+            model_changed = True
+            
+        # Đồng bộ và cập nhật nóng hoặc khởi động lại job
+        if model_changed:
+            # Thay đổi mô hình AI -> Cần giải phóng và khởi động lại luồng để nạp model mới
+            if camera.is_active:
+                container.job_use_cases.stop_camera_job(camera_id)
+                container.job_use_cases.start_camera_job(camera_id)
+        else:
+            # Chỉ cập nhật các specs AI trong RAM
+            container.job_use_cases.update_camera_job_settings(camera_id, payload)
         
         return {"ok": True, "message": "Đã cập nhật cấu hình camera thành công."}
     except NotFoundError:

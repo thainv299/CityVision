@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Depends, status
 from fastapi.responses import RedirectResponse
-
+from core.config import PROJECT_ROOT
 from presentation.container import container, templates
 from presentation.middlewares.auth import get_current_user, login_required
 from fastapi.responses import HTMLResponse
@@ -40,12 +40,23 @@ async def settings_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     cameras = container.camera_use_cases.list_cameras()
+    
+    # Quét danh sách các mô hình có sẵn tương tự như camera_views.py
+    models_dir = PROJECT_ROOT / "models"
+    available_models = []
+    if models_dir.exists():
+        for f in models_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in [".pt", ".engine"]:
+                available_models.append(f.name)
+    available_models.sort()
+
     return container.render_template(
         request, 
         "settings.html", 
         {
             "page": "settings", 
-            "cameras": [c.to_dict() for c in cameras]
+            "cameras": [c.to_dict() for c in cameras],
+            "available_models": available_models
         }
     )
 
