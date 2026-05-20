@@ -50,7 +50,7 @@ class CameraUseCases:
 
         return parsed_points, metadata
 
-    def _validate_payload(self, payload: Dict[str, Any]) -> Camera:
+    def _validate_payload(self, payload: Dict[str, Any], is_create: bool = False) -> Camera:
         def to_bool(val: Any, default: bool = True) -> bool:
             if val is None: return default
             return str(val).strip().lower() in {"1", "true", "yes", "on"}
@@ -59,8 +59,17 @@ class CameraUseCases:
         if not name:
             raise ValidationError("Tên camera không được để trống.")
 
+        model_path = str(payload.get("model_path", "")).strip()
+        if is_create and not model_path:
+            raise ValidationError("Vui lòng chọn đường dẫn mô hình AI.")
+
         roi_points, roi_meta = self._parse_polygon(payload.get("roi_points"))
+        if is_create and not roi_points:
+            raise ValidationError("Vui lòng vẽ vùng ROI giám sát giao thông.")
+
         no_parking_points, no_park_meta = self._parse_polygon(payload.get("no_parking_points"))
+        if is_create and not no_parking_points:
+            raise ValidationError("Vui lòng vẽ vùng ROI cấm dừng đỗ.")
 
         return Camera(
             id=None,
@@ -76,11 +85,11 @@ class CameraUseCases:
             enable_license_plate=to_bool(payload.get("enable_license_plate"), True),
             enable_ai=to_bool(payload.get("enable_ai"), True),
             is_active=to_bool(payload.get("is_active"), True),
-            model_path=str(payload.get("model_path", "")).strip()
+            model_path=model_path
         )
         
     def create_camera(self, payload: Dict[str, Any]) -> Camera:
-        camera = self._validate_payload(payload)
+        camera = self._validate_payload(payload, is_create=True)
         for existing in self.camera_repo.list_all():
             if existing.name == camera.name:
                 raise AlreadyExistsError("Tên camera đã tồn tại.")

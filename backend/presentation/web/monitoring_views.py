@@ -123,8 +123,9 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
             return int(val) if val not in (None, "") else d
         except: return d
 
-    from database.sqlite_db import get_system_settings
-    sys_settings = get_system_settings()
+    from database.sqlite_db import get_camera_settings
+    cam_id = camera.id if camera else 0
+    cam_settings = get_camera_settings(cam_id) if cam_id else {}
 
     def _parse_bool(val, default_val=True):
         if val in (None, ""):
@@ -133,14 +134,15 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
 
     return {
         "model_path": str(model_path),
-        "confidence_threshold": _parse_float(form_data.get("confidence_threshold"), sys_settings.get("confidence", 0.32)),
+        "confidence_threshold": _parse_float(form_data.get("confidence_threshold"), cam_settings.get("confidence", 0.37)),
         "enable_congestion": enable_congestion,
         "enable_illegal_parking": enable_illegal_parking,
         "enable_license_plate": enable_license_plate,
         "enable_ai": enable_ai,
-        "stop_seconds": _parse_float(form_data.get("stop_seconds"), 30.0),
+        "stop_seconds": _parse_float(form_data.get("stop_seconds"), float(cam_settings.get("parking_violation_time", 30.0))),
         "parking_move_threshold_px": _parse_float(form_data.get("parking_move_threshold_px"), 10.0),
-        "process_every_n_frames": _parse_int(form_data.get("process_every_n_frames"), sys_settings.get("frame_skip", 2)),
+        "process_every_n_frames": _parse_int(form_data.get("process_every_n_frames"), cam_settings.get("frame_skip", 2)),
+        "congestion_threshold": _parse_float(form_data.get("congestion_threshold"), float(cam_settings.get("congestion_threshold", 35.0))),
         "roi_points": roi_points,
         "roi_meta": roi_meta,
         "no_parking_points": no_parking_points,

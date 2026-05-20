@@ -1,150 +1,282 @@
 {% extends "base.html" %}
 
-{% block title %}Cấu hình Hệ thống Cityvision AI{% endblock %}
+{% block title %}Cấu hình Camera CityVision AI{% endblock %}
 
 {% block content %}
 <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end;">
     <div>
-        <h2 class="page-title" style="margin-bottom: 4px;">Trung tâm Điều hành & Cấu hình</h2>
-        <p style="color: #64748B; font-size: 14px;">Tùy chỉnh thuật toán nhận diện và quy chuẩn quản lý đô thị thông minh</p>
+        <h2 class="page-title" style="margin-bottom: 4px;">Trung tâm Điều hành & Cấu hình AI</h2>
+        <p style="color: #64748B; font-size: 14px;">Tùy chỉnh thuật toán nhận diện và quy chuẩn quản lý đô thị thông
+            minh cho từng Camera</p>
     </div>
     <div style="display: flex; gap: 10px; align-items: center;">
-        <div id="settings-feedback" style="font-size: 13px; font-weight: 600;"></div>
-        <span style="background: #F0FDF4; color: #166534; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1px solid #BBF7D0;">Server: Online</span>
+        <div id="settings-feedback" style="font-size: 13px; font-weight: 600; transition: all 0.3s ease;"></div>
+        <span
+            style="background: #F0FDF4; color: #166534; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1px solid #BBF7D0;">Hệ
+            thống: Online</span>
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-    
-    <div class="ds-chart-card" style="padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; border-bottom: 2px solid #4379EE; padding-bottom: 10px; display: inline-block;">
+<!-- Bộ chọn Camera động -->
+<div
+    style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px;">
+    <div style="display: flex; align-items: center; gap: 15px; flex-grow: 1;">
+        <label for="camera-select" style="font-weight: 700; font-size: 15px; color: #202224; white-space: nowrap;">
+            <i class="fas fa-video" style="margin-right: 8px; color: #4379EE;"></i> Chọn Camera cấu hình:
+        </label>
+        <select id="camera-select" onchange="onCameraChange()"
+            style="width: 100%; max-width: 400px; padding: 10px 15px; border: 2px solid #E2E8F0; border-radius: 8px; font-size: 14px; font-weight: 600; color: #4A5568; outline: none; transition: border-color 0.2s;">
+            {% for cam in cameras %}
+            <option value="{{ cam.id }}">{{ cam.name }} (ID: {{ cam.id }})</option>
+            {% else %}
+            <option value="">-- Chưa có camera nào --</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div id="camera-status-info"
+        style="font-size: 12px; font-weight: 700; color: #64748B; background: #F8FAFC; padding: 8px 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
+        Vui lòng chọn camera để cấu hình
+    </div>
+</div>
+
+<div id="settings-form-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+
+    <div class="ds-chart-card"
+        style="padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+        <h3
+            style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; border-bottom: 2px solid #4379EE; padding-bottom: 10px; display: inline-block;">
             <i class="fas fa-brain" style="margin-right: 8px; color: #4379EE;"></i>Thông số Vận hành AI
         </h3>
-        
-        <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Độ tự tin tối thiểu (Confidence): <span id="conf-val">{{ (settings.confidence * 100)|int }}</span>%</label>
-            <input type="range" id="setting-confidence" min="10" max="90" value="{{ (settings.confidence * 100)|int }}" 
-                   oninput="document.getElementById('conf-val').textContent = this.value"
-                   style="width: 100%; accent-color: #4379EE;">
-            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8; margin-top: 4px;">
-                <span>Nhạy (0.1)</span><span>Mặc định (0.32)</span><span>Chặt chẽ (0.9)</span>
+
+        <div style="margin-bottom: 25px;">
+            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">
+                Độ tự tin tối thiểu (Confidence): <span id="conf-val"
+                    style="color: #4379EE; font-weight: 700;">37</span>%
+            </label>
+            <input type="range" id="setting-confidence" min="10" max="90" value="37"
+                oninput="document.getElementById('conf-val').textContent = this.value"
+                style="width: 100%; accent-color: #4379EE;">
+            <div
+                style="display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8; margin-top: 4px;">
+                <span>Nhạy (0.1)</span><span>Mặc định (0.37)</span><span>Chặt chẽ (0.9)</span>
             </div>
         </div>
 
         <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Tần suất xử lý (Frame Stride)</label>
-            <select id="setting-frame-skip" style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px;">
-                <option value="1" {% if settings.frame_skip == 1 %}selected{% endif %}>Xử lý mọi khung hình (Stride 1)</option>
-                <option value="2" {% if settings.frame_skip == 2 %}selected{% endif %}>Bỏ qua 1 khung hình (Stride 2)</option>
-                <option value="3" {% if settings.frame_skip == 3 %}selected{% endif %}>Chế độ tiết kiệm (Stride 3)</option>
+            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Tần
+                suất xử lý (Frame Stride)</label>
+            <select id="setting-frame-skip"
+                style="width: 100%; padding: 11px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                <option value="1">Xử lý mọi khung hình (Stride 1)</option>
+                <option value="2">Bỏ qua 1 khung hình (Stride 2 - Khuyên dùng)</option>
+                <option value="3">Chế độ tiết kiệm (Stride 3)</option>
+                <option value="4">Tiết kiệm cao (Stride 4)</option>
             </select>
         </div>
-
     </div>
 
-    <div class="ds-chart-card" style="padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; border-bottom: 2px solid #EF4444; padding-bottom: 10px; display: inline-block;">
+    <div class="ds-chart-card"
+        style="padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+        <h3
+            style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; border-bottom: 2px solid #EF4444; padding-bottom: 10px; display: inline-block;">
             <i class="fas fa-map-marked-alt" style="margin-right: 8px; color: #EF4444;"></i>Tiêu chuẩn Giám sát Đô thị
         </h3>
 
-        <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Ngưỡng mật độ Tắc nghẽn: <span id="cong-val">{{ settings.congestion_threshold }}</span>%</label>
-            <input type="range" id="setting-congestion-threshold" min="30" max="95" value="{{ settings.congestion_threshold }}" 
-                   oninput="document.getElementById('cong-val').textContent = this.value"
-                   style="width: 100%; accent-color: #EF4444;">
-            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8;">
-                <span>Thông thoáng (30%)</span><span>70% (Cảnh báo)</span><span>Ùn tắc (85%+)</span>
+        <div style="margin-bottom: 25px;">
+            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">
+                Ngưỡng mật độ Tắc nghẽn: <span id="cong-val" style="color: #EF4444; font-weight: 700;">35</span>%
+            </label>
+            <input type="range" id="setting-congestion-threshold" min="10" max="95" value="35"
+                oninput="document.getElementById('cong-val').textContent = this.value"
+                style="width: 100%; accent-color: #EF4444;">
+            <div
+                style="display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8; margin-top: 4px;">
+                <span>Thông thoáng (10%)</span><span>Mặc định (35%)</span><span>Ùn tắc cực hạn (90%+)</span>
             </div>
         </div>
 
         <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Thời gian xác định đỗ sai (giây)</label>
-            <input type="number" id="setting-parking-violation-time" value="{{ settings.parking_violation_time }}" style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px;">
-        </div>
-
-        <div style="padding: 12px; background: #F0FDF4; border-radius: 8px; border: 1px dashed #22C55E;">
-            <h4 style="font-size: 12px; margin: 0 0 5px 0; color: #166534; font-weight: 700;">TIÊU CHUẨN THÔNG THOÁNG</h4>
-            <p style="font-size: 11px; color: #15803d; margin: 0;">Cảnh báo được kích hoạt khi mật độ xe vượt quá ngưỡng đã cài đặt trong vùng ROI nhất định.</p>
+            <label for="setting-parking-violation-time"
+                style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời gian
+                xác định đỗ xe sai quy định (giây)</label>
+            <input type="number" id="setting-parking-violation-time" min="5" max="3600" value="30"
+                style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none;">
         </div>
     </div>
 
-    <div class="ds-chart-card" style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+    <div class="ds-chart-card"
+        style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
         <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224;">
-            <i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu
+            <i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu lịch sử
         </h3>
-        
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px;">
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
             <div>
-                <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Lưu trữ Logs</label>
-                <select id="setting-log-retention" style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px;">
-                    <option value="7_days" {% if settings.log_retention == '7_days' %}selected{% endif %}>7 ngày gần nhất</option>
-                    <option value="30_days" {% if settings.log_retention == '30_days' %}selected{% endif %}>30 ngày gần nhất</option>
-                    <option value="forever" {% if settings.log_retention == 'forever' %}selected{% endif %}>Toàn bộ (Lưu trữ vĩnh viễn)</option>
+                <label
+                    style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời
+                    gian tự động dọn dẹp Logs</label>
+                <select id="setting-log-retention"
+                    style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                    <option value="7_days">7 ngày gần nhất</option>
+                    <option value="30_days">30 ngày gần nhất (Khuyên dùng)</option>
+                    <option value="90_days">90 ngày gần nhất</option>
+                    <option value="forever">Toàn bộ (Lưu trữ vĩnh viễn)</option>
                 </select>
             </div>
-            
-            <div>
-                <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600;">Định dạng bằng chứng</label>
-                <div style="display: flex; gap: 15px; margin-top: 10px;">
-                    <label style="font-size: 13px; cursor: pointer;"><input type="radio" name="evidence_format" value="jpg" {% if settings.evidence_format == 'jpg' %}checked{% endif %}> JPG (Nén)</label>
-                    <label style="font-size: 13px; cursor: pointer;"><input type="radio" name="evidence_format" value="png" {% if settings.evidence_format == 'png' %}checked{% endif %}> PNG (Gốc)</label>
-                </div>
-            </div>
 
-            <div style="background: #F8FAFC; padding: 12px; border-radius: 8px; border-left: 4px solid #F59E0B;">
-                <div style="font-size: 12px; color: #64748B; line-height: 1.6;">
-                    Database: <span style="color: #10B981; font-weight: 700;">portal.db (Connected)</span><br>
-                    Storage: <span style="color: #10B981; font-weight: 700;">8.8GB / 10GB Available</span>
+            <div
+                style="background: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #F59E0B; display: flex; align-items: center;">
+                <div style="font-size: 13px; color: #64748B; line-height: 1.6;">
+                    Cơ sở dữ liệu: <span style="color: #10B981; font-weight: 700;">urbanm_ai.db (Đang hoạt
+                        động)</span><br>
+                    Ảnh bằng chứng hành vi vi phạm: <span style="color: #4379EE; font-weight: 700;">Tự động nén ảnh nén
+                        chất lượng cao</span>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<div style="margin-top: 32px; display: flex; justify-content: flex-end; gap: 15px;">
-    <button onclick="location.reload()" style="background: white; border: 1px solid #E2E8F0; padding: 12px 30px; border-radius: 8px; font-weight: 600; color: #64748B; cursor: pointer;">Hủy bỏ thay đổi</button>
-    <button onclick="saveSettings()" id="save-btn" style="background: #4379EE; border: none; padding: 12px 45px; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(67, 121, 238, 0.2);">Lưu cấu hình hệ thống</button>
+<div id="no-cameras-notice"
+    style="display: none; padding: 40px; background: white; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+    <i class="fas fa-video-slash" style="font-size: 48px; color: #CBD5E1; margin-bottom: 16px;"></i>
+    <h3 style="font-size: 18px; font-weight: 700; color: #475569; margin-bottom: 8px;">Chưa có Camera nào trong cơ sở dữ
+        liệu</h3>
+    <p style="color: #94A3B8; font-size: 14px; margin-bottom: 20px;">Vui lòng thêm Camera mới trước khi cấu hình các
+        thông số AI.</p>
+    <a href="/cameras"
+        style="background: #4379EE; color: white; padding: 10px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; display: inline-block;">Quản
+        lý Camera</a>
+</div>
+
+<div id="action-buttons-container" style="margin-top: 32px; display: flex; justify-content: flex-end; gap: 15px;">
+    <button onclick="onCameraChange()"
+        style="background: white; border: 1px solid #E2E8F0; padding: 12px 30px; border-radius: 8px; font-weight: 600; color: #64748B; cursor: pointer; transition: all 0.2s;">Hủy
+        bỏ thay đổi</button>
+    <button onclick="saveSettings()" id="save-btn"
+        style="background: #4379EE; border: none; padding: 12px 45px; border-radius: 8px; color: white; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(67, 121, 238, 0.2); transition: all 0.2s;">Lưu
+        cấu hình Camera</button>
 </div>
 
 <script>
-async function saveSettings() {
-    const feedback = document.getElementById('settings-feedback');
-    const saveBtn = document.getElementById('save-btn');
-    
-    const payload = {
-        confidence: parseFloat(document.getElementById('setting-confidence').value) / 100,
-        frame_skip: parseInt(document.getElementById('setting-frame-skip').value),
-        congestion_threshold: parseInt(document.getElementById('setting-congestion-threshold').value),
-        parking_violation_time: parseInt(document.getElementById('setting-parking-violation-time').value),
-        log_retention: document.getElementById('setting-log-retention').value,
-        evidence_format: document.querySelector('input[name="evidence_format"]:checked').value
-    };
+    // Tải cấu hình camera khi thay đổi dropdown
+    async function onCameraChange() {
+        const cameraId = document.getElementById('camera-select').value;
+        const statusInfo = document.getElementById('camera-status-info');
+        const feedback = document.getElementById('settings-feedback');
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Đang lưu...';
-    feedback.textContent = '';
-
-    try {
-        const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        const result = await response.json();
-        if (result.ok) {
-            feedback.style.color = '#166534';
-            feedback.textContent = '✓ Đã cập nhật thành công';
-            setTimeout(() => { feedback.textContent = ''; }, 3000);
-        } else {
-            alert('Lỗi: ' + result.message);
+        if (!cameraId) {
+            document.getElementById('settings-form-container').style.display = 'none';
+            document.getElementById('action-buttons-container').style.display = 'none';
+            document.getElementById('no-cameras-notice').style.display = 'block';
+            return;
         }
-    } catch (error) {
-        alert('Lỗi kết nối: ' + error.message);
-    } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Lưu cấu hình hệ thống';
+
+        document.getElementById('settings-form-container').style.display = 'grid';
+        document.getElementById('action-buttons-container').style.display = 'flex';
+        document.getElementById('no-cameras-notice').style.display = 'none';
+
+        statusInfo.textContent = 'Đang tải cấu hình...';
+        statusInfo.style.color = '#4B5568';
+        statusInfo.style.backgroundColor = '#F8FAFC';
+        feedback.textContent = '';
+
+        try {
+            const response = await fetch(`/api/cameras/${cameraId}/settings`);
+            const result = await response.json();
+
+            if (result.ok && result.settings) {
+                const s = result.settings;
+
+                // Confidence (0.10 - 0.90) -> (10 - 90)
+                const confPercent = Math.round(s.confidence * 100);
+                document.getElementById('setting-confidence').value = confPercent;
+                document.getElementById('conf-val').textContent = confPercent;
+
+                // Frame Skip (1 - 4)
+                document.getElementById('setting-frame-skip').value = s.frame_skip;
+
+                // Congestion threshold (10 - 95)
+                document.getElementById('setting-congestion-threshold').value = s.congestion_threshold;
+                document.getElementById('cong-val').textContent = s.congestion_threshold;
+
+                // Parking violation time
+                document.getElementById('setting-parking-violation-time').value = s.parking_violation_time;
+
+                // Log retention
+                document.getElementById('setting-log-retention').value = s.log_retention;
+
+                statusInfo.innerHTML = `<span style="color: #166534;"><i class="fas fa-check-circle" style="margin-right: 4px;"></i> Đã nạp cấu hình</span>`;
+                statusInfo.style.backgroundColor = '#F0FDF4';
+                statusInfo.style.borderColor = '#BBF7D0';
+            } else {
+                statusInfo.innerHTML = `<span style="color: #991B1B;"><i class="fas fa-exclamation-circle" style="margin-right: 4px;"></i> Lỗi tải cấu hình</span>`;
+                statusInfo.style.backgroundColor = '#FEF2F2';
+                statusInfo.style.borderColor = '#FEE2E2';
+                alert('Không thể tải cấu hình camera: ' + (result.error || 'Lỗi không xác định'));
+            }
+        } catch (error) {
+            statusInfo.innerHTML = `<span style="color: #991B1B;"><i class="fas fa-wifi" style="margin-right: 4px;"></i> Lỗi mạng</span>`;
+            statusInfo.style.backgroundColor = '#FEF2F2';
+            statusInfo.style.borderColor = '#FEE2E2';
+            alert('Lỗi kết nối API: ' + error.message);
+        }
     }
-}
+
+    // Lưu cấu hình camera hiện tại
+    async function saveSettings() {
+        const cameraId = document.getElementById('camera-select').value;
+        if (!cameraId) return;
+
+        const feedback = document.getElementById('settings-feedback');
+        const saveBtn = document.getElementById('save-btn');
+
+        const payload = {
+            confidence: parseFloat(document.getElementById('setting-confidence').value) / 100,
+            frame_skip: parseInt(document.getElementById('setting-frame-skip').value),
+            congestion_threshold: parseInt(document.getElementById('setting-congestion-threshold').value),
+            parking_violation_time: parseInt(document.getElementById('setting-parking-violation-time').value),
+            log_retention: document.getElementById('setting-log-retention').value
+        };
+
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = '0.7';
+        saveBtn.textContent = 'Đang lưu cấu hình...';
+        feedback.textContent = '';
+
+        try {
+            const response = await fetch(`/api/cameras/${cameraId}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            if (response.ok && result.ok) {
+                feedback.style.color = '#166534';
+                feedback.innerHTML = '<i class="fas fa-check" style="margin-right: 4px;"></i> Cấu hình đã được áp dụng động thành công';
+
+                // Hiệu ứng micro-animation
+                feedback.style.opacity = '1';
+                setTimeout(() => {
+                    feedback.style.opacity = '0';
+                    setTimeout(() => { feedback.textContent = ''; feedback.style.opacity = '1'; }, 300);
+                }, 4000);
+            } else {
+                alert('Lỗi khi lưu cấu hình: ' + (result.error || result.message || 'Lỗi không xác định'));
+            }
+        } catch (error) {
+            alert('Lỗi kết nối máy chủ: ' + error.message);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = '1';
+            saveBtn.textContent = 'Lưu cấu hình Camera';
+        }
+    }
+
+    // Gọi load camera ngay khi tải trang
+    document.addEventListener("DOMContentLoaded", () => {
+        onCameraChange();
+    });
 </script>
 {% endblock %}

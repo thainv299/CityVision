@@ -223,9 +223,14 @@ def init_db() -> None:
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
-            CREATE TABLE IF NOT EXISTS cau_hinh_he_thong (
-                khoa TEXT PRIMARY KEY,
-                gia_tri TEXT
+            CREATE TABLE IF NOT EXISTS cai_dat_camera (
+                camera_id INTEGER PRIMARY KEY,
+                confidence REAL NOT NULL DEFAULT 0.37,
+                frame_skip INTEGER NOT NULL DEFAULT 2,
+                congestion_threshold INTEGER NOT NULL DEFAULT 35,
+                parking_violation_time INTEGER NOT NULL DEFAULT 30,
+                log_retention TEXT NOT NULL DEFAULT '30_days',
+                FOREIGN KEY (camera_id) REFERENCES camera(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS thong_bao (
@@ -279,21 +284,13 @@ def init_db() -> None:
             )
 
 
-        # Cấu hình mặc định
-        default_settings = {
-            "confidence": "0.32",
-            "frame_skip": "1",
-            "iou_threshold": "0.45",
-            "congestion_threshold": "70",
-            "parking_violation_time": "30",
-            "log_retention": "30_days",
-            "evidence_format": "jpg"
-        }
-        for k, v in default_settings.items():
-            connection.execute(
-                "INSERT OR IGNORE INTO cau_hinh_he_thong (khoa, gia_tri) VALUES (?, ?)",
-                (k, v)
-            )
+        # Di chuyển hoặc khởi tạo cấu hình camera mặc định
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
+            SELECT id, 0.37, 2, 35, 30, '30_days' FROM camera;
+            """
+        )
 
         connection.execute(
             """
@@ -845,32 +842,51 @@ def get_dashboard_stats_data() -> dict:
     }
 
 
-def get_system_settings() -> dict:
-    """Lấy tất cả cấu hình hệ thống"""
+def get_camera_settings(camera_id: int) -> dict:
+    """Lấy cấu hình riêng biệt của một camera"""
     with connect() as connection:
-        rows = connection.execute("SELECT khoa, gia_tri FROM cau_hinh_he_thong").fetchall()
-        # Chuyển đổi sang dict với kiểu dữ liệu phù hợp
-        raw = {row["khoa"]: row["gia_tri"] for row in rows}
+        row = connection.execute(
+            "SELECT confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention FROM cai_dat_camera WHERE camera_id = ?",
+            (camera_id,)
+        ).fetchone()
         
-        # Parse giá trị số
-        processed = {}
-        for k, v in raw.items():
-            if k in ["confidence", "iou_threshold"]:
-                processed[k] = float(v)
-            elif k in ["frame_skip", "congestion_threshold", "parking_violation_time"]:
-                processed[k] = int(v)
-            else:
-                processed[k] = v
-        return processed
+        if row:
+            return {
+                "camera_id": camera_id,
+                "confidence": float(row["confidence"]),
+                "frame_skip": int(row["frame_skip"]),
+                "congestion_threshold": int(row["congestion_threshold"]),
+                "parking_violation_time": int(row["parking_violation_time"]),
+                "log_retention": row["log_retention"]
+            }
+        
+        # Fallback về mặc định
+        return {
+            "camera_id": camera_id,
+            "confidence": 0.37,
+            "frame_skip": 2,
+            "congestion_threshold": 35,
+            "parking_violation_time": 30,
+            "log_retention": "30_days"
+        }
 
-def update_system_settings(settings: dict) -> None:
-    """Cập nhật các cấu hình hệ thống"""
+def update_camera_settings(camera_id: int, settings: dict) -> None:
+    """Cập nhật cấu hình riêng biệt của một camera"""
     with connect() as connection:
-        for k, v in settings.items():
-            connection.execute(
-                "UPDATE cau_hinh_he_thong SET gia_tri = ? WHERE khoa = ?",
-                (str(v), k)
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                camera_id,
+                float(settings.get("confidence", 0.37)),
+                int(settings.get("frame_skip", 2)),
+                int(settings.get("congestion_threshold", 35)),
+                int(settings.get("parking_violation_time", 30)),
+                settings.get("log_retention", "30_days")
             )
+        )
         connection.commit()
 
 

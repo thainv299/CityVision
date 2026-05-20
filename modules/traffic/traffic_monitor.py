@@ -9,8 +9,9 @@ CONG_SPEED_THR = 10.0            # Cấp 3: Vận tốc di chuyển tối đa (p
 MAX_VEHICLE_AREA_RATIO = 0.3     # Bỏ qua những hộp Box nhiễu có diện tích lớn hơn 30% vùng giám sát (Tránh lỗi YOLO)
 
 class TrafficMonitor:
-    def __init__(self, roi_polygon=None):
+    def __init__(self, roi_polygon=None, congestion_threshold=35.0):
         self.roi_polygon = roi_polygon
+        self.congestion_threshold = float(congestion_threshold)
         self.roi_area = cv2.contourArea(np.array(self.roi_polygon)) if self.roi_polygon is not None else 0.0
         self.track_history = {}
         self.vehicle_count = 0
@@ -121,13 +122,13 @@ class TrafficMonitor:
         # 3. ĐÁNH GIÁ MỨC ĐỘ (RAW)
         is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR) or (self.vehicle_count + self.people_count >= 25)
 
-        if not is_high_count and occupancy_percent < CONG_AREA_PERCENT_THR:
+        if not is_high_count and occupancy_percent < self.congestion_threshold:
             traffic_level = 0
-        elif is_high_count and occupancy_percent < CONG_AREA_PERCENT_THR:
+        elif is_high_count and occupancy_percent < self.congestion_threshold:
             traffic_level = 1
-        elif occupancy_percent >= CONG_AREA_PERCENT_THR and avg_speed > CONG_SPEED_THR:
+        elif occupancy_percent >= self.congestion_threshold and avg_speed > CONG_SPEED_THR:
             traffic_level = 2
-        elif occupancy_percent >= CONG_AREA_PERCENT_THR and avg_speed <= CONG_SPEED_THR:
+        elif occupancy_percent >= self.congestion_threshold and avg_speed <= CONG_SPEED_THR:
             traffic_level = 3
         else:
             traffic_level = 0

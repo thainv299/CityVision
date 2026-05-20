@@ -7,8 +7,6 @@ from database.sqlite_db import (
     get_illegal_parking_violations,
     get_illegal_parking_count,
     get_congestion_count,
-    get_system_settings,
-    update_system_settings,
     global_search,
     get_daily_vehicle_stats,
     get_latest_violations,
@@ -79,10 +77,10 @@ class DashboardUseCases:
         }
 
     def get_settings(self) -> Dict[str, Any]:
-        return get_system_settings()
+        return {}
 
     def update_settings(self, settings: Dict[str, Any]) -> None:
-        update_system_settings(settings)
+        pass
 
     def search(self, query: str) -> Dict[str, Any]:
         return global_search(query)

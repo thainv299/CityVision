@@ -573,7 +573,8 @@ def process_video(
         )
 
     model = _load_model(model_path) if enable_ai else None
-    traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon) if enable_congestion else None
+    congestion_threshold = float(settings.get("congestion_threshold", 35.0))
+    traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon, congestion_threshold=congestion_threshold) if enable_congestion else None
 
     # AsyncIOWorker: Xử lý I/O nền (Telegram, ghi file, ghi DB)
     io_worker = AsyncIOWorker(num_threads=2, max_queue_size=200)
@@ -1012,6 +1013,28 @@ def process_video(
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
                 if response and "new_settings" in response:
                     new_s = response["new_settings"]
+                    
+                    # Cập nhật nóng các thông số kỹ thuật AI
+                    if "confidence" in new_s:
+                        confidence_threshold = float(new_s["confidence"])
+                        print(f"[Dynamic Settings] Confidence threshold updated to: {confidence_threshold}")
+                    
+                    if "frame_skip" in new_s:
+                        process_stride = max(1, int(new_s["frame_skip"]))
+                        print(f"[Dynamic Settings] Process stride (frame_skip) updated to: {process_stride}")
+                        
+                    if "congestion_threshold" in new_s:
+                        congestion_threshold = float(new_s["congestion_threshold"])
+                        if traffic_monitor is not None:
+                            traffic_monitor.congestion_threshold = congestion_threshold
+                        print(f"[Dynamic Settings] Congestion threshold updated to: {congestion_threshold}%")
+                        
+                    if "parking_violation_time" in new_s:
+                        stop_seconds = float(new_s["parking_violation_time"])
+                        if parking_manager is not None:
+                            parking_manager.stop_seconds = stop_seconds
+                        print(f"[Dynamic Settings] Parking violation time (stop_seconds) updated to: {stop_seconds}s")
+
                     # Bật tắt xử lý AI
                     if "enable_ai" in new_s:
                         db_enable_ai = new_s["enable_ai"]
@@ -1029,7 +1052,7 @@ def process_video(
                             enable_congestion = db_enable_congestion
                             print(f"[Dynamic Settings] Phát hiện tắc nghẽn updated to: {enable_congestion}")
                             if enable_congestion and traffic_monitor is None:
-                                traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon)
+                                traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon, congestion_threshold=congestion_threshold)
                             elif not enable_congestion:
                                 if last_congestion_record_id and save_to_db:
                                     io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))

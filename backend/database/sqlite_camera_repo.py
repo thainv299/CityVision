@@ -141,6 +141,16 @@ class SqliteCameraRepository(CameraRepository):
             )
             connection.commit()
             camera_id = int(cursor.lastrowid)
+            
+            # Khởi tạo cài đặt mặc định cho camera mới trong cai_dat_camera
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
+                VALUES (?, 0.37, 2, 35, 30, '30_days')
+                """,
+                (camera_id,)
+            )
+            connection.commit()
 
         created = self.get_by_id(camera_id)
         if not created:

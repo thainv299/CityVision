@@ -637,6 +637,21 @@ document.addEventListener("DOMContentLoaded", () => {
         const isEditing = fields.id.value !== "";
         const editingId = isEditing ? Number(fields.id.value) : null;
 
+        if (!isEditing) {
+            if (!payload.model_path) {
+                window.portalApi.showNotice(feedback, "Vui lòng chọn đường dẫn mô hình AI.", "error");
+                return;
+            }
+            if (!payload.roi_points) {
+                window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI giám sát giao thông.", "error");
+                return;
+            }
+            if (!payload.no_parking_points) {
+                window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI cấm dừng đỗ.", "error");
+                return;
+            }
+        }
+
         try {
             if (isEditing) {
                 await window.portalApi.put(`/api/cameras/${editingId}`, payload);

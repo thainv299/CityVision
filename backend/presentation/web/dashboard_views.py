@@ -39,23 +39,15 @@ async def api_dashboard(period: str = "all", user=Depends(login_required)):
 async def settings_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
+    cameras = container.camera_use_cases.list_cameras()
     return container.render_template(
         request, 
         "settings.html", 
         {
             "page": "settings", 
-            "settings": container.dashboard_use_cases.get_settings()
+            "cameras": [c.to_dict() for c in cameras]
         }
     )
-
-@dashboard_router.post("/api/settings")
-async def api_update_settings(request: Request, user=Depends(login_required)):
-    try:
-        payload = await request.json()
-        container.dashboard_use_cases.update_settings(payload)
-        return {"ok": True, "message": "Cấu hình hệ thống đã được cập nhật."}
-    except Exception as e:
-        return {"ok": False, "message": f"Lỗi: {str(e)}"}
 
 @dashboard_router.get("/api/search")
 async def api_global_search(q: str = "", user=Depends(login_required)):

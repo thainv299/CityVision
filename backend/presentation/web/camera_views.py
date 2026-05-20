@@ -310,3 +310,36 @@ async def api_test_camera_frame(source: str = Body(..., embed=True), user=Depend
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": f"Lỗi trích xuất: {str(e)}"})
+
+
+@camera_router.get("/api/cameras/{camera_id}/settings")
+async def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
+    from database.sqlite_db import get_camera_settings
+    try:
+        # Kiểm tra camera có tồn tại không
+        container.camera_use_cases.get_camera(camera_id)
+        settings = get_camera_settings(camera_id)
+        return {"ok": True, "settings": settings}
+    except NotFoundError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@camera_router.post("/api/cameras/{camera_id}/settings")
+async def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+    from database.sqlite_db import update_camera_settings
+    try:
+        # Kiểm tra camera có tồn tại không
+        container.camera_use_cases.get_camera(camera_id)
+        update_camera_settings(camera_id, payload)
+        
+        # Cập nhật nóng vào luồng AI đang chạy trong RAM
+        container.job_use_cases.update_camera_job_settings(camera_id, payload)
+        
+        return {"ok": True, "message": "Đã cập nhật cấu hình camera thành công."}
+    except NotFoundError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
