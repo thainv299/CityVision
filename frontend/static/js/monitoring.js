@@ -420,7 +420,6 @@ function initMonitoringForm() {
                         </div>
                         
                         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center;">
-                             <span style="font-size: 11px; color: #64748B; font-weight: 500;">Bấm vào ảnh để xem chi tiết</span>
                              <div class="switch-row" style="display: flex; align-items: center; gap: 10px;">
                                 <span style="font-size: 11px; font-weight: 800; color: ${camera.is_active ? '#10B981' : '#94A3B8'}">
                                     ${camera.is_active ? 'KÍCH HOẠT' : 'TẠM TẮT'}
