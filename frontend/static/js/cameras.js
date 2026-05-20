@@ -639,15 +639,44 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!isEditing) {
             if (!payload.model_path) {
+                alert("⚠️ Thiếu cấu hình: Vui lòng chọn đường dẫn mô hình AI trước khi lưu camera.");
                 window.portalApi.showNotice(feedback, "Vui lòng chọn đường dẫn mô hình AI.", "error");
+                const modelEl = fields.modelPath;
+                if (modelEl) {
+                    modelEl.focus();
+                    modelEl.style.borderColor = "var(--text-danger)";
+                    setTimeout(() => modelEl.style.borderColor = "", 4000);
+                }
                 return;
             }
-            if (!payload.roi_points) {
+            if (!payload.roi_points || payload.roi_points === "" || payload.roi_points === "[]") {
+                alert("⚠️ Thiếu cấu hình: Bạn chưa vẽ vùng ROI giám sát giao thông. Hãy bấm nút 'Vẽ ROI' để thiết lập trước khi lưu.");
                 window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI giám sát giao thông.", "error");
+                const roiBtn = document.querySelector(".roi-draw-btn[data-target='roi_points']");
+                if (roiBtn) {
+                    roiBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    roiBtn.style.outline = "2px solid #ef4444";
+                    roiBtn.style.boxShadow = "0 0 12px rgba(239, 68, 68, 0.6)";
+                    setTimeout(() => {
+                        roiBtn.style.outline = "";
+                        roiBtn.style.boxShadow = "";
+                    }, 5000);
+                }
                 return;
             }
-            if (!payload.no_parking_points) {
+            if (!payload.no_parking_points || payload.no_parking_points === "" || payload.no_parking_points === "[]") {
+                alert("⚠️ Thiếu cấu hình: Bạn chưa vẽ vùng ROI cấm dừng đỗ. Hãy bấm nút 'Vẽ Vùng Cấm' để thiết lập trước khi lưu.");
                 window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI cấm dừng đỗ.", "error");
+                const npBtn = document.querySelector(".roi-draw-btn[data-target='no_parking_points']");
+                if (npBtn) {
+                    npBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    npBtn.style.outline = "2px solid #ef4444";
+                    npBtn.style.boxShadow = "0 0 12px rgba(239, 68, 68, 0.6)";
+                    setTimeout(() => {
+                        npBtn.style.outline = "";
+                        npBtn.style.boxShadow = "";
+                    }, 5000);
+                }
                 return;
             }
         }
