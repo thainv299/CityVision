@@ -824,7 +824,8 @@
             }
 
             if (confirmBtn) {
-                confirmBtn.onclick = async () => {
+                confirmBtn.onclick = async (e) => {
+                    e.preventDefault();
                     const form = document.getElementById('export-report-form');
                     const params = new URLSearchParams(new FormData(form));
 
@@ -843,34 +844,19 @@
                         confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang xuất...';
                         confirmBtn.disabled = true;
 
-                        const response = await fetch(url);
+                        // Sử dụng chuyển hướng URL thuần túy (GET request)
+                        // Cách này là chuẩn nhất cho mọi trình duyệt và mọi trình quản lý tải xuống (kể cả IDM).
+                        // Nếu IDM bật, nó sẽ bắt đúng 1 file. Nếu IDM tắt, trình duyệt tải đúng 1 file.
+                        window.location.href = url;
 
-                        if (!response.ok) {
-                            const errorData = await response.json();
-                            throw new Error(errorData.detail || "Lỗi tải báo cáo");
-                        }
+                        // Chờ 1 chút rồi đổi lại trạng thái nút
+                        setTimeout(() => {
+                            window.portalApi.showToast("Bắt đầu tải báo cáo...", "success");
+                            closeModal();
+                            confirmBtn.innerHTML = originalBtnText;
+                            confirmBtn.disabled = false;
+                        }, 1500);
 
-                        // Xử lý tải file về máy
-                        const blob = await response.blob();
-                        const downloadUrl = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = downloadUrl;
-
-                        // Lấy tên file từ header Content-Disposition nếu có
-                        const contentDisposition = response.headers.get('content-disposition');
-                        let filename = `report_${reportType}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
-                        if (contentDisposition && contentDisposition.indexOf('filename=') !== -1) {
-                            filename = contentDisposition.split('filename=')[1].replace(/["']/g, "");
-                        }
-
-                        a.download = filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(downloadUrl);
-
-                        window.portalApi.showToast("Xuất báo cáo thành công", "success");
-                        closeModal();
                     } catch (error) {
                         window.portalApi.showToast(error.message, "error");
                     } finally {
