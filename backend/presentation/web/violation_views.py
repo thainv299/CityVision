@@ -7,7 +7,7 @@ from presentation.middlewares.auth import login_required
 violation_router = APIRouter()
 
 @violation_router.get("/violations", name="violations.violations_page")
-async def violations_page(request: Request, user=Depends(login_required)):
+def violations_page(request: Request, user=Depends(login_required)):
     """Trang quản lý vi phạm đỗ xe"""
     if isinstance(user, RedirectResponse):
         return user
@@ -21,7 +21,7 @@ async def violations_page(request: Request, user=Depends(login_required)):
     )
 
 @violation_router.get("/violations/search", name="violations.violation_search_page")
-async def violation_search_page(request: Request, user=Depends(login_required)):
+def violation_search_page(request: Request, user=Depends(login_required)):
     """Trang tìm kiếm vi phạm đỗ xe nâng cao"""
     if isinstance(user, RedirectResponse):
         return user
@@ -35,7 +35,7 @@ async def violation_search_page(request: Request, user=Depends(login_required)):
     )
 
 @violation_router.get("/api/violations")
-async def api_violations(
+def api_violations(
     request: Request,
     user=Depends(login_required),
     page: int = 1,
