@@ -159,7 +159,7 @@
                                 ${plate.detected_date || 'N/A'}
                             </td>
                             <td style="text-align: center;">
-                                <span class="pill success">${plate.detected_time || '--:--:--'}</span>
+                                <span class="pill success">${window.portalApi.formatVietnameseDateTime(plate.detected_time)}</span>
                             </td>
                             <td style="text-align: center;">
                                 ${firstImage ? `

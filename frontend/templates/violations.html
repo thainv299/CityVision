@@ -248,7 +248,7 @@
                                 <strong>${v.license_plate || 'Chưa rõ'}</strong>
                             </td>
                             <td style="text-align: center;">
-                                ${v.violation_time || 'N/A'}
+                                ${window.portalApi.formatVietnameseDateTime(v.violation_time)}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill warning">${v.duration_seconds || 0}s</span>

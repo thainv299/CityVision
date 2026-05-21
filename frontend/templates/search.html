@@ -392,7 +392,7 @@
                                     ${res.detected_date || 'N/A'}
                                 </td>
                                 <td style="text-align: center;">
-                                    <span class="pill success">${res.detected_time || 'N/A'}</span>
+                                    <span class="pill success">${window.portalApi.formatVietnameseDateTime(res.detected_time)}</span>
                                 </td>
                                 <td style="text-align: center;">
                                     <img src="/${res.path}" class="plate-thumbnail" 
