@@ -9,14 +9,14 @@ dashboard_router = APIRouter()
 
 
 @dashboard_router.get("/", name="dashboard.index")
-async def index(request: Request):
+def index(request: Request):
     if get_current_user(request) is not None:
         return RedirectResponse(url=request.url_for("dashboard.dashboard_page"), status_code=status.HTTP_303_SEE_OTHER)
     return RedirectResponse(url=request.url_for("auth.login_page"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @dashboard_router.get("/dashboard", name="dashboard.dashboard_page")
-async def dashboard_page(request: Request, period: str = "all", camera_id: str = "all", user=Depends(login_required)):
+def dashboard_page(request: Request, period: str = "all", camera_id: str = "all", user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     
@@ -58,7 +58,7 @@ async def dashboard_page(request: Request, period: str = "all", camera_id: str =
 
 
 @dashboard_router.get("/api/dashboard")
-async def api_dashboard(period: str = "all", user=Depends(login_required)):
+def api_dashboard(period: str = "all", user=Depends(login_required)):
     # Operator: lọc theo camera được cấp quyền
     camera_ids = None
     if not user.is_admin():
@@ -67,7 +67,7 @@ async def api_dashboard(period: str = "all", user=Depends(login_required)):
     return {"ok": True, "stats": container.dashboard_use_cases.get_dashboard_stats(period, camera_ids=camera_ids)}
 
 @dashboard_router.get("/settings", response_class=HTMLResponse, name="dashboard.settings_page")
-async def settings_page(request: Request, user=Depends(login_required)):
+def settings_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     # Chỉ trả camera mà user có quyền truy cập
@@ -93,11 +93,11 @@ async def settings_page(request: Request, user=Depends(login_required)):
     )
 
 @dashboard_router.get("/api/search")
-async def api_global_search(q: str = "", user=Depends(login_required)):
+def api_global_search(q: str = "", user=Depends(login_required)):
     results = container.dashboard_use_cases.search(q)
     return {"ok": True, "results": results}
 @dashboard_router.get("/api/notifications")
-async def api_notifications(limit: int = 10, user=Depends(login_required)):
+def api_notifications(limit: int = 10, user=Depends(login_required)):
     results = container.dashboard_use_cases.get_notifications(limit)
     return {"ok": True, "results": results}
 

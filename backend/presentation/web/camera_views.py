@@ -21,7 +21,7 @@ camera_router = APIRouter()
 
 
 @camera_router.get("/cameras", name="cameras.cameras_page")
-async def cameras_page(request: Request, user=Depends(login_required)):
+def cameras_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     
@@ -46,7 +46,7 @@ async def cameras_page(request: Request, user=Depends(login_required)):
 
 
 @camera_router.get("/api/cameras")
-async def api_list_cameras(user=Depends(login_required)):
+def api_list_cameras(user=Depends(login_required)):
     cameras = container.camera_use_cases.list_cameras_for_user(user)
     return {"ok": True, "cameras": [c.to_dict() for c in cameras]}
 
@@ -107,7 +107,7 @@ async def api_upload_camera_source(
 
 
 @camera_router.post("/api/cameras")
-async def api_create_camera(payload: Dict[str, Any], user=Depends(login_required)):
+def api_create_camera(payload: Dict[str, Any], user=Depends(login_required)):
     try:
         created = container.camera_use_cases.create_camera(payload, creator_id=user.id)
         # Tự động cấp quyền truy cập camera cho người tạo (nếu là operator)
@@ -121,7 +121,7 @@ async def api_create_camera(payload: Dict[str, Any], user=Depends(login_required
 
 
 @camera_router.put("/api/cameras/{camera_id}")
-async def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
     # Kiểm tra quyền truy cập camera
     if not container.camera_use_cases.can_user_access_camera(user, camera_id):
         return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn không có quyền truy cập camera này."})
@@ -164,7 +164,7 @@ async def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depend
 
 
 @camera_router.delete("/api/cameras/{camera_id}")
-async def api_delete_camera(camera_id: int, user=Depends(login_required)):
+def api_delete_camera(camera_id: int, user=Depends(login_required)):
     try:
         # Kiểm tra quyền xóa: admin xóa tất cả, operator chỉ xóa camera mình tạo
         camera = container.camera_use_cases.get_camera(camera_id)
@@ -324,7 +324,7 @@ async def api_test_camera_frame(source: str = Body(..., embed=True), user=Depend
 
 
 @camera_router.get("/api/cameras/{camera_id}/settings")
-async def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
+def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
     # Kiểm tra quyền truy cập camera
     if not container.camera_use_cases.can_user_access_camera(user, camera_id):
         return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn không có quyền truy cập camera này."})
@@ -341,8 +341,8 @@ async def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
 
-@camera_router.post("/api/cameras/{camera_id}/settings")
-async def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+@camera_router.put("/api/cameras/{camera_id}/settings")
+def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
     try:
         # Kiểm tra camera có tồn tại không
         camera = container.camera_use_cases.get_camera(camera_id)
