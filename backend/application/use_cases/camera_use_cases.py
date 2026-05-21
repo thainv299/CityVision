@@ -1,8 +1,9 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from core.errors import AlreadyExistsError, NotFoundError, ValidationError
 from domain.entities.camera import Camera
+from domain.entities.user import User
 from domain.repositories.camera_repository import CameraRepository
 
 
@@ -12,6 +13,30 @@ class CameraUseCases:
 
     def list_cameras(self) -> List[Camera]:
         return self.camera_repo.list_all()
+
+    def list_cameras_for_user(self, user: User) -> List[Camera]:
+        """Lấy danh sách camera theo quyền truy cập của người dùng.
+        Admin: full access. Operator: chỉ camera được cấp quyền."""
+        all_cameras = self.camera_repo.list_all()
+        if user.is_admin():
+            return all_cameras
+        # Operator chỉ xem camera mà họ có quyền
+        allowed_ids = set(user.camera_access_ids or [])
+        return [c for c in all_cameras if c.id in allowed_ids]
+
+    def can_user_access_camera(self, user: User, camera_id: int) -> bool:
+        """Kiểm tra người dùng có quyền truy cập camera không"""
+        if user.is_admin():
+            return True
+        return camera_id in (user.camera_access_ids or [])
+
+    def can_user_delete_camera(self, user: User, camera: Camera) -> bool:
+        """Kiểm tra người dùng có quyền xóa camera không.
+        Admin: xóa tất cả. Operator: chỉ xóa camera mà mình tạo."""
+        if user.is_admin():
+            return True
+        # Nhân viên chỉ được xóa camera mà họ tự tạo
+        return camera.creator_id is not None and camera.creator_id == user.id
 
     def get_camera(self, camera_id: int) -> Camera:
         camera = self.camera_repo.get_by_id(camera_id)
@@ -50,7 +75,7 @@ class CameraUseCases:
 
         return parsed_points, metadata
 
-    def _validate_payload(self, payload: Dict[str, Any]) -> Camera:
+    def _validate_payload(self, payload: Dict[str, Any], is_create: bool = False) -> Camera:
         def to_bool(val: Any, default: bool = True) -> bool:
             if val is None: return default
             return str(val).strip().lower() in {"1", "true", "yes", "on"}
@@ -59,8 +84,17 @@ class CameraUseCases:
         if not name:
             raise ValidationError("Tên camera không được để trống.")
 
+        model_path = str(payload.get("model_path", "")).strip()
+        if is_create and not model_path:
+            raise ValidationError("Vui lòng chọn đường dẫn mô hình AI.")
+
         roi_points, roi_meta = self._parse_polygon(payload.get("roi_points"))
+        if is_create and not roi_points:
+            raise ValidationError("Vui lòng vẽ vùng ROI giám sát giao thông.")
+
         no_parking_points, no_park_meta = self._parse_polygon(payload.get("no_parking_points"))
+        if is_create and not no_parking_points:
+            raise ValidationError("Vui lòng vẽ vùng ROI cấm dừng đỗ.")
 
         return Camera(
             id=None,
@@ -76,11 +110,12 @@ class CameraUseCases:
             enable_license_plate=to_bool(payload.get("enable_license_plate"), True),
             enable_ai=to_bool(payload.get("enable_ai"), True),
             is_active=to_bool(payload.get("is_active"), True),
-            model_path=str(payload.get("model_path", "")).strip()
+            model_path=model_path
         )
         
-    def create_camera(self, payload: Dict[str, Any]) -> Camera:
-        camera = self._validate_payload(payload)
+    def create_camera(self, payload: Dict[str, Any], creator_id: Optional[int] = None) -> Camera:
+        camera = self._validate_payload(payload, is_create=True)
+        camera.creator_id = creator_id
         for existing in self.camera_repo.list_all():
             if existing.name == camera.name:
                 raise AlreadyExistsError("Tên camera đã tồn tại.")
@@ -104,3 +139,4 @@ class CameraUseCases:
         if not self.camera_repo.delete(camera_id):
             raise NotFoundError("Không tìm thấy camera.")
         return True
+

@@ -62,10 +62,10 @@ def users_page(request: Request, user=Depends(require_admin)):
 def cameras_page(request: Request, user=Depends(require_login)):
     return render(request, "cameras.html", {"page": "cameras"})
 
-@router.get("/test-video", response_class=HTMLResponse)
-def test_video_page(request: Request, user=Depends(require_login)):
-    return render(request, "test_video.html", {
-        "page": "test-video",
+@router.get("/monitoring", response_class=HTMLResponse)
+def monitoring_page(request: Request, user=Depends(require_login)):
+    return render(request, "monitoring.html", {
+        "page": "monitoring",
         "cameras": list_cameras(),
         "default_model_path": str(DEFAULT_MODEL_PATH),
     })

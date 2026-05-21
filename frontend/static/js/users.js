@@ -45,15 +45,61 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function setForm(user = null) {
+    function toggleCameraSection(role) {
+        const camSection = document.getElementById("camera-access-section");
+        if (camSection) {
+            camSection.style.display = role === "operator" ? "block" : "none";
+        }
+    }
+
+    form.role.addEventListener("change", (e) => {
+        toggleCameraSection(e.target.value);
+    });
+
+    // Select / Deselect All Cameras
+    const btnSelectAll = document.getElementById("btn-select-all-cams");
+    const btnDeselectAll = document.getElementById("btn-deselect-all-cams");
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener("click", () => {
+            document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = true);
+        });
+    }
+    if (btnDeselectAll) {
+        btnDeselectAll.addEventListener("click", () => {
+            document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = false);
+        });
+    }
+
+    async function setForm(user = null) {
         state.editingId = user?.id || null;
         form.user_id.value = user?.id || "";
         form.username.value = user?.username || "";
         form.full_name.value = user?.full_name || "";
         form.password.value = "";
-        form.role.value = user?.role || "operator";
+        const role = user?.role || "operator";
+        form.role.value = role;
         form.is_active.checked = user ? Boolean(user.is_active) : true;
         formTitle.textContent = user ? `Sửa Người dùng` : "Tạo Người dùng Mới";
+        
+        toggleCameraSection(role);
+        
+        // Reset checkbox
+        document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = false);
+
+        // Load camera access if editing an operator
+        if (user && role === "operator") {
+            try {
+                const res = await window.portalApi.get(`/api/users/${user.id}/camera-access`);
+                if (res.ok && res.camera_ids) {
+                    res.camera_ids.forEach(camId => {
+                        const cb = document.querySelector(`.camera-access-cb[value="${camId}"]`);
+                        if (cb) cb.checked = true;
+                    });
+                }
+            } catch (err) {
+                console.error("Lỗi khi load quyền camera:", err);
+            }
+        }
     }
 
     function renderUsers() {
@@ -86,6 +132,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusBadge = '<span class="ds-badge inactive">Inactive</span>';
             }
             
+            let camCount = 'Tất cả';
+            if (user.role === 'operator') {
+                const total = user.camera_access_ids ? user.camera_access_ids.length : 0;
+                camCount = `${total} cameras`;
+            }
+            
             return `
             <tr>
                 <td style="text-align: center;"><input type="checkbox" class="ds-checkbox"></td>
@@ -101,7 +153,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td>${statusBadge}</td>
                 <td>${displayRole}</td>
                 <td>${joinedDate}</td>
-                <td>${lastActive}</td>
+                <td><span class="small muted">${camCount}</span></td>
                 <td style="text-align: right; padding-right: 24px;">
                     <div style="display: flex; justify-content: flex-end; gap: 8px;">
                         <button class="ds-action-btn" data-action="edit" data-id="${user.id}" title="Edit">
@@ -176,13 +228,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = editing ? `/api/users/${state.editingId}` : "/api/users";
 
         try {
+            let userId = state.editingId;
             if (editing) {
                 await window.portalApi.put(url, payload);
                 window.portalApi.showNotice(feedback, "Đã cập nhật người dùng.", "success");
             } else {
-                await window.portalApi.post(url, payload);
+                const res = await window.portalApi.post(url, payload);
+                userId = res.user.id;
                 window.portalApi.showNotice(feedback, "Đã tạo người dùng mới.", "success");
             }
+            
+            // Cập nhật quyền camera cho operator
+            if (payload.role === "operator" && userId) {
+                const cameraIds = Array.from(document.querySelectorAll(".camera-access-cb:checked")).map(cb => parseInt(cb.value, 10));
+                try {
+                    await window.portalApi.put(`/api/users/${userId}/camera-access`, { camera_ids: cameraIds });
+                } catch(camErr) {
+                    console.error("Lỗi cập nhật quyền camera:", camErr);
+                }
+            }
+
             closeModal();
             await loadUsers();
         } catch (error) {

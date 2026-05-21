@@ -29,7 +29,7 @@ from backend.presentation.container import container, templates
 from backend.presentation.web.auth_views import auth_router
 from backend.presentation.web.camera_views import camera_router
 from backend.presentation.web.dashboard_views import dashboard_router
-from backend.presentation.web.test_video_views import test_video_router
+from backend.presentation.web.monitoring_views import monitoring_router
 from backend.presentation.web.user_views import user_router
 from backend.presentation.web.vehicle_views import vehicle_router
 from backend.presentation.web.violation_views import violation_router
@@ -43,7 +43,7 @@ def create_app() -> FastAPI:
     # 2. Tạo FastAPI app
     app = FastAPI(
         title="CityVision AI Portal",
-        docs_url=None,  # Tắt auto docs nếu muốn bảo mật
+        docs_url=None, 
         redoc_url=None
     )
     
@@ -118,7 +118,7 @@ def create_app() -> FastAPI:
     app.include_router(vehicle_router)
     app.include_router(violation_router)
     app.include_router(congestion_router)
-    app.include_router(test_video_router)
+    app.include_router(monitoring_router)
     app.include_router(notification_router)
 
     @app.on_event("startup")

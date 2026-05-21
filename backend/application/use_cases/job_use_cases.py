@@ -353,8 +353,8 @@ class JobUseCases:
                         
                     print(f"[Startup] Đang khởi động giám sát nền cho camera: {cam.name} (ID: {cam.id})")
                     
-                    from database.sqlite_db import get_system_settings
-                    sys_settings = get_system_settings()
+                    from database.sqlite_db import get_camera_settings
+                    cam_settings = get_camera_settings(cam.id)
                     
                     settings = {
                         "camera_id": cam.id,
@@ -367,8 +367,10 @@ class JobUseCases:
                         "enable_license_plate": cam.enable_license_plate,
                         "enable_ai": cam.enable_ai,
                         "model_path": cam.model_path,
-                        "confidence_threshold": sys_settings.get("confidence", 0.32),
-                        "process_every_n_frames": sys_settings.get("frame_skip", 2),
+                        "confidence_threshold": cam_settings.get("confidence", 0.37),
+                        "process_every_n_frames": cam_settings.get("frame_skip", 2),
+                        "congestion_threshold": cam_settings.get("congestion_threshold", 35),
+                        "stop_seconds": cam_settings.get("parking_violation_time", 30),
                         "save_to_db": True
                     }
                     
