@@ -111,6 +111,8 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 .env
 .env.local
 .env.dev
@@ -129,3 +131,6 @@ data/*
 AI_CONTEXT.md
 convert_video.py
 scratch/*
+*.db.backup
+cloudflared.exe
+*.pt
