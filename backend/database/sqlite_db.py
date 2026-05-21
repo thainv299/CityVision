@@ -253,6 +253,18 @@ def init_db() -> None:
                 FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE,
                 UNIQUE(id_nguoi_dung, id_camera)
             );
+            
+            CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_thoi_gian ON lich_su_phuong_tien(thoi_gian_di_qua);
+            CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_camera_thoi_gian ON lich_su_phuong_tien(id_camera, thoi_gian_di_qua);
+            CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_loai_xe ON lich_su_phuong_tien(loai_xe);
+            
+            CREATE INDEX IF NOT EXISTS idx_vi_pham_do_xe_thoi_gian ON vi_pham_do_xe(thoi_gian_vi_pham);
+            CREATE INDEX IF NOT EXISTS idx_vi_pham_do_xe_camera_thoi_gian ON vi_pham_do_xe(id_camera, thoi_gian_vi_pham);
+            
+            CREATE INDEX IF NOT EXISTS idx_nhat_ky_un_tac_bat_dau ON nhat_ky_un_tac(thoi_gian_bat_dau);
+            CREATE INDEX IF NOT EXISTS idx_nhat_ky_un_tac_camera_bat_dau ON nhat_ky_un_tac(id_camera, thoi_gian_bat_dau);
+            
+            CREATE INDEX IF NOT EXISTS idx_thong_ke_giao_thong_ngay ON thong_ke_giao_thong(ngay_ghi_nhan);
             """
         )
 
