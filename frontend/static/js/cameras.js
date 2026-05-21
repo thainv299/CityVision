@@ -610,7 +610,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; justify-content: center;">
-                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px; z-index: 2; position: relative;">Xóa</button>
+                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px;"><img src="/static/img/delete.png" style="width:14px; height:14px;"> Xóa</button>
                         </div>
                     </td>
                 </tr>

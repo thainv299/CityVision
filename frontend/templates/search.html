@@ -11,7 +11,7 @@
 
     <div class="search-main-container" style="width: 100%; max-width: 900px; position: relative;">
         <div class="search-input-wrapper" style="position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-radius: 16px; background: #fff; border: 1px solid var(--border); transition: all 0.3s ease;">
-            <i class="fas fa-search" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: var(--brand-blue);"></i>
+            <img src="{{ url_for('static', filename='img/search.png') }}" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px;">
             <input type="text" id="main-search-input" placeholder="Nhập biển số hoặc tên camera..." 
                    style="width: 100%; padding: 22px 100px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
                    autocomplete="off">
@@ -21,7 +21,7 @@
                     <div class="loader-spinner" style="width: 20px; height: 20px; border-width: 2px;"></div>
                 </div>
                 <button id="toggle-image-search" title="Tìm kiếm bằng hình ảnh" style="background: var(--bg-main); border: 1px solid var(--border); width: 44px; height: 44px; border-radius: 12px; color: var(--brand-blue); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;">
-                    <i class="fas fa-camera" style="font-size: 1.1rem;"></i>
+                    <img src="{{ url_for('static', filename='img/image_search.png') }}" style="width:24px; height:24px;">
                 </button>
             </div>
         </div>
@@ -89,8 +89,8 @@
                             <span class="badge blue" id="isr-count" style="padding: 6px 16px; font-size: 0.85rem;"></span>
                             <span class="muted" style="font-size: 0.8rem;">(Sắp xếp theo độ tương đồng giảm dần)</span>
                         </div>
-                        <button onclick="clearImageSearch()" class="button secondary outline sm">
-                            <i class="fas fa-times-circle" style="margin-right: 6px;"></i> Xóa kết quả
+                        <button onclick="clearImageSearch()" class="button secondary outline sm" style="display: flex; align-items: center; gap: 4px;">
+                            <img src="{{ url_for('static', filename='img/delete.png') }}" style="width:14px; height:14px;"> Xóa kết quả
                         </button>
                     </div>
                     <div id="isr-grid">
