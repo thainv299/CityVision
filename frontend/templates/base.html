@@ -49,7 +49,65 @@
                     class="fas fa-search-minus"></i></button><button class="zoom-btn" id="zoom-reset-btn"><i
                     class="fas fa-sync-alt"></i></button><button class="zoom-btn" id="zoom-in-btn"><i
                     class="fas fa-search-plus"></i></button></div>
-    </div>{% if current_user %}<div class="portal-shell">
+    </div>
+
+    <!-- Modal Xuất Báo Cáo -->
+    <div id="export-report-modal" class="ds-modal-overlay" style="display: none;">
+        <div class="ds-modal">
+            <div class="ds-modal-header">
+                <h3 style="margin: 0;">Xuất báo cáo</h3>
+                <button type="button" class="ds-modal-close" id="close-export-modal">&times;</button>
+            </div>
+            <div class="ds-modal-body">
+                <form id="export-report-form">
+                    <input type="hidden" id="export-type" name="report_type" value="traffic">
+
+                    <div class="field">
+                        <span>Chọn Camera</span>
+                        <select id="export-camera" name="camera_id">
+                            <option value="all">Tất cả Camera</option>
+                            <!-- Các tùy chọn sẽ được nạp động từ API -->
+                        </select>
+                    </div>
+
+                    <div class="form-row" style="display: flex; gap: 12px; margin-bottom: 16px;">
+                        <div class="field" style="flex: 1; margin-bottom: 0;">
+                            <span>Từ ngày</span>
+                            <input type="date" id="export-start-date" name="start_date">
+                        </div>
+                        <div class="field" style="flex: 1; margin-bottom: 0;">
+                            <span>Đến ngày</span>
+                            <input type="date" id="export-end-date" name="end_date">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span>Định dạng file</span>
+                        <div style="display: flex; gap: 16px; margin-top: 8px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="radio" name="format" value="pdf" checked>
+                                <img src="{{ url_for('static', filename='img/pdf.png') }}" style="width: 24px; height: 24px;">
+                                <span style="color: #ef4444; font-weight: 600;">PDF</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="radio" name="format" value="excel">
+                                <img src="{{ url_for('static', filename='img/excel-file.png') }}" style="width: 24px; height: 24px;">
+                                <span style="color: #10b981; font-weight: 600;">Excel</span>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div style="padding: 0 24px 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                <button type="button" class="button secondary" id="cancel-export-btn">Hủy</button>
+                <button type="button" class="button primary" id="confirm-export-btn" style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-download"></i> Tải xuống
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {% if current_user %}<div class="portal-shell">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand-block">
@@ -719,6 +777,109 @@
                 if (e.key === 'Escape' && modal.style.display === 'flex') closeModal();
             });
         })();
+    </script>
+    <script>
+        // Logic xử lý xuất báo cáo toàn cục
+        document.addEventListener('DOMContentLoaded', () => {
+            const exportModal = document.getElementById('export-report-modal');
+            const closeBtn = document.getElementById('close-export-modal');
+            const cancelBtn = document.getElementById('cancel-export-btn');
+            const confirmBtn = document.getElementById('confirm-export-btn');
+            const exportTypeInput = document.getElementById('export-type');
+
+            // Hàm mở modal công khai để gọi từ các trang khác
+            window.portalApi = window.portalApi || {};
+            window.portalApi.openExportModal = function (reportType) {
+                exportTypeInput.value = reportType;
+                exportModal.style.display = 'flex';
+
+                // Lấy danh sách camera nếu select box đang trống (chỉ có tùy chọn "Tất cả")
+                const cameraSelect = document.getElementById('export-camera');
+                if (cameraSelect.options.length <= 1) {
+                    window.portalApi.get('/api/cameras')
+                        .then(data => {
+                            if (data.cameras) {
+                                data.cameras.forEach(cam => {
+                                    const opt = document.createElement('option');
+                                    opt.value = cam.id;
+                                    opt.textContent = cam.name;
+                                    cameraSelect.appendChild(opt);
+                                });
+                            }
+                        })
+                        .catch(err => console.error("Lỗi tải camera cho báo cáo:", err));
+                }
+            };
+
+            const closeModal = () => {
+                exportModal.style.display = 'none';
+            };
+
+            if (closeBtn) closeBtn.onclick = closeModal;
+            if (cancelBtn) cancelBtn.onclick = closeModal;
+            if (exportModal) {
+                exportModal.onclick = (e) => {
+                    if (e.target === exportModal) closeModal();
+                };
+            }
+
+            if (confirmBtn) {
+                confirmBtn.onclick = async () => {
+                    const form = document.getElementById('export-report-form');
+                    const params = new URLSearchParams(new FormData(form));
+
+                    const reportType = params.get('report_type');
+                    const format = params.get('format');
+                    const startDate = params.get('start_date');
+                    const endDate = params.get('end_date');
+                    const cameraId = params.get('camera_id');
+
+                    let url = `/api/reports/export?report_type=${reportType}&format=${format}&camera_id=${cameraId}`;
+                    if (startDate) url += `&start_date=${startDate}`;
+                    if (endDate) url += `&end_date=${endDate}`;
+
+                    try {
+                        const originalBtnText = confirmBtn.innerHTML;
+                        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang xuất...';
+                        confirmBtn.disabled = true;
+
+                        const response = await fetch(url);
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            throw new Error(errorData.detail || "Lỗi tải báo cáo");
+                        }
+
+                        // Xử lý tải file về máy
+                        const blob = await response.blob();
+                        const downloadUrl = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = downloadUrl;
+
+                        // Lấy tên file từ header Content-Disposition nếu có
+                        const contentDisposition = response.headers.get('content-disposition');
+                        let filename = `report_${reportType}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+                        if (contentDisposition && contentDisposition.indexOf('filename=') !== -1) {
+                            filename = contentDisposition.split('filename=')[1].replace(/["']/g, "");
+                        }
+
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(downloadUrl);
+
+                        window.portalApi.showToast("Xuất báo cáo thành công", "success");
+                        closeModal();
+                    } catch (error) {
+                        window.portalApi.showToast(error.message, "error");
+                    } finally {
+                        confirmBtn.innerHTML = '<i class="fas fa-download"></i> Tải xuống';
+                        confirmBtn.disabled = false;
+                    }
+                };
+            }
+        });
     </script>
     {% block scripts %}{% endblock %}
 </body>
