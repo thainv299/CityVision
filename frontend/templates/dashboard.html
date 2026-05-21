@@ -24,7 +24,7 @@
 
     <!-- Filter & Quick Actions -->
     <div style="display: flex; gap: 12px; align-items: center;">
-        <select class="field" id="dashboard-camera-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
+        <select class="filter-select" id="dashboard-camera-filter">
             <option value="all" {% if selected_camera_id == 'all' %}selected{% endif %}>Tất cả Camera</option>
             {% if cameras %}
                 {% for cam in cameras %}
@@ -32,7 +32,7 @@
                 {% endfor %}
             {% endif %}
         </select>
-        <select class="field" id="dashboard-period-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
+        <select class="filter-select" id="dashboard-period-filter">
             <option value="all" {% if stats and stats.period == 'all' %}selected{% endif %}>Tất cả thời gian</option>
             <option value="today" {% if stats and stats.period == 'today' %}selected{% endif %}>Hôm nay</option>
             <option value="7days" {% if stats and stats.period == '7days' %}selected{% endif %}>7 ngày qua</option>

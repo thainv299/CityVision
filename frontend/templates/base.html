@@ -61,21 +61,21 @@
 
                 <a id="nav-dashboard" class="nav-link {% if page == 'dashboard' %}active{% endif %}"
                     href="{{ url_for('dashboard.dashboard_page') }}">
-                    <img src="{{ url_for('static', filename='img/dashboard.png') }}" style="width:20px; height:20px; margin-right:8px; vertical-align: middle;">
+                    <img src="{{ url_for('static', filename='img/dashboard.png') }}" style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Dashboard
                 </a>
 
                 {% if current_user.role == 'admin' %}
                 <a id="nav-users" class="nav-link {% if page == 'users' %}active{% endif %}"
                     href="{{ url_for('users.users_page') }}">
-                    <img src="{{ url_for('static', filename='img/user.png') }}" style="width:20px; height:20px; margin-right:8px; vertical-align: middle;">
+                    <img src="{{ url_for('static', filename='img/user.png') }}" style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Người dùng
                 </a>
                 {% endif %}
 
                 <a id="nav-cameras" class="nav-link {% if page == 'cameras' %}active{% endif %}"
                     href="{{ url_for('cameras.cameras_page') }}">
-                    <img src="{{ url_for('static', filename='img/camera.png') }}" style="width:20px; height:20px; margin-right:8px; vertical-align: middle;">
+                    <img src="{{ url_for('static', filename='img/camera.png') }}" style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Camera
                 </a>
 
@@ -85,7 +85,7 @@
                     <a id="nav-vehicles" class="nav-link {% if page == 'vehicles' %}active{% endif %}"
                         href="{{ url_for('vehicles.vehicles_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <img src="{{ url_for('static', filename='img/car_management.png') }}" style="width:20px; height:20px;">
+                            <img src="{{ url_for('static', filename='img/car_management.png') }}" style="width:24px; height:24px;">
                             <span>Phương tiện</span>
                         </div>
                         <div id="chevron-vehicles"
@@ -118,7 +118,7 @@
                         class="nav-link {% if page in ['violations', 'violation-search'] %}active{% endif %}"
                         href="{{ url_for('violations.violations_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <img src="{{ url_for('static', filename='img/parking_management.png') }}" style="width:20px; height:20px;">
+                            <img src="{{ url_for('static', filename='img/parking_management.png') }}" style="width:24px; height:24px;">
                             <span>Vi phạm đỗ xe</span>
                         </div>
                         <div id="chevron-violations"
@@ -152,7 +152,7 @@
                         class="nav-link {% if page in ['congestion', 'congestion-search'] %}active{% endif %}"
                         href="{{ url_for('congestion.congestion_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <img src="{{ url_for('static', filename='img/congestion_management.png') }}" style="width:20px; height:20px;">
+                            <img src="{{ url_for('static', filename='img/congestion_management.png') }}" style="width:24px; height:24px;">
                             <span>Nhật ký ùn tắc</span>
                         </div>
                         <div id="chevron-congestion"
@@ -189,7 +189,7 @@
 
                 <a id="nav-monitoring" class="nav-link {% if page == 'monitoring' %}active{% endif %}"
                     href="{{ url_for('monitoring.monitoring_page') }}">
-                    <img src="{{ url_for('static', filename='img/watch_camera.png') }}" style="width:20px; height:20px; margin-right:8px; vertical-align: middle;">
+                    <img src="{{ url_for('static', filename='img/watch_camera.png') }}" style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Xem Camera
                 </a>
 
@@ -198,14 +198,14 @@
 
                 <a class="nav-link {% if page == 'settings' %}active{% endif %}" href="/settings"
                     style="margin-top: 20px;">
-                    <img src="{{ url_for('static', filename='img/settings.png') }}" style="width:20px; height:20px; margin-right:8px; vertical-align: middle;">
+                    <img src="{{ url_for('static', filename='img/settings.png') }}" style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     <span>Settings</span>
                 </a>
                 <form method="post" action="{{ url_for('auth.logout') }}" style="width: 100%;">
-                    <button type="submit" class="nav-link"
-                        style="width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding-left: 24px; display: flex; align-items: center;">
-                        <img src="{{ url_for('static', filename='img/logout.png') }}" style="width:20px; height:20px; margin-right:8px;">
-                        Logout
+                    <button type="submit" class="nav-link logout-btn"
+                        style="width: 100%; text-align: left; background: none; border: none; cursor: pointer;">
+                        <img src="{{ url_for('static', filename='img/logout.png') }}" style="width:24px; height:24px; margin-right:8px;">
+                        <span>Đăng xuất</span>
                     </button>
                 </form>
             </nav>
