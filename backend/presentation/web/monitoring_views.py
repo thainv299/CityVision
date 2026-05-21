@@ -176,7 +176,7 @@ async def monitoring_page(request: Request, user=Depends(login_required)):
     # Sắp xếp để bản test.pt hoặc yolo... lên đầu nếu cần, hoặc alphabet
     available_models.sort()
     
-    cameras = container.camera_use_cases.list_cameras()
+    cameras = container.camera_use_cases.list_cameras_for_user(user)
     return container.render_template(
         request,
         "monitoring.html",

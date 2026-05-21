@@ -1,8 +1,9 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from core.errors import AlreadyExistsError, NotFoundError, ValidationError
 from domain.entities.camera import Camera
+from domain.entities.user import User
 from domain.repositories.camera_repository import CameraRepository
 
 
@@ -12,6 +13,30 @@ class CameraUseCases:
 
     def list_cameras(self) -> List[Camera]:
         return self.camera_repo.list_all()
+
+    def list_cameras_for_user(self, user: User) -> List[Camera]:
+        """Lấy danh sách camera theo quyền truy cập của người dùng.
+        Admin: full access. Operator: chỉ camera được cấp quyền."""
+        all_cameras = self.camera_repo.list_all()
+        if user.is_admin():
+            return all_cameras
+        # Operator chỉ xem camera mà họ có quyền
+        allowed_ids = set(user.camera_access_ids or [])
+        return [c for c in all_cameras if c.id in allowed_ids]
+
+    def can_user_access_camera(self, user: User, camera_id: int) -> bool:
+        """Kiểm tra người dùng có quyền truy cập camera không"""
+        if user.is_admin():
+            return True
+        return camera_id in (user.camera_access_ids or [])
+
+    def can_user_delete_camera(self, user: User, camera: Camera) -> bool:
+        """Kiểm tra người dùng có quyền xóa camera không.
+        Admin: xóa tất cả. Operator: chỉ xóa camera mà mình tạo."""
+        if user.is_admin():
+            return True
+        # Nhân viên chỉ được xóa camera mà họ tự tạo
+        return camera.creator_id is not None and camera.creator_id == user.id
 
     def get_camera(self, camera_id: int) -> Camera:
         camera = self.camera_repo.get_by_id(camera_id)
@@ -88,8 +113,9 @@ class CameraUseCases:
             model_path=model_path
         )
         
-    def create_camera(self, payload: Dict[str, Any]) -> Camera:
+    def create_camera(self, payload: Dict[str, Any], creator_id: Optional[int] = None) -> Camera:
         camera = self._validate_payload(payload, is_create=True)
+        camera.creator_id = creator_id
         for existing in self.camera_repo.list_all():
             if existing.name == camera.name:
                 raise AlreadyExistsError("Tên camera đã tồn tại.")
@@ -113,3 +139,4 @@ class CameraUseCases:
         if not self.camera_repo.delete(camera_id):
             raise NotFoundError("Không tìm thấy camera.")
         return True
+

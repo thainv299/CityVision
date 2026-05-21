@@ -16,16 +16,42 @@ async def index(request: Request):
 
 
 @dashboard_router.get("/dashboard", name="dashboard.dashboard_page")
-async def dashboard_page(request: Request, period: str = "all", user=Depends(login_required)):
+async def dashboard_page(request: Request, period: str = "all", camera_id: str = "all", user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
-        
+    
+    # Xác định danh sách camera mà user có quyền truy cập
+    accessible_cameras = container.camera_use_cases.list_cameras_for_user(user)
+    accessible_ids = [c.id for c in accessible_cameras]
+    
+    # Nếu user chọn lọc theo 1 camera cụ thể, chỉ lấy camera đó (và phải nằm trong danh sách được phép)
+    filter_camera_ids = None
+    if camera_id != "all":
+        try:
+            selected_id = int(camera_id)
+            if selected_id in accessible_ids:
+                filter_camera_ids = [selected_id]
+            else:
+                filter_camera_ids = []  # Không có quyền → dữ liệu rỗng
+        except ValueError:
+            pass
+    
+    # Operator: luôn lọc theo camera được cấp quyền
+    if not user.is_admin():
+        if filter_camera_ids is None:
+            filter_camera_ids = accessible_ids if accessible_ids else []
+        else:
+            # Đảm bảo chỉ lọc trong phạm vi cho phép
+            filter_camera_ids = [cid for cid in filter_camera_ids if cid in accessible_ids]
+    
     return container.render_template(
         request,
         "dashboard.html",
         {
             "page": "dashboard",
-            "stats": container.dashboard_use_cases.get_dashboard_stats(period),
+            "stats": container.dashboard_use_cases.get_dashboard_stats(period, camera_ids=filter_camera_ids),
+            "cameras": [c.to_dict() for c in accessible_cameras],
+            "selected_camera_id": camera_id,
         }
     )
 
@@ -33,13 +59,19 @@ async def dashboard_page(request: Request, period: str = "all", user=Depends(log
 
 @dashboard_router.get("/api/dashboard")
 async def api_dashboard(period: str = "all", user=Depends(login_required)):
-    return {"ok": True, "stats": container.dashboard_use_cases.get_dashboard_stats(period)}
+    # Operator: lọc theo camera được cấp quyền
+    camera_ids = None
+    if not user.is_admin():
+        accessible_cameras = container.camera_use_cases.list_cameras_for_user(user)
+        camera_ids = [c.id for c in accessible_cameras]
+    return {"ok": True, "stats": container.dashboard_use_cases.get_dashboard_stats(period, camera_ids=camera_ids)}
 
 @dashboard_router.get("/settings", response_class=HTMLResponse, name="dashboard.settings_page")
 async def settings_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
-    cameras = container.camera_use_cases.list_cameras()
+    # Chỉ trả camera mà user có quyền truy cập
+    cameras = container.camera_use_cases.list_cameras_for_user(user)
     
     # Quét danh sách các mô hình có sẵn tương tự như camera_views.py
     models_dir = PROJECT_ROOT / "models"
@@ -81,4 +113,4 @@ async def api_mark_notification_read(request: Request, user=Depends(login_requir
         success = container.dashboard_use_cases.mark_notification_read(notif_type, int(record_id))
         return {"ok": success}
     except Exception as e:
-        return {"ok": False, "message": str(e)}
+        return {"ok": False, "message": str(e)}

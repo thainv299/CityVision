@@ -60,6 +60,7 @@ class SqliteCameraRepository(CameraRepository):
             enable_ai=bool(row["bat_xu_ly_ai"]),
             is_active=bool(row["trang_thai_hoat_dong"]),
             model_path=row["mo_hinh_yolo"] or "",
+            creator_id=row["nguoi_tao_id"] if "nguoi_tao_id" in row.keys() else None,
             created_at=row["ngay_tao"],
             updated_at=row["ngay_cap_nhat"],
         )
@@ -121,9 +122,9 @@ class SqliteCameraRepository(CameraRepository):
                 """
                 INSERT INTO camera (
                     ten_camera, nguon_phat, mo_ta, toa_do_vung_chon, toa_do_cam_do,
-                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, bat_xu_ly_ai, trang_thai_hoat_dong, mo_hinh_yolo
+                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, bat_xu_ly_ai, trang_thai_hoat_dong, mo_hinh_yolo, nguoi_tao_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     camera.name,
@@ -137,6 +138,7 @@ class SqliteCameraRepository(CameraRepository):
                     int(camera.enable_ai),
                     int(camera.is_active),
                     camera.model_path,
+                    camera.creator_id,
                 ),
             )
             connection.commit()

@@ -24,6 +24,14 @@
 
     <!-- Filter & Quick Actions -->
     <div style="display: flex; gap: 12px; align-items: center;">
+        <select class="field" id="dashboard-camera-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
+            <option value="all" {% if selected_camera_id == 'all' %}selected{% endif %}>Tất cả Camera</option>
+            {% if cameras %}
+                {% for cam in cameras %}
+                <option value="{{ cam.id }}" {% if selected_camera_id == cam.id|string %}selected{% endif %}>{{ cam.name }}</option>
+                {% endfor %}
+            {% endif %}
+        </select>
         <select class="field" id="dashboard-period-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
             <option value="all" {% if stats and stats.period == 'all' %}selected{% endif %}>Tất cả thời gian</option>
             <option value="today" {% if stats and stats.period == 'today' %}selected{% endif %}>Hôm nay</option>
@@ -66,6 +74,14 @@
         if (periodFilter) {
             periodFilter.addEventListener('change', function() {
                 updateDashboardFilters({ 'period': this.value });
+            });
+        }
+
+        // Bộ lọc theo camera
+        const cameraFilter = document.getElementById('dashboard-camera-filter');
+        if (cameraFilter) {
+            cameraFilter.addEventListener('change', function() {
+                updateDashboardFilters({ 'camera_id': this.value });
             });
         }
 

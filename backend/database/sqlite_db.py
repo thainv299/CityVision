@@ -243,6 +243,16 @@ def init_db() -> None:
                 da_doc INTEGER NOT NULL DEFAULT 0,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS quyen_truy_cap_camera (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_nguoi_dung INTEGER NOT NULL,
+                id_camera INTEGER NOT NULL,
+                ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (id_nguoi_dung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
+                FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE,
+                UNIQUE(id_nguoi_dung, id_camera)
+            );
             """
         )
 
@@ -261,6 +271,10 @@ def init_db() -> None:
         if "mo_hinh_yolo" not in camera_columns:
             connection.execute(
                 "ALTER TABLE camera ADD COLUMN mo_hinh_yolo TEXT"
+            )
+        if "nguoi_tao_id" not in camera_columns:
+            connection.execute(
+                "ALTER TABLE camera ADD COLUMN nguoi_tao_id INTEGER DEFAULT NULL"
             )
 
         # Cột id_camera trong bảng biển số
@@ -354,19 +368,27 @@ def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
-def get_illegal_parking_count(start_date: str = None, end_date: str = None) -> int:
+def get_illegal_parking_count(start_date: str = None, end_date: str = None, camera_ids: list = None) -> int:
     """Lấy tổng số vi phạm đỗ xe trong khoảng thời gian"""
     query = "SELECT COUNT(*) as total FROM vi_pham_do_xe"
     params = []
+    conditions = []
     
-    if start_date or end_date:
-        conditions = []
-        if start_date:
-            conditions.append("DATE(thoi_gian_vi_pham) >= ?")
-            params.append(start_date)
-        if end_date:
-            conditions.append("DATE(thoi_gian_vi_pham) <= ?")
-            params.append(end_date)
+    if camera_ids is not None:
+        if not camera_ids:
+            return 0
+        placeholders = ','.join('?' * len(camera_ids))
+        conditions.append(f"id_camera IN ({placeholders})")
+        params.extend(camera_ids)
+    
+    if start_date:
+        conditions.append("DATE(thoi_gian_vi_pham) >= ?")
+        params.append(start_date)
+    if end_date:
+        conditions.append("DATE(thoi_gian_vi_pham) <= ?")
+        params.append(end_date)
+    
+    if conditions:
         query += " WHERE " + " AND ".join(conditions)
         
     with connect() as connection:
@@ -384,19 +406,27 @@ def resolve_parking_violation(violation_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def get_congestion_count(start_date: str = None, end_date: str = None) -> int:
+def get_congestion_count(start_date: str = None, end_date: str = None, camera_ids: list = None) -> int:
     """Lấy tổng số lần tắc nghẽn trong khoảng thời gian"""
     query = "SELECT COUNT(*) as total FROM nhat_ky_un_tac"
     params = []
+    conditions = []
     
-    if start_date or end_date:
-        conditions = []
-        if start_date:
-            conditions.append("DATE(thoi_gian_bat_dau) >= ?")
-            params.append(start_date)
-        if end_date:
-            conditions.append("DATE(thoi_gian_bat_dau) <= ?")
-            params.append(end_date)
+    if camera_ids is not None:
+        if not camera_ids:
+            return 0
+        placeholders = ','.join('?' * len(camera_ids))
+        conditions.append(f"id_camera IN ({placeholders})")
+        params.extend(camera_ids)
+    
+    if start_date:
+        conditions.append("DATE(thoi_gian_bat_dau) >= ?")
+        params.append(start_date)
+    if end_date:
+        conditions.append("DATE(thoi_gian_bat_dau) <= ?")
+        params.append(end_date)
+    
+    if conditions:
         query += " WHERE " + " AND ".join(conditions)
         
     with connect() as connection:
@@ -446,19 +476,27 @@ def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, 
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
-def get_daily_vehicle_stats(start_date: str = None, end_date: str = None, limit: int = 30) -> list:
-    """Lấy thống kê lưu lượng xe hàng ngày, có hỗ trợ lọc theo khoảng thời gian"""
+def get_daily_vehicle_stats(start_date: str = None, end_date: str = None, limit: int = 30, camera_ids: list = None) -> list:
+    """Lấy thống kê lưu lượng xe hàng ngày, có hỗ trợ lọc theo khoảng thời gian và camera"""
     query = "SELECT ngay_ghi_nhan as date, SUM(so_luong_xe) as count FROM thong_ke_giao_thong"
     params = []
+    conditions = []
     
-    if start_date or end_date:
-        conditions = []
-        if start_date:
-            conditions.append("ngay_ghi_nhan >= ?")
-            params.append(start_date)
-        if end_date:
-            conditions.append("ngay_ghi_nhan <= ?")
-            params.append(end_date)
+    if camera_ids is not None:
+        if not camera_ids:
+            return []
+        placeholders = ','.join('?' * len(camera_ids))
+        conditions.append(f"id_camera IN ({placeholders})")
+        params.extend(camera_ids)
+    
+    if start_date:
+        conditions.append("ngay_ghi_nhan >= ?")
+        params.append(start_date)
+    if end_date:
+        conditions.append("ngay_ghi_nhan <= ?")
+        params.append(end_date)
+    
+    if conditions:
         query += " WHERE " + " AND ".join(conditions)
     
     query += " GROUP BY ngay_ghi_nhan ORDER BY ngay_ghi_nhan DESC LIMIT ?"
@@ -468,20 +506,28 @@ def get_daily_vehicle_stats(start_date: str = None, end_date: str = None, limit:
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in reversed(rows)]
 
-def get_latest_violations(limit: int = 5) -> list:
+def get_latest_violations(limit: int = 5, camera_ids: list = None) -> list:
     """Lấy danh sách vi phạm mới nhất"""
+    query = """
+        SELECT pv.id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as time, 
+               c.ten_camera as camera_name
+        FROM vi_pham_do_xe pv
+        LEFT JOIN camera c ON pv.id_camera = c.id
+    """
+    params = []
+    
+    if camera_ids is not None:
+        if not camera_ids:
+            return []
+        placeholders = ','.join('?' * len(camera_ids))
+        query += f" WHERE pv.id_camera IN ({placeholders})"
+        params.extend(camera_ids)
+    
+    query += " ORDER BY pv.thoi_gian_vi_pham DESC LIMIT ?"
+    params.append(limit)
+    
     with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT pv.id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as time, 
-                   c.ten_camera as camera_name
-            FROM vi_pham_do_xe pv
-            LEFT JOIN camera c ON pv.id_camera = c.id
-            ORDER BY pv.thoi_gian_vi_pham DESC
-            LIMIT ?
-            """,
-            (limit,)
-        ).fetchall()
+        rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
 # Danh sách queues lắng nghe thông báo thời gian thực phục vụ SSE
@@ -542,10 +588,17 @@ def mark_notification_as_read(notif_type: str, record_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def get_total_vehicle_count(start_date: str = None, end_date: str = None) -> int:
+def get_total_vehicle_count(start_date: str = None, end_date: str = None, camera_ids: list = None) -> int:
     """Lấy tổng số xe đi qua trực tiếp từ bảng lịch sử (loại bỏ person và license_plate)"""
     query = "SELECT COUNT(*) as total FROM lich_su_phuong_tien WHERE loai_xe NOT IN ('person', 'license_plate')"
     params = []
+    
+    if camera_ids is not None:
+        if not camera_ids:
+            return 0
+        placeholders = ','.join('?' * len(camera_ids))
+        query += f" AND id_camera IN ({placeholders})"
+        params.extend(camera_ids)
     
     if start_date or end_date:
         if start_date:
@@ -559,10 +612,17 @@ def get_total_vehicle_count(start_date: str = None, end_date: str = None) -> int
         row = connection.execute(query, params).fetchone()
     return int(row["total"]) if row["total"] else 0
 
-def get_vehicle_type_distribution(start_date: str = None, end_date: str = None) -> list:
+def get_vehicle_type_distribution(start_date: str = None, end_date: str = None, camera_ids: list = None) -> list:
     """Lấy tỷ lệ các loại phương tiện trong khoảng thời gian xác định (loại bỏ person và license_plate)"""
     query = "SELECT loai_xe as type, COUNT(*) as count FROM lich_su_phuong_tien WHERE loai_xe NOT IN ('person', 'license_plate')"
     params = []
+    
+    if camera_ids is not None:
+        if not camera_ids:
+            return []
+        placeholders = ','.join('?' * len(camera_ids))
+        query += f" AND id_camera IN ({placeholders})"
+        params.extend(camera_ids)
     
     if start_date or end_date:
         if start_date:
@@ -1033,3 +1093,50 @@ def migrate_camera_ids_and_plates() -> dict:
         connection.commit()
     
     return results
+
+
+def get_user_camera_ids(user_id: int) -> list:
+    """Lấy danh sách ID camera mà người dùng có quyền truy cập"""
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT id_camera FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            (user_id,)
+        ).fetchall()
+    return [row["id_camera"] for row in rows]
+
+
+def set_user_camera_access(user_id: int, camera_ids: list) -> None:
+    """Gán danh sách quyền truy cập camera cho người dùng (xóa cũ, thêm mới)"""
+    with connect() as connection:
+        # Xóa toàn bộ quyền cũ
+        connection.execute(
+            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            (user_id,)
+        )
+        # Thêm quyền mới
+        for cam_id in camera_ids:
+            connection.execute(
+                "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
+                (user_id, int(cam_id))
+            )
+        connection.commit()
+
+
+def grant_camera_access(user_id: int, camera_id: int) -> None:
+    """Cấp quyền truy cập 1 camera cho người dùng"""
+    with connect() as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
+            (user_id, camera_id)
+        )
+        connection.commit()
+
+
+def revoke_camera_access(user_id: int, camera_id: int) -> None:
+    """Thu hồi quyền truy cập 1 camera của người dùng"""
+    with connect() as connection:
+        connection.execute(
+            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ? AND id_camera = ?",
+            (user_id, camera_id)
+        )
+        connection.commit()

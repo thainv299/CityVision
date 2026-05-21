@@ -86,7 +86,7 @@
                     <th>Status</th>
                     <th>Role</th>
                     <th>Joined Date</th>
-                    <th>Last Active</th>
+                    <th>Cameras</th>
                     <th style="text-align: right; padding-right: 24px;">Actions</th>
                 </tr>
             </thead>
@@ -159,6 +159,31 @@
                     <input type="checkbox" id="is_active" name="is_active" checked>
                     <span>Kích hoạt tài khoản người dùng</span>
                 </label>
+
+                <div id="camera-access-section" style="margin-top: 16px; display: none;">
+                    <h4 style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">Quyền truy cập Camera (chỉ cho Operator)</h4>
+                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                        <button type="button" class="button secondary xs" id="btn-select-all-cams">Chọn tất cả</button>
+                        <button type="button" class="button secondary xs" id="btn-deselect-all-cams">Bỏ chọn tất cả</button>
+                    </div>
+                    <div class="camera-access-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: var(--bg-panel);">
+                        {% if all_cameras %}
+                            {% for cam in all_cameras %}
+                            <label class="toggle-field" style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                <div>
+                                    <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb">
+                                    <span style="font-weight: 500;">{{ cam.name }}</span>
+                                </div>
+                                <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}">
+                                    {{ 'Active' if cam.is_active else 'Inactive' }}
+                                </span>
+                            </label>
+                            {% endfor %}
+                        {% else %}
+                            <div class="small muted">Chưa có camera nào trong hệ thống.</div>
+                        {% endif %}
+                    </div>
+                </div>
 
                 <div style="display: flex; gap: 10px; margin-top: 24px; justify-content: flex-end;">
                     <button type="button" class="button secondary" id="user-form-reset">Hủy bỏ</button>

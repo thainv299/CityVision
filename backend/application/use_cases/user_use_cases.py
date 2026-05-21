@@ -78,6 +78,13 @@ class UserUseCases:
             raise NotFoundError("Không tìm thấy người dùng.")
         return updated
 
+    def update_camera_access(self, user_id: int, camera_ids: List[int]) -> None:
+        """Cập nhật danh sách quyền truy cập camera cho người dùng (chỉ dành cho operator)"""
+        user = self.get_user(user_id)
+        if user.is_admin():
+            raise ValidationError("Tài khoản admin không cần cấp quyền camera (admin có full access).")
+        self.user_repo.update_camera_access(user_id, camera_ids)
+
     def delete_user(self, user_id: int, current_user_id: int) -> bool:
         target = self.get_user(user_id)
         if current_user_id == user_id:
@@ -89,3 +96,4 @@ class UserUseCases:
         if not deleted:
             raise ValidationError("Không thể xóa người dùng.")
         return True
+
