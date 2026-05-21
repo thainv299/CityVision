@@ -20,7 +20,7 @@ def vehicles_page(request: Request, user=Depends(login_required)):
         }
     )
 
-@vehicle_router.get("/vehicles/search", name="vehicles.search_page")
+@vehicle_router.get("/search", name="vehicles.search_page")
 def search_page(request: Request, user=Depends(login_required)):
     """Trang tìm kiếm tập trung"""
     if isinstance(user, RedirectResponse):
