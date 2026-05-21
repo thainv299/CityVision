@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, Depends, status
 from fastapi.responses import RedirectResponse
+from fastapi.concurrency import run_in_threadpool
 from core.config import PROJECT_ROOT
 from presentation.container import container, templates
 from presentation.middlewares.auth import get_current_user, login_required
@@ -110,7 +111,7 @@ async def api_mark_notification_read(request: Request, user=Depends(login_requir
         if not notif_type or not record_id:
             return {"ok": False, "message": "Missing type or id"}
         
-        success = container.dashboard_use_cases.mark_notification_read(notif_type, int(record_id))
+        success = await run_in_threadpool(container.dashboard_use_cases.mark_notification_read, notif_type, int(record_id))
         return {"ok": success}
     except Exception as e:
         return {"ok": False, "message": str(e)}

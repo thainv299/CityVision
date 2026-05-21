@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
@@ -55,7 +56,7 @@ def create_app() -> FastAPI:
         request.state.current_user = None
         
         if user_id:
-            user = container.user_use_cases.user_repo.get_by_id(int(user_id))
+            user = await run_in_threadpool(container.user_use_cases.user_repo.get_by_id, int(user_id))
             if user and user.is_active:
                 request.state.current_user = user
             else:

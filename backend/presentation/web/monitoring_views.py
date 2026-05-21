@@ -161,7 +161,7 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
 
 
 @monitoring_router.get("/monitoring", name="monitoring.monitoring_page")
-async def monitoring_page(request: Request, user=Depends(login_required)):
+def monitoring_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     
@@ -210,7 +210,7 @@ async def api_upload_chunk(
     return JSONResponse(status_code=200, content={"ok": True})
     
 @monitoring_router.get("/api/server-videos")
-async def api_list_server_videos(user=Depends(login_required)):
+def api_list_server_videos(user=Depends(login_required)):
     data_root = PROJECT_ROOT / "data"
     if not data_root.exists():
         data_root.mkdir(parents=True, exist_ok=True)
@@ -245,7 +245,7 @@ async def api_list_server_videos(user=Depends(login_required)):
     return {"ok": True, "groups": grouped_videos}
 
 @monitoring_router.get("/api/server-videos/preview")
-async def api_get_server_video_preview(path: Optional[str] = None, rel_path: Optional[str] = None, user=Depends(login_required)):
+def api_get_server_video_preview(path: Optional[str] = None, rel_path: Optional[str] = None, user=Depends(login_required)):
     final_path = path or rel_path
     if not final_path:
         raise HTTPException(status_code=422, detail="Thiếu tham số đường dẫn (path hoặc rel_path).")
@@ -443,7 +443,7 @@ async def api_create_test_job(
 
 
 @monitoring_router.get("/api/test-jobs/{job_id}")
-async def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)):
+def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)):
     job = container.job_use_cases.get_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job kiểm tra."})
@@ -454,7 +454,7 @@ async def api_get_test_job(request: Request, job_id: str, user=Depends(login_req
 
     return {"ok": True, "job": payload}
 @monitoring_router.post("/api/test-jobs/{job_id}/pause")
-async def api_pause_test_job(job_id: str, user=Depends(login_required)):
+def api_pause_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.pause_job(job_id)
     if not success:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể tạm dừng job này."})
@@ -462,7 +462,7 @@ async def api_pause_test_job(job_id: str, user=Depends(login_required)):
 
 
 @monitoring_router.post("/api/test-jobs/{job_id}/stop")
-async def api_stop_test_job(job_id: str, user=Depends(login_required)):
+def api_stop_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.stop_job(job_id)
     if not success:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể dừng job này (có thể đã kết thúc hoặc không tồn tại)."})
@@ -470,14 +470,14 @@ async def api_stop_test_job(job_id: str, user=Depends(login_required)):
 
 
 @monitoring_router.post("/api/test-jobs/{job_id}/resume")
-async def api_resume_test_job(job_id: str, user=Depends(login_required)):
+def api_resume_test_job(job_id: str, user=Depends(login_required)):
     success = container.job_use_cases.resume_job(job_id)
     if not success:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể tiếp tục job này."})
     return {"ok": True, "message": "Đã tiếp tục quá trình phân tích."}
     
 @monitoring_router.post("/api/test-jobs/{job_id}/quality")
-async def api_update_job_quality(job_id: str, quality: str = Body(..., embed=True), user=Depends(login_required)):
+def api_update_job_quality(job_id: str, quality: str = Body(..., embed=True), user=Depends(login_required)):
     if quality not in ["low", "medium", "high", "ultra"]:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Chất lượng không hợp lệ."})
         
@@ -488,7 +488,7 @@ async def api_update_job_quality(job_id: str, quality: str = Body(..., embed=Tru
 
 
 @monitoring_router.post("/api/test-jobs/{job_id}/settings")
-async def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), user=Depends(login_required)):
+def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), user=Depends(login_required)):
     with container.job_use_cases.job_lock:
         job = container.job_use_cases.jobs.get(job_id)
         if not job:
