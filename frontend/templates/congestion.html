@@ -137,10 +137,10 @@
                                 ` : '<span class="muted">—</span>'}
                             </td>
                             <td style="text-align: center;">
-                                ${log.start_time || 'N/A'}
+                                ${window.portalApi.formatVietnameseDateTime(log.start_time)}
                             </td>
                             <td style="text-align: center;">
-                                ${log.end_time || 'Đang diễn ra'}
+                                ${log.end_time ? window.portalApi.formatVietnameseDateTime(log.end_time) : 'Đang diễn ra'}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill">${log.duration_seconds || 0}s</span>

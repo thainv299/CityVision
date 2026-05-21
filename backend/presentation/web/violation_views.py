@@ -82,7 +82,7 @@ def api_violations(
     }
 
 @violation_router.post("/api/violations/{violation_id}/resolve")
-async def api_resolve_violation(
+def api_resolve_violation(
     violation_id: int,
     user=Depends(login_required)
 ):

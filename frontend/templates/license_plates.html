@@ -159,7 +159,7 @@
                                 ${plate.detected_date || 'N/A'}
                             </td>
                             <td style="text-align: center;">
-                                <span class="pill success">${plate.detected_time || '--:--:--'}</span>
+                                <span class="pill success">${window.portalApi.formatVietnameseDateTime(plate.detected_time)}</span>
                             </td>
                             <td style="text-align: center;">
                                 ${firstImage ? `
@@ -169,8 +169,8 @@
                                 ` : '<span class="badge muted">N/A</span>'}
                             </td>
                             <td style="text-align: center;">
-                                <button class="button danger outline sm" onclick="deletePlate(${plate.id})" title="Xóa bản ghi rác">
-                                    <span class="icon">🗑️</span> Xóa
+                                <button class="button danger outline sm" onclick="deletePlate(${plate.id})" title="Xóa bản ghi rác" style="display: inline-flex; align-items: center; gap: 4px;">
+                                    <img src="/static/img/delete.png" style="width:20px; height:20px;" title="Xóa">
                                 </button>
                             </td>
                         </tr>

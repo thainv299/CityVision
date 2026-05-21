@@ -980,8 +980,8 @@ def process_video(
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
-            # 3. GỬI TIẾN ĐỘ LÊN WEB
-            if progress_callback is not None and frame_index % 2 == 0:
+            # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame để tối ưu độ mượt stream MJPEG)
+            if progress_callback is not None:
                 if preview_queue.empty():
                     preview_queue.put(frame)
 

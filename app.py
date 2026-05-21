@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
@@ -35,6 +36,7 @@ from backend.presentation.web.vehicle_views import vehicle_router
 from backend.presentation.web.violation_views import violation_router
 from backend.presentation.web.congestion_views import congestion_router
 from backend.presentation.web.notification_views import notification_router
+from backend.presentation.web.model_views import model_router
 
 def create_app() -> FastAPI:
     # 1. Khởi tạo DB
@@ -55,7 +57,7 @@ def create_app() -> FastAPI:
         request.state.current_user = None
         
         if user_id:
-            user = container.user_use_cases.user_repo.get_by_id(int(user_id))
+            user = await run_in_threadpool(container.user_use_cases.user_repo.get_by_id, int(user_id))
             if user and user.is_active:
                 request.state.current_user = user
             else:
@@ -120,6 +122,7 @@ def create_app() -> FastAPI:
     app.include_router(congestion_router)
     app.include_router(monitoring_router)
     app.include_router(notification_router)
+    app.include_router(model_router)
 
     @app.on_event("startup")
     async def startup_event():

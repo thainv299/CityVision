@@ -6,7 +6,7 @@ import database.sqlite_db as db
 notification_router = APIRouter()
 
 @notification_router.get("/api/notifications/unread")
-async def api_get_unread_notifications(
+def api_get_unread_notifications(
     request: Request,
     user=Depends(login_required),
     limit: int = 10
@@ -20,7 +20,7 @@ async def api_get_unread_notifications(
     }
 
 @notification_router.post("/api/notifications/{notif_type}/{record_id}/read")
-async def api_mark_notification_read(
+def api_mark_notification_read(
     notif_type: str,
     record_id: int,
     user=Depends(login_required)

@@ -52,7 +52,7 @@ def api_list_cameras(user=Depends(login_required)):
 
 
 @camera_router.get("/api/cameras/{camera_id}")
-async def api_get_camera(camera_id: int, user=Depends(login_required)):
+def api_get_camera(camera_id: int, user=Depends(login_required)):
     try:
         camera = container.camera_use_cases.get_camera(camera_id)
         return {"ok": True, "camera": camera.to_dict()}

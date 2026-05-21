@@ -97,7 +97,7 @@ def api_vehicles_by_date(
     }
 
 @vehicle_router.delete("/api/vehicles/{record_id}")
-async def delete_vehicle(
+def delete_vehicle(
     record_id: int,
     user=Depends(login_required),
 ):
