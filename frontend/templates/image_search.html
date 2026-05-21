@@ -90,6 +90,13 @@
                     </button>
                 </div>
                 <div id="results-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px;"></div>
+                
+                <!-- Pagination Controls -->
+                <div id="pagination-controls" style="display: none; justify-content: center; align-items: center; gap: 16px; margin-top: 24px;">
+                    <button id="prev-page" class="btn-secondary" style="padding: 8px 16px; border-radius: 8px; font-weight: 600;"><i class="fas fa-chevron-left" style="margin-right: 6px;"></i>Trang trước</button>
+                    <span id="page-info" style="font-size: 0.9rem; font-weight: 600; color: var(--text-main);">Trang 1 / 1</span>
+                    <button id="next-page" class="btn-secondary" style="padding: 8px 16px; border-radius: 8px; font-weight: 600;">Trang tiếp<i class="fas fa-chevron-right" style="margin-left: 6px;"></i></button>
+                </div>
             </div>
 
             <!-- No results -->
@@ -142,6 +149,20 @@
 #drop-zone:hover, #drop-zone.dragover {
     border-color: var(--brand-blue);
     background: rgba(37,99,235,0.04);
+}
+.btn-secondary {
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-secondary:not(:disabled):hover {
+    background: var(--border);
+}
+.btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 #search-btn:not(:disabled):hover {
     background: #1d4ed8;
@@ -228,20 +249,35 @@ async function doSearch() {
 }
 
 // ── Render results ─────────────────────────────────
+let allResults = [];
+let currentPage = 1;
+const itemsPerPage = 8; // Hiển thị 8 ảnh 1 trang
+
 function renderResults(data) {
     if (!data.results || data.results.length === 0) {
         showState('empty');
         return;
     }
 
+    allResults = data.results;
+    currentPage = 1;
+
     showState('results');
     document.getElementById('results-count').textContent =
         `Tìm thấy ${data.total} ảnh tương tự (${data.search_scope === 'all' ? 'tất cả' : data.search_scope})`;
 
+    renderCurrentPage();
+}
+
+function renderCurrentPage() {
     const grid = document.getElementById('results-grid');
     grid.innerHTML = '';
 
-    data.results.forEach((item, i) => {
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const endIdx = startIdx + itemsPerPage;
+    const pageData = allResults.slice(startIdx, endIdx);
+
+    pageData.forEach((item, i) => {
         const scoreColor = item.score_pct >= 80 ? '#10b981' : item.score_pct >= 60 ? '#f59e0b' : '#6b7280';
         const catLabel = {
             plates: 'Biển số', violations: 'Vi phạm', congestion: 'Ùn tắc', vehicles: 'Phương tiện'
@@ -267,7 +303,39 @@ function renderResults(data) {
             </div>`;
         grid.appendChild(card);
     });
+
+    updatePagination();
 }
+
+function updatePagination() {
+    const totalPages = Math.ceil(allResults.length / itemsPerPage);
+    const pagCtrl = document.getElementById('pagination-controls');
+    
+    if (totalPages > 1) {
+        pagCtrl.style.display = 'flex';
+        document.getElementById('page-info').textContent = `Trang ${currentPage} / ${totalPages}`;
+        document.getElementById('prev-page').disabled = (currentPage === 1);
+        document.getElementById('next-page').disabled = (currentPage === totalPages);
+    } else {
+        pagCtrl.style.display = 'none';
+    }
+}
+
+document.getElementById('prev-page').onclick = () => {
+    if (currentPage > 1) { 
+        currentPage--; 
+        renderCurrentPage(); 
+        document.getElementById('results-results').scrollIntoView({ behavior: 'smooth' });
+    }
+};
+document.getElementById('next-page').onclick = () => {
+    const totalPages = Math.ceil(allResults.length / itemsPerPage);
+    if (currentPage < totalPages) { 
+        currentPage++; 
+        renderCurrentPage(); 
+        document.getElementById('results-results').scrollIntoView({ behavior: 'smooth' });
+    }
+};
 
 // ── State helpers ──────────────────────────────────
 function showState(state) {

@@ -7,7 +7,7 @@ from presentation.middlewares.auth import login_required
 vehicle_router = APIRouter()
 
 @vehicle_router.get("/vehicles", name="vehicles.vehicles_page")
-async def vehicles_page(request: Request, user=Depends(login_required)):
+def vehicles_page(request: Request, user=Depends(login_required)):
     """Trang quản lý phương tiện (biển số)"""
     if isinstance(user, RedirectResponse):
         return user
@@ -20,8 +20,8 @@ async def vehicles_page(request: Request, user=Depends(login_required)):
         }
     )
 
-@vehicle_router.get("/search", name="vehicles.search_page")
-async def search_page(request: Request, user=Depends(login_required)):
+@vehicle_router.get("/vehicles/search", name="vehicles.search_page")
+def search_page(request: Request, user=Depends(login_required)):
     """Trang tìm kiếm tập trung"""
     if isinstance(user, RedirectResponse):
         return user
@@ -35,7 +35,7 @@ async def search_page(request: Request, user=Depends(login_required)):
     )
 
 @vehicle_router.get("/api/vehicles")
-async def api_vehicles(
+def api_vehicles(
     request: Request,
     user=Depends(login_required),
     limit: int = 30,
@@ -82,7 +82,7 @@ async def api_vehicles(
     }
 
 @vehicle_router.get("/api/vehicles/date/{detected_date}")
-async def api_vehicles_by_date(
+def api_vehicles_by_date(
     detected_date: str,
     user=Depends(login_required),
 ):
@@ -95,6 +95,7 @@ async def api_vehicles_by_date(
         "total": len(plates),
         "plates": plates,
     }
+
 @vehicle_router.delete("/api/vehicles/{record_id}")
 async def delete_vehicle(
     record_id: int,
@@ -105,8 +106,9 @@ async def delete_vehicle(
     success = delete_license_plate_record(record_id)
     return {"ok": success}
 
-@vehicle_router.get("/api/search/suggestions")
-async def api_search_suggestions(
+@vehicle_router.get("/api/vehicles/suggestions")
+def api_search_suggestions(
+    request: Request,
     q: str = "",
     user=Depends(login_required),
 ):
@@ -139,8 +141,8 @@ async def api_search_suggestions(
     return {"ok": True, "suggestions": suggestions[:10]}
 
 
-@vehicle_router.get("/image-search", name="vehicles.image_search_page")
-async def image_search_page(request: Request, user=Depends(login_required)):
+@vehicle_router.get("/vehicles/image-search", name="vehicles.image_search_page")
+def image_search_page(request: Request, user=Depends(login_required)):
     """Trang tìm kiếm bằng hình ảnh (Image Similarity Search)"""
     if isinstance(user, RedirectResponse):
         return user
@@ -152,9 +154,12 @@ async def image_search_page(request: Request, user=Depends(login_required)):
 
 
 @vehicle_router.post("/api/image-search")
-async def api_image_search(
-    request: Request,
-    user=Depends(login_required),
+def api_image_search(
+    file: UploadFile = File(...),
+    top_k: int = Form(12),
+    search_scope: str = Form("all"),
+    min_score: float = Form(0.3),
+    user=Depends(login_required)
 ):
     """Tìm kiếm ảnh tương tự bằng ResNet50 GPU."""
     if isinstance(user, RedirectResponse):
@@ -166,18 +171,8 @@ async def api_image_search(
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.insert(0, str(PROJECT_ROOT))
 
-    # Parse form data
-    form = await request.form()
-    file = form.get("file")
-    top_k = int(form.get("top_k", 12))
-    search_scope = form.get("search_scope", "all")
-    min_score = float(form.get("min_score", 0.3))
-
-    if file is None:
-        from fastapi.responses import JSONResponse
-        return JSONResponse({"ok": False, "detail": "Không có file"}, status_code=400)
-
-    image_bytes = await file.read()
+    # Đọc dữ liệu ảnh
+    image_bytes = file.file.read()
     if len(image_bytes) == 0:
         from fastapi.responses import JSONResponse
         return JSONResponse({"ok": False, "detail": "File rỗng"}, status_code=400)
@@ -205,9 +200,7 @@ async def api_image_search(
         from database.sqlite_db import connect
         with connect() as conn:
             for res in results:
-                # Tìm bản ghi trong DB dựa trên đường dẫn ảnh
-                # Vì duong_dan_anh có thể chứa nhiều đường dẫn, dùng LIKE
-                img_path = res["path"] # logs/plates/2026/...
+                img_path = res["path"]
                 row = conn.execute("""
                     SELECT b.bien_so, b.ngay_phat_hien, b.thoi_gian_phat_hien, c.ten_camera
                     FROM bien_so_phat_hien b
@@ -230,7 +223,6 @@ async def api_image_search(
         return {
             "ok": True,
             "total": len(results),
-            "query_filename": getattr(file, 'filename', 'upload'),
             "search_scope": search_scope,
             "results": results,
         }
@@ -240,7 +232,7 @@ async def api_image_search(
 
 
 @vehicle_router.get("/api/image-search/status")
-async def api_image_search_status(request: Request, user=Depends(login_required)):
+def api_image_search_status(request: Request, user=Depends(login_required)):
     """Trạng thái service (GPU/CPU, số ảnh cache)."""
     if isinstance(user, RedirectResponse):
         return user
