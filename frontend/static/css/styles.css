@@ -726,6 +726,9 @@ img, video { display: block; max-width: 100%; }
     background: #fff;
     border-radius: var(--r-lg);
     width: 90%; max-width: 450px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
     box-shadow: var(--shadow-float);
     animation: modal-enter 0.3s ease;
 }
@@ -737,12 +740,17 @@ img, video { display: block; max-width: 100%; }
     padding: 20px 24px;
     border-bottom: 1px solid var(--border);
     display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
 }
 .ds-modal-header h3 { font-size: 1.2rem; }
 .ds-modal-close {
     background: none; border: none; font-size: 1.5rem; color: var(--text-muted); cursor: pointer;
 }
-.ds-modal-body { padding: 24px; }
+.ds-modal-body { 
+    padding: 24px; 
+    overflow-y: auto;
+    flex: 1;
+}
 
 /* Empty state */
 .empty-state {
