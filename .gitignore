@@ -134,3 +134,4 @@ scratch/*
 *.db.backup
 cloudflared.exe
 *.pt
+*.ttf

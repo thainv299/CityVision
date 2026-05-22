@@ -16,7 +16,13 @@
         <div>
             <h3>Danh Sách Vi Phạm Chờ Xử Lý</h3>
         </div>
-        <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" class="button secondary" onclick="window.portalApi.openExportModal('parking')">
+                <img src="{{ url_for('static', filename='img/export.png') }}" style="width: 16px; height: 16px; margin-right: 6px;">
+                Xuất báo cáo
+            </button>
+            <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
+        </div>
     </div>
 
     <div id="violationList" style="display: grid; gap: 16px;">

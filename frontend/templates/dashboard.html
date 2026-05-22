@@ -39,6 +39,10 @@
             <option value="30days" {% if stats and stats.period == '30days' %}selected{% endif %}>30 ngày qua</option>
         </select>
 
+        <button type="button" class="button secondary" onclick="window.portalApi.openExportModal('traffic')">
+            <img src="{{ url_for('static', filename='img/export.png') }}" style="width: 16px; height: 16px; margin-right: 6px;">
+            Xuất báo cáo
+        </button>
         <a href="{{ url_for('cameras.cameras_page') }}" class="button secondary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">

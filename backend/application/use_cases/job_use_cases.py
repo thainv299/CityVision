@@ -14,7 +14,7 @@ class JobUseCases:
         self.detection_service = detection_service
         self.file_storage = file_storage
         
-        self.executor = ThreadPoolExecutor(max_workers=10)
+        self.executor = ThreadPoolExecutor(max_workers=20)
         self.job_lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
         self.pause_events: Dict[str, threading.Event] = {}
@@ -145,6 +145,8 @@ class JobUseCases:
                 
                 req_q = job.progress.get("requested_quality") if job.progress else None
                 req_settings = job.progress.get("requested_settings") if job.progress else None
+                req_force_preview = job.progress.pop("requested_force_preview", False) if job.progress else False
+                req_viewer_count = job.viewer_count
 
             progress_payload = dict(progress)
             preview_jpeg = progress_payload.pop("preview_jpeg", None)
@@ -173,7 +175,7 @@ class JobUseCases:
             
             # Trả về lệnh đổi chất lượng hoặc đổi cài đặt cho Bridge nếu có
             actions = {}
-            if req_q or req_settings:
+            if req_q or req_settings or req_force_preview:
                 with self.job_lock:
                     if req_q and job.progress:
                         job.progress.pop("requested_quality", None)
@@ -183,6 +185,10 @@ class JobUseCases:
                     actions["new_quality"] = req_q
                 if req_settings:
                     actions["new_settings"] = req_settings
+                if req_force_preview:
+                    actions["force_preview"] = True
+            
+            actions["viewer_count"] = req_viewer_count
 
             return actions if actions else None
 
@@ -316,12 +322,23 @@ class JobUseCases:
         )
         return job
 
+    def request_single_preview(self, job_id: str):
+        with self.job_lock:
+            job = self.jobs.get(job_id)
+            if job and job.status in ("queued", "running"):
+                if not job.progress:
+                    job.progress = {}
+                job.progress["requested_force_preview"] = True
+
     def stream_job_frames(self, job_id: str):
         import asyncio
         with self.job_lock:
             job = self.jobs.get(job_id)
         if not job:
             return
+
+        with self.job_lock:
+            job.viewer_count += 1
 
         try:
             while True:
@@ -337,8 +354,10 @@ class JobUseCases:
         finally:
             with self.job_lock:
                 if job.status in ("queued", "running"):
-                    job.status = "aborted"
-                    job.message = "Stream bị ngắt kết nối."
+                    job.viewer_count = max(0, job.viewer_count - 1)
+                    if not job_id.startswith("background_") and job.viewer_count == 0:
+                        job.status = "aborted"
+                        job.message = "Stream bị ngắt kết nối."
     def start_active_cameras(self, camera_use_cases: Any):
         """Khởi động tất cả các camera đang hoạt động (is_active=True)"""
         try:
