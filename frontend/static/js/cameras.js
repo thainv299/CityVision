@@ -157,6 +157,25 @@ document.addEventListener("DOMContentLoaded", () => {
         // Cập nhật trạng thái tọa độ
         updatePointsStatus("roi_points");
         updatePointsStatus("no_parking_points");
+
+        // Disable form nếu không có quyền sửa
+        const canEdit = camera ? (camera.can_edit !== false) : true;
+        const formElements = form.querySelectorAll("input, select, textarea, button");
+        formElements.forEach(el => {
+            if (el.id !== "camera-form-reset") { // Reset để huỷ bỏ/đóng form
+                el.disabled = !canEdit;
+            }
+        });
+        
+        const submitBtn = form.querySelector("button[type='submit']");
+        if (submitBtn) {
+            submitBtn.style.display = canEdit ? "block" : "none";
+        }
+        
+        // Disable toggle builder
+        if (rtspToggle) rtspToggle.disabled = !canEdit;
+        // Disable roi buttons
+        document.querySelectorAll(".roi-draw-btn").forEach(btn => btn.disabled = !canEdit);
     }
 
     function updateSimulationLayout() {
@@ -601,7 +620,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td style="text-align: center;">
                         <label class="toggle-switch">
-                            <input type="checkbox" data-action="toggle-active" data-id="${camera.id}" ${camera.is_active ? "checked" : ""}>
+                            <input type="checkbox" data-action="toggle-active" data-id="${camera.id}" ${camera.is_active ? "checked" : ""} ${camera.can_edit === false ? "disabled" : ""}>
                             <span class="slider"></span>
                         </label>
                         <div style="font-size: 0.65rem; margin-top: 4px; font-weight: 600; color: ${camera.is_active ? 'var(--success)' : 'var(--text-subtle)'}">
@@ -610,7 +629,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; justify-content: center;">
-                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px;" title="Xóa"><img src="/static/img/delete.png" style="width:20px; height:20px;"></button>
+                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" ${camera.can_edit === false ? "disabled style='padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px; opacity: 0.5; cursor: not-allowed;'" : "style='padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px;'"} title="Xóa"><img src="/static/img/delete.png" style="width:20px; height:20px;"></button>
                         </div>
                     </td>
                 </tr>

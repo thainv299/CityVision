@@ -169,15 +169,21 @@
                     <div class="camera-access-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: var(--bg-panel);">
                         {% if all_cameras %}
                             {% for cam in all_cameras %}
-                            <label class="toggle-field" style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-                                <div>
+                            <div style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border);">
+                                <label class="toggle-field" style="margin: 0;">
                                     <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb">
                                     <span style="font-weight: 500;">{{ cam.name }}</span>
+                                </label>
+                                <div style="display: flex; gap: 12px; align-items: center;">
+                                    <label class="toggle-field" style="margin: 0; font-size: 13px;" title="Bật để cho phép chỉnh sửa cấu hình camera">
+                                        <input type="checkbox" name="camera_edit[]" value="{{ cam.id }}" class="camera-edit-cb" disabled>
+                                        <span class="muted">Sửa</span>
+                                    </label>
+                                    <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}">
+                                        {{ 'Active' if cam.is_active else 'Inactive' }}
+                                    </span>
                                 </div>
-                                <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}">
-                                    {{ 'Active' if cam.is_active else 'Inactive' }}
-                                </span>
-                            </label>
+                            </div>
                             {% endfor %}
                         {% else %}
                             <div class="small muted">Chưa có camera nào trong hệ thống.</div>

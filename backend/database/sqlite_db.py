@@ -244,14 +244,14 @@ def init_db() -> None:
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
-            CREATE TABLE IF NOT EXISTS quyen_truy_cap_camera (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                id_nguoi_dung INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS camera_nguoi_dung (
                 id_camera INTEGER NOT NULL,
+                id_nguoidung INTEGER NOT NULL,
+                quyen INTEGER NOT NULL DEFAULT 0,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (id_nguoi_dung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
-                FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE,
-                UNIQUE(id_nguoi_dung, id_camera)
+                PRIMARY KEY (id_camera, id_nguoidung),
+                FOREIGN KEY (id_nguoidung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
+                FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE
             );
             
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_thoi_gian ON lich_su_phuong_tien(thoi_gian_di_qua);
@@ -267,6 +267,23 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_thong_ke_giao_thong_ngay ON thong_ke_giao_thong(ngay_ghi_nhan);
             """
         )
+
+        # Di chuyển dữ liệu từ bảng cũ sang bảng mới (nếu bảng cũ còn tồn tại)
+        try:
+            # Kiểm tra xem bảng quyen_truy_cap_camera có tồn tại không
+            table_exists = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='quyen_truy_cap_camera'"
+            ).fetchone()
+            if table_exists:
+                # Migrate data (mặc định quyền 1 cho dữ liệu cũ)
+                connection.execute("""
+                    INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen, ngay_tao)
+                    SELECT id_camera, id_nguoi_dung, 1, ngay_tao FROM quyen_truy_cap_camera
+                """)
+                # Xóa bảng cũ
+                connection.execute("DROP TABLE quyen_truy_cap_camera")
+        except Exception as e:
+            logger.error(f"Lỗi khi di chuyển dữ liệu quyền: {e}")
 
         camera_columns = {
             row["name"]
@@ -1140,39 +1157,47 @@ def migrate_camera_ids_and_plates() -> dict:
     return results
 
 
-def get_user_camera_ids(user_id: int) -> list:
-    """Lấy danh sách ID camera mà người dùng có quyền truy cập"""
+def get_user_camera_access(user_id: int) -> dict:
+    """Lấy dict {id_camera: quyen} mà người dùng có quyền truy cập"""
     with connect() as connection:
         rows = connection.execute(
-            "SELECT id_camera FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            "SELECT id_camera, quyen FROM camera_nguoi_dung WHERE id_nguoidung = ?",
             (user_id,)
         ).fetchall()
-    return [row["id_camera"] for row in rows]
+    return {row["id_camera"]: row["quyen"] for row in rows}
+
+def get_user_camera_ids(user_id: int) -> list:
+    """Hàm phụ trợ: Lấy danh sách ID camera (để tương thích ngược)"""
+    return list(get_user_camera_access(user_id).keys())
 
 
-def set_user_camera_access(user_id: int, camera_ids: list) -> None:
-    """Gán danh sách quyền truy cập camera cho người dùng (xóa cũ, thêm mới)"""
+def set_user_camera_access(user_id: int, camera_access: list) -> None:
+    """Gán danh sách quyền truy cập camera cho người dùng.
+    camera_access là list các dict: [{"id_camera": 1, "quyen": 1}, ...]
+    """
     with connect() as connection:
         # Xóa toàn bộ quyền cũ
         connection.execute(
-            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            "DELETE FROM camera_nguoi_dung WHERE id_nguoidung = ?",
             (user_id,)
         )
         # Thêm quyền mới
-        for cam_id in camera_ids:
+        for access in camera_access:
+            cam_id = access.get("id_camera")
+            quyen = access.get("quyen", 0)
             connection.execute(
-                "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
-                (user_id, int(cam_id))
+                "INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen) VALUES (?, ?, ?)",
+                (int(cam_id), user_id, int(quyen))
             )
         connection.commit()
 
 
-def grant_camera_access(user_id: int, camera_id: int) -> None:
+def grant_camera_access(user_id: int, camera_id: int, quyen: int = 1) -> None:
     """Cấp quyền truy cập 1 camera cho người dùng"""
     with connect() as connection:
         connection.execute(
-            "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
-            (user_id, camera_id)
+            "INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen) VALUES (?, ?, ?)",
+            (camera_id, user_id, quyen)
         )
         connection.commit()
 
@@ -1181,7 +1206,7 @@ def revoke_camera_access(user_id: int, camera_id: int) -> None:
     """Thu hồi quyền truy cập 1 camera của người dùng"""
     with connect() as connection:
         connection.execute(
-            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ? AND id_camera = ?",
+            "DELETE FROM camera_nguoi_dung WHERE id_nguoidung = ? AND id_camera = ?",
             (user_id, camera_id)
         )
         connection.commit()

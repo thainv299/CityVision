@@ -62,10 +62,10 @@ def api_delete_user(user_id: int, user=Depends(admin_required)):
 
 @user_router.get("/api/users/{user_id}/camera-access")
 def api_get_camera_access(user_id: int, user=Depends(admin_required)):
-    """Lấy danh sách ID camera mà user được truy cập"""
+    """Lấy danh sách ID và quyền camera mà user được truy cập"""
     try:
         target = container.user_use_cases.get_user(user_id)
-        return {"ok": True, "camera_ids": target.camera_access_ids or []}
+        return {"ok": True, "camera_access": target.camera_access or {}}
     except AppError as exc:
         return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})
 
@@ -74,8 +74,8 @@ def api_get_camera_access(user_id: int, user=Depends(admin_required)):
 def api_update_camera_access(user_id: int, payload: Dict[str, Any], user=Depends(admin_required)):
     """Cập nhật danh sách quyền truy cập camera cho user (chỉ dành cho operator)"""
     try:
-        camera_ids = payload.get("camera_ids", [])
-        container.user_use_cases.update_camera_access(user_id, camera_ids)
+        camera_access = payload.get("camera_access", [])
+        container.user_use_cases.update_camera_access(user_id, camera_access)
         return {"ok": True, "message": "Đã cập nhật quyền truy cập camera."}
     except AppError as exc:
         return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})

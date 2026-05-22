@@ -3,15 +3,15 @@ from typing import List, Optional
 
 from domain.entities.user import User
 from domain.repositories.user_repository import UserRepository
-from database.sqlite_db import connect, get_user_camera_ids, set_user_camera_access
+from database.sqlite_db import connect, get_user_camera_access, set_user_camera_access
 
 
 class SqliteUserRepository(UserRepository):
 
     def _row_to_user(self, row: sqlite3.Row) -> User:
         user_id = row["id"]
-        # Nạp danh sách camera mà user có quyền truy cập
-        camera_ids = get_user_camera_ids(user_id)
+        # Nạp danh sách quyền truy cập camera {camera_id: quyen}
+        camera_access = get_user_camera_access(user_id)
         return User(
             id=user_id,
             username=row["ten_dang_nhap"],
@@ -19,7 +19,7 @@ class SqliteUserRepository(UserRepository):
             password_hash=row["mat_khau_hash"],
             role=row["vai_tro"],
             is_active=bool(row["trang_thai_hoat_dong"]),
-            camera_access_ids=camera_ids,
+            camera_access=camera_access,
             created_at=row["ngay_tao"],
             updated_at=row["ngay_cap_nhat"],
         )
@@ -112,9 +112,9 @@ class SqliteUserRepository(UserRepository):
 
         return self.get_by_id(user.id)
 
-    def update_camera_access(self, user_id: int, camera_ids: List[int]) -> None:
+    def update_camera_access(self, user_id: int, camera_access: list) -> None:
         """Cập nhật danh sách quyền truy cập camera cho người dùng"""
-        set_user_camera_access(user_id, camera_ids)
+        set_user_camera_access(user_id, camera_access)
 
     def delete(self, user_id: int) -> bool:
         with connect() as connection:
