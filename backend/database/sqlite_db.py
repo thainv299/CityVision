@@ -587,6 +587,27 @@ def broadcast_notification(notification_data: dict):
                 except Exception:
                     pass
 
+def create_system_notification(title: str, content: str, type_name: str = "system") -> None:
+    """Tạo và broadcast thông báo hệ thống."""
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO thong_bao (loai_thong_bao, tieu_de, noi_dung, duong_dan_anh)
+            VALUES (?, ?, ?, ?)
+            """,
+            (type_name, title, content, "/static/img/model.png")
+        )
+        
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
+
 def get_unread_notifications(limit: int = 10) -> dict:
     """Lấy danh sách thông báo chưa đọc từ bảng thong_bao tập trung."""
     with connect() as connection:
