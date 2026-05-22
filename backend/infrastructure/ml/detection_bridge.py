@@ -631,19 +631,29 @@ def process_video(
 
     # Luồng nền nén ảnh JPEG
     preview_queue = queue.Queue(maxsize=1)
-    preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75}
+    preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
 
     def preview_encoder_worker():
         while not preview_state["stop"]:
             try:
                 frame_to_encode = preview_queue.get(timeout=0.2)
-                # Dùng kích thước preview để nén nhanh
-                preview_state["last_jpeg"] = _encode_preview_frame(
-                    frame_to_encode, 
-                    preview_state["pw"], 
-                    preview_state["ph"],
-                    preview_state["q"]
-                )
+                
+                # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
+                if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
+                    # Dùng kích thước preview để nén nhanh
+                    preview_state["last_jpeg"] = _encode_preview_frame(
+                        frame_to_encode, 
+                        preview_state["pw"], 
+                        preview_state["ph"],
+                        preview_state["q"]
+                    )
+                    # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
+                    if preview_state["force_preview"]:
+                        preview_state["force_preview"] = False
+                else:
+                    # Giữ nguyên last_jpeg của lần cuối cùng để có ảnh thumbnail cũ, 
+                    # không set thành None để giữ thumbnail cho Grid view
+                    pass
             except queue.Empty:
                 continue
 
@@ -993,6 +1003,12 @@ def process_video(
                     "processed_frames": frame_index
                 })
                 
+                # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
+                if response and "viewer_count" in response:
+                    preview_state["viewer_count"] = response["viewer_count"]
+                if response and "force_preview" in response and response["force_preview"]:
+                    preview_state["force_preview"] = True
+
                 # Xử lý lệnh từ Manager (ví dụ đổi chất lượng)
                 if response and "new_quality" in response:
                     q = response["new_quality"]

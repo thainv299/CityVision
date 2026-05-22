@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, List
 from fastapi import APIRouter, Request, Depends, Form, File, UploadFile, status, HTTPException, Body
 from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, FileResponse
 from pathlib import Path
-
+import asyncio
 from core.config import ALLOWED_VIDEO_EXTENSIONS, DEFAULT_MODEL_PATH, SAMPLES_DIR
 from core.errors import AppError, NotFoundError, ValidationError
 from core.utils import build_placeholder_frame, resolve_path
@@ -588,6 +588,19 @@ async def serve_test_job_preview(job_id: str, user=Depends(login_required)):
             media_type="image/jpeg",
             headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
         )
+
+    # Trigger on-demand preview encoding
+    container.job_use_cases.request_single_preview(job_id)
+
+    # Đợi tối đa 1 giây để bridge tạo frame mới (poll mỗi 100ms)
+    for _ in range(10):
+        if job.latest_frame:
+            return StreamingResponse(
+                io.BytesIO(job.latest_frame), 
+                media_type="image/jpeg",
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
+            )
+        await asyncio.sleep(0.1)
 
     if job.status == "running":
         title = "Đang phân tích video"
