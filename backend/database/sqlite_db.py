@@ -650,6 +650,39 @@ def get_vehicle_type_distribution(start_date: str = None, end_date: str = None, 
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
 
+def get_traffic_report_by_camera(start_date: str = None, end_date: str = None, camera_ids: list = None) -> list:
+    """Lấy số lượng phương tiện theo từng camera và loại xe (phục vụ báo cáo PDF).
+    Trả về: [{"camera_id": 1, "camera_name": "...", "description": "...", "vehicle_type": "car", "count": 120}, ...]
+    """
+    query = """
+        SELECT l.id_camera as camera_id, c.ten_camera as camera_name, IFNULL(c.mo_ta, '') as description,
+               l.loai_xe as vehicle_type, COUNT(*) as count
+        FROM lich_su_phuong_tien l
+        LEFT JOIN camera c ON l.id_camera = c.id
+        WHERE l.loai_xe NOT IN ('person', 'license_plate')
+    """
+    params = []
+
+    if camera_ids is not None:
+        if not camera_ids:
+            return []
+        placeholders = ','.join('?' * len(camera_ids))
+        query += f" AND l.id_camera IN ({placeholders})"
+        params.extend(camera_ids)
+
+    if start_date:
+        query += " AND l.thoi_gian_di_qua >= ?"
+        params.append(f"{start_date} 00:00:00")
+    if end_date:
+        query += " AND l.thoi_gian_di_qua <= ?"
+        params.append(f"{end_date} 23:59:59")
+
+    query += " GROUP BY l.id_camera, l.loai_xe ORDER BY l.id_camera, count DESC"
+
+    with connect() as connection:
+        rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
 
 def log_vehicle_count(camera_id: int, vehicle_type: str, count: int = 1) -> None:
     """Ghi nhận số lượng xe theo loại và ngày (loại bỏ người và biển số)"""
