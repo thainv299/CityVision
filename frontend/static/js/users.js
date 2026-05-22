@@ -1,3 +1,10 @@
+window.checkEditToggleClick = function(wrapper, event) {
+    const editCb = wrapper.querySelector(".camera-edit-cb");
+    if (editCb && editCb.disabled) {
+        window.portalApi.showNotice(document.getElementById("users-feedback"), "Bạn phải cấp quyền 'Xem' trước khi có thể cấp quyền 'Sửa'!", "warning");
+    }
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     const tableBody = document.getElementById("users-table-body");
     const form = document.getElementById("user-form");
