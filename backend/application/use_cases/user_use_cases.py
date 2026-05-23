@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from core.config import VALID_ROLES
 from core.errors import AlreadyExistsError, ForbiddenError, NotFoundError, ValidationError
@@ -77,6 +77,30 @@ class UserUseCases:
         if not updated:
             raise NotFoundError("Không tìm thấy người dùng.")
         return updated
+
+    def update_profile(self, user_id: int, full_name: str) -> User:
+        existing = self.get_user(user_id)
+        full_name = str(full_name).strip()
+        if not full_name:
+            raise ValidationError("Họ tên không được để trống.")
+        
+        existing.full_name = full_name
+        updated = self.user_repo.update(existing)
+        if not updated:
+            raise NotFoundError("Không tìm thấy người dùng.")
+        return updated
+
+    def change_password(self, user_id: int, old_password: str, new_password: str) -> None:
+        existing = self.get_user(user_id)
+        if not check_password_hash(existing.password_hash, old_password):
+            raise ValidationError("Mật khẩu hiện tại không chính xác.")
+        if len(new_password) < 6:
+            raise ValidationError("Mật khẩu mới cần tối thiểu 6 ký tự.")
+        
+        existing.password_hash = generate_password_hash(new_password)
+        updated = self.user_repo.update(existing)
+        if not updated:
+            raise NotFoundError("Không tìm thấy người dùng.")
 
     def update_camera_access(self, user_id: int, camera_ids: List[int]) -> None:
         """Cập nhật danh sách quyền truy cập camera cho người dùng (chỉ dành cho operator)"""
