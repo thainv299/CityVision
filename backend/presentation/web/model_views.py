@@ -97,7 +97,9 @@ async def upload_model(file: UploadFile = File(...), user=Depends(admin_required
             
         return {"ok": True, "message": f"Đã tải lên model {file.filename} thành công!"}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+        import traceback
+        err_msg = traceback.format_exc()
+        return JSONResponse(status_code=500, content={"ok": False, "error": err_msg})
 
 @model_router.delete("/api/models/{filename}")
 def delete_model(filename: str, user=Depends(admin_required)):
