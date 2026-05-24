@@ -92,3 +92,40 @@ def api_resolve_violation(
     if success:
         return {"ok": True}
     return JSONResponse(status_code=400, content={"ok": False, "error": "Khong the danh dau. Vi pham khong ton tai hoac da xu ly."})
+
+@violation_router.get("/api/thumbnail")
+def api_thumbnail(path: str, width: int = 300):
+    """Tạo và trả về ảnh thu nhỏ (thumbnail) siêu nhẹ để load danh sách nhanh"""
+    import os
+    import cv2
+    from fastapi import Response
+    from core.config import PROJECT_ROOT
+    try:
+        # Chống tấn công Directory Traversal
+        if ".." in path or path.startswith("/"):
+            return Response(status_code=400)
+            
+        full_path = str(PROJECT_ROOT / path)
+        if not os.path.exists(full_path):
+            return Response(status_code=404)
+            
+        img = cv2.imread(full_path)
+        if img is None:
+            return Response(status_code=404)
+            
+        h, w = img.shape[:2]
+        ratio = width / float(w)
+        new_h = int(h * ratio)
+        
+        resized = cv2.resize(img, (width, new_h), interpolation=cv2.INTER_AREA)
+        _, buffer = cv2.imencode('.jpg', resized, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        
+        # Bật Cache-Control để trình duyệt và Cloudflare tự động lưu đệm 1 tuần
+        return Response(
+            content=buffer.tobytes(), 
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=604800"}
+        )
+    except Exception as e:
+        return Response(status_code=500)
+
