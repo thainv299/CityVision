@@ -15,12 +15,13 @@ from core.config import ALLOWED_VIDEO_EXTENSIONS, INPUTS_DIR, PROJECT_ROOT, DEFA
 from core.errors import AppError, NotFoundError
 from presentation.container import container, templates
 from presentation.middlewares.auth import login_required
+from database.sqlite_db import update_camera_settings, connect, get_camera_settings, grant_camera_access
 
 camera_router = APIRouter()
 
 
 @camera_router.get("/cameras", name="cameras.cameras_page")
-async def cameras_page(request: Request, user=Depends(login_required)):
+def cameras_page(request: Request, user=Depends(login_required)):
     if isinstance(user, RedirectResponse):
         return user
     
@@ -45,16 +46,23 @@ async def cameras_page(request: Request, user=Depends(login_required)):
 
 
 @camera_router.get("/api/cameras")
-async def api_list_cameras(user=Depends(login_required)):
-    cameras = container.camera_use_cases.list_cameras()
-    return {"ok": True, "cameras": [c.to_dict() for c in cameras]}
+def api_list_cameras(user=Depends(login_required)):
+    cameras = container.camera_use_cases.list_cameras_for_user(user)
+    camera_dicts = []
+    for c in cameras:
+        d = c.to_dict()
+        d["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, c.id)
+        camera_dicts.append(d)
+    return {"ok": True, "cameras": camera_dicts}
 
 
 @camera_router.get("/api/cameras/{camera_id}")
-async def api_get_camera(camera_id: int, user=Depends(login_required)):
+def api_get_camera(camera_id: int, user=Depends(login_required)):
     try:
         camera = container.camera_use_cases.get_camera(camera_id)
-        return {"ok": True, "camera": camera.to_dict()}
+        d = camera.to_dict()
+        d["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, camera.id)
+        return {"ok": True, "camera": d}
     except NotFoundError:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
 
@@ -106,9 +114,12 @@ async def api_upload_camera_source(
 
 
 @camera_router.post("/api/cameras")
-async def api_create_camera(payload: Dict[str, Any], user=Depends(login_required)):
+def api_create_camera(payload: Dict[str, Any], user=Depends(login_required)):
     try:
-        created = container.camera_use_cases.create_camera(payload)
+        created = container.camera_use_cases.create_camera(payload, creator_id=user.id)
+        # Tự động cấp quyền truy cập camera cho người tạo (nếu là operator)
+        if not user.is_admin():
+            grant_camera_access(user.id, created.id)
         return JSONResponse(status_code=status.HTTP_201_CREATED, content={"ok": True, "camera": created.to_dict()})
     except AppError as exc:
         return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})
@@ -117,7 +128,10 @@ async def api_create_camera(payload: Dict[str, Any], user=Depends(login_required
 
 
 @camera_router.put("/api/cameras/{camera_id}")
-async def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+    # Kiểm tra quyền truy cập và chỉnh sửa camera
+    if not container.camera_use_cases.can_user_edit_camera(user, camera_id):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn chỉ có quyền xem, không có quyền chỉnh sửa camera này."})
     try:
         # Lấy cấu hình cũ trước khi lưu để kiểm tra thay đổi lớn
         try:
@@ -157,8 +171,12 @@ async def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depend
 
 
 @camera_router.delete("/api/cameras/{camera_id}")
-async def api_delete_camera(camera_id: int, user=Depends(login_required)):
+def api_delete_camera(camera_id: int, user=Depends(login_required)):
     try:
+        # Kiểm tra quyền xóa: admin xóa tất cả, operator chỉ xóa camera mình tạo
+        camera = container.camera_use_cases.get_camera(camera_id)
+        if not container.camera_use_cases.can_user_delete_camera(user, camera):
+            return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn chỉ có thể xóa camera do bạn tạo. Camera này được cấp bởi Admin."})
         container.camera_use_cases.delete_camera(camera_id)
         # Dừng toàn bộ luồng AI liên quan (nền + test)
         container.job_use_cases.stop_camera_jobs(camera_id)
@@ -308,3 +326,63 @@ async def api_test_camera_frame(source: str = Body(..., embed=True), user=Depend
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": f"Lỗi trích xuất: {str(e)}"})
+
+
+@camera_router.get("/api/cameras/{camera_id}/settings")
+def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
+    # Kiểm tra quyền truy cập camera
+    if not container.camera_use_cases.can_user_access_camera(user, camera_id):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn không có quyền truy cập camera này."})
+    try:
+        # Kiểm tra camera có tồn tại không
+        camera = container.camera_use_cases.get_camera(camera_id)
+        settings = get_camera_settings(camera_id)
+        # Đính kèm mo_hinh_yolo vào settings để UI nạp lên dropdown
+        settings["mo_hinh_yolo"] = camera.model_path
+        settings["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, camera_id)
+        return {"ok": True, "settings": settings}
+    except NotFoundError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@camera_router.put("/api/cameras/{camera_id}/settings")
+def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+    if not container.camera_use_cases.can_user_edit_camera(user, camera_id):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn chỉ có quyền xem, không có quyền chỉnh sửa cấu hình camera này."})
+        
+    try:
+        # Kiểm tra camera có tồn tại không
+        camera = container.camera_use_cases.get_camera(camera_id)
+        update_camera_settings(camera_id, payload)
+        
+        # Kiểm tra sự thay đổi mô hình YOLO
+        new_model = payload.get("mo_hinh_yolo")
+        model_changed = False
+        if new_model and new_model != camera.model_path:
+            # Cập nhật mô hình YOLO trong CSDL camera
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE camera SET mo_hinh_yolo = ?, ngay_cap_nhat = CURRENT_TIMESTAMP WHERE id = ?",
+                    (new_model, camera_id)
+                )
+                conn.commit()
+            model_changed = True
+            
+        # Đồng bộ và cập nhật nóng hoặc khởi động lại job
+        if model_changed:
+            # Thay đổi mô hình AI -> Cần giải phóng và khởi động lại luồng để nạp model mới
+            if camera.is_active:
+                container.job_use_cases.stop_camera_job(camera_id)
+                container.job_use_cases.start_camera_job(camera_id)
+        else:
+            # Chỉ cập nhật các specs AI trong RAM
+            container.job_use_cases.update_camera_job_settings(camera_id, payload)
+        
+        return {"ok": True, "message": "Đã cập nhật cấu hình camera thành công."}
+    except NotFoundError:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+

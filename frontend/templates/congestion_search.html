@@ -21,7 +21,7 @@
     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto auto; gap: 16px; align-items: end;">
         <label class="field">
             <span>Mức độ</span>
-            <select id="filterLevel" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+            <select id="filterLevel" class="filter-select">
                 <option value="">-- Tất cả --</option>
                 <option value="1">Mức 1 — Đông đúc</option>
                 <option value="2">Mức 2 — Rất đông</option>
@@ -34,7 +34,7 @@
         </label>
         <label class="field">
             <span>Chọn Giờ (0-23)</span>
-            <select id="filterHour" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+            <select id="filterHour" class="filter-select">
                 <option value="">-- Tất cả --</option>
                 <option value="00">00:00 - 00:59</option>
                 <option value="01">01:00 - 01:59</option>
@@ -64,7 +64,7 @@
         </label>
         <label class="field">
             <span>Camera</span>
-            <select id="filterCamera" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem; background: var(--surface);">
+            <select id="filterCamera" class="filter-select">
                 <option value="">-- Tất cả Camera --</option>
             </select>
         </label>
@@ -270,10 +270,10 @@ function displayCongestion(logs) {
                                 ` : '<span class="muted">—</span>'}
                             </td>
                             <td style="text-align: center;">
-                                ${log.start_time || 'N/A'}
+                                ${window.portalApi.formatVietnameseDateTime(log.start_time)}
                             </td>
                             <td style="text-align: center;">
-                                ${log.end_time || 'Đang diễn ra'}
+                                ${log.end_time ? window.portalApi.formatVietnameseDateTime(log.end_time) : 'Đang diễn ra'}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill">${log.duration_seconds || 0}s</span>

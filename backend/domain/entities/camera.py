@@ -18,6 +18,7 @@ class Camera:
     enable_ai: bool = True
     is_active: bool = True
     model_path: str = ""
+    creator_id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -37,6 +38,7 @@ class Camera:
             "enable_ai": self.enable_ai,
             "is_active": self.is_active,
             "model_path": self.model_path,
+            "creator_id": self.creator_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

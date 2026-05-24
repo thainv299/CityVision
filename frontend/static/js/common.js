@@ -218,6 +218,23 @@
         return window.portalApi.submitForm(url, formData);
     }
 
+    function formatVietnameseDateTime(dateString) {
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            const days = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
+            const dayName = days[date.getDay()];
+            const d = String(date.getDate()).padStart(2, '0');
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const hr = String(date.getHours()).padStart(2, '0');
+            const min = String(date.getMinutes()).padStart(2, '0');
+            return `${dayName} - ${d} - ${m} - ${hr}:${min}`;
+        } catch (e) {
+            return dateString;
+        }
+    }
+
     window.portalApi = {
         get: (url) => request(url, { method: "GET" }),
         post: (url, body) => request(url, { method: "POST", body: JSON.stringify(body) }),
@@ -230,6 +247,7 @@
         pillText,
         showToast,
         readJsonFileToInput,
+        formatVietnameseDateTime,
     };
 
     // Sidebar Toggle Logic
@@ -474,8 +492,7 @@ function updateNotificationUI(count, notifications) {
         }
 
         // Format time string
-        const timeObj = new Date(n.time);
-        const timeStr = timeObj.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+        const timeStr = window.portalApi.formatVietnameseDateTime(n.time);
 
         const cleanImgPath = n.image ? n.image.replace(/^\/+/, '').replace(/\\/g, '/') : '';
         item.innerHTML = `
@@ -543,4 +560,12 @@ document.addEventListener('DOMContentLoaded', function () {
         // Giữ fallback polling ở mức 15s làm kênh dự phòng dự phòng an toàn
         notificationPollingInterval = setInterval(fetchNotifications, 15000);
     }
+
+    // Tự động định dạng các thẻ hiển thị thời gian
+    document.querySelectorAll('.vietnamese-datetime').forEach(el => {
+        const timeVal = el.getAttribute('data-time');
+        if (timeVal) {
+            el.textContent = window.portalApi.formatVietnameseDateTime(timeVal);
+        }
+    });
 });

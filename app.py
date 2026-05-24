@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
@@ -29,12 +30,15 @@ from backend.presentation.container import container, templates
 from backend.presentation.web.auth_views import auth_router
 from backend.presentation.web.camera_views import camera_router
 from backend.presentation.web.dashboard_views import dashboard_router
-from backend.presentation.web.test_video_views import test_video_router
+from backend.presentation.web.monitoring_views import monitoring_router
 from backend.presentation.web.user_views import user_router
 from backend.presentation.web.vehicle_views import vehicle_router
 from backend.presentation.web.violation_views import violation_router
 from backend.presentation.web.congestion_views import congestion_router
 from backend.presentation.web.notification_views import notification_router
+from backend.presentation.web.model_views import model_router
+from backend.presentation.web.report_views import router as report_router
+from backend.presentation.web.webhook_views import webhook_router
 
 def create_app() -> FastAPI:
     # 1. Khởi tạo DB
@@ -43,7 +47,7 @@ def create_app() -> FastAPI:
     # 2. Tạo FastAPI app
     app = FastAPI(
         title="CityVision AI Portal",
-        docs_url=None,  # Tắt auto docs nếu muốn bảo mật
+        docs_url=None, 
         redoc_url=None
     )
     
@@ -55,7 +59,7 @@ def create_app() -> FastAPI:
         request.state.current_user = None
         
         if user_id:
-            user = container.user_use_cases.user_repo.get_by_id(int(user_id))
+            user = await run_in_threadpool(container.user_use_cases.user_repo.get_by_id, int(user_id))
             if user and user.is_active:
                 request.state.current_user = user
             else:
@@ -118,8 +122,11 @@ def create_app() -> FastAPI:
     app.include_router(vehicle_router)
     app.include_router(violation_router)
     app.include_router(congestion_router)
-    app.include_router(test_video_router)
+    app.include_router(monitoring_router)
     app.include_router(notification_router)
+    app.include_router(model_router)
+    app.include_router(report_router, prefix="/api/reports")
+    app.include_router(webhook_router)
 
     @app.on_event("startup")
     async def startup_event():

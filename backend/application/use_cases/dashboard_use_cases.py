@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from domain.repositories.camera_repository import CameraRepository
 from domain.repositories.user_repository import UserRepository
@@ -7,8 +7,6 @@ from database.sqlite_db import (
     get_illegal_parking_violations,
     get_illegal_parking_count,
     get_congestion_count,
-    get_system_settings,
-    update_system_settings,
     global_search,
     get_daily_vehicle_stats,
     get_latest_violations,
@@ -23,7 +21,7 @@ class DashboardUseCases:
         self.user_repo = user_repo
         self.camera_repo = camera_repo
 
-    def get_dashboard_stats(self, period: str = "all") -> Dict[str, Any]:
+    def get_dashboard_stats(self, period: str = "all", camera_ids: Optional[List[int]] = None) -> Dict[str, Any]:
         from datetime import datetime, timedelta
         
         start_date = None
@@ -48,23 +46,31 @@ class DashboardUseCases:
         users = self.user_repo.list_all()
         cameras = self.camera_repo.list_all()
         
+        # Nếu có camera_ids, lọc chỉ hiển thị dữ liệu cho các camera được phép
+        if camera_ids is not None:
+            cameras = [c for c in cameras if c.id in camera_ids]
+        
         feature_counts = self.camera_repo.get_feature_counts()
         recent_cameras = self.camera_repo.get_recent(limit=6)
         
-        # Lấy thống kê giao thông theo khoảng thời gian đồng nhất
-        total_vehicles = get_total_vehicle_count(start_date, end_date)
-        parking_violation_count = get_illegal_parking_count(start_date, end_date)
-        congestion_count = get_congestion_count(start_date, end_date)
+        # Lọc recent_cameras và feature_counts theo camera_ids nếu có
+        if camera_ids is not None:
+            recent_cameras = [c for c in recent_cameras if c.id in camera_ids]
+        
+        # Lấy thống kê giao thông theo khoảng thời gian đồng nhất, lọc theo camera_ids
+        total_vehicles = get_total_vehicle_count(start_date, end_date, camera_ids=camera_ids)
+        parking_violation_count = get_illegal_parking_count(start_date, end_date, camera_ids=camera_ids)
+        congestion_count = get_congestion_count(start_date, end_date, camera_ids=camera_ids)
         
         # Biểu đồ và Phân loại cũng phải lọc theo cùng khoảng thời gian
-        daily_stats = get_daily_vehicle_stats(start_date, end_date, limit=chart_limit)
-        latest_violations = get_latest_violations(limit=5)
-        vehicle_distribution = get_vehicle_type_distribution(start_date, end_date)
+        daily_stats = get_daily_vehicle_stats(start_date, end_date, limit=chart_limit, camera_ids=camera_ids)
+        latest_violations = get_latest_violations(limit=5, camera_ids=camera_ids)
+        vehicle_distribution = get_vehicle_type_distribution(start_date, end_date, camera_ids=camera_ids)
 
         return {
             "user_count": len(users),
             "camera_count": len(cameras),
-            "active_cameras": self.camera_repo.get_active_count(),
+            "active_cameras": sum(1 for c in cameras if c.is_active),
             "congestion_enabled": feature_counts.get("congestion", 0),
             "illegal_parking_enabled": feature_counts.get("illegal_parking", 0),
             "license_plate_enabled": feature_counts.get("license_plate", 0),
@@ -79,10 +85,10 @@ class DashboardUseCases:
         }
 
     def get_settings(self) -> Dict[str, Any]:
-        return get_system_settings()
+        return {}
 
     def update_settings(self, settings: Dict[str, Any]) -> None:
-        update_system_settings(settings)
+        pass
 
     def search(self, query: str) -> Dict[str, Any]:
         return global_search(query)
@@ -91,4 +97,4 @@ class DashboardUseCases:
         return get_unread_notifications(limit)
 
     def mark_notification_read(self, notif_type: str, record_id: int) -> bool:
-        return mark_notification_as_read(notif_type, record_id)
+        return mark_notification_as_read(notif_type, record_id)

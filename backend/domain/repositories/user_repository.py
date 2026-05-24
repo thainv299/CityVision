@@ -30,5 +30,10 @@ class UserRepository(ABC):
         pass
 
     @abstractmethod
+    def update_camera_access(self, user_id: int, camera_access: List[dict]) -> None:
+        """Cập nhật danh sách quyền truy cập camera cho người dùng"""
+        pass
+
+    @abstractmethod
     def delete(self, user_id: int) -> bool:
         pass

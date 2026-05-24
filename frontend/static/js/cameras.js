@@ -157,6 +157,25 @@ document.addEventListener("DOMContentLoaded", () => {
         // Cập nhật trạng thái tọa độ
         updatePointsStatus("roi_points");
         updatePointsStatus("no_parking_points");
+
+        // Disable form nếu không có quyền sửa
+        const canEdit = camera ? (camera.can_edit !== false) : true;
+        const formElements = form.querySelectorAll("input, select, textarea, button");
+        formElements.forEach(el => {
+            if (el.id !== "camera-form-reset") { // Reset để huỷ bỏ/đóng form
+                el.disabled = !canEdit;
+            }
+        });
+        
+        const submitBtn = form.querySelector("button[type='submit']");
+        if (submitBtn) {
+            submitBtn.style.display = canEdit ? "block" : "none";
+        }
+        
+        // Disable toggle builder
+        if (rtspToggle) rtspToggle.disabled = !canEdit;
+        // Disable roi buttons
+        document.querySelectorAll(".roi-draw-btn").forEach(btn => btn.disabled = !canEdit);
     }
 
     function updateSimulationLayout() {
@@ -601,7 +620,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td style="text-align: center;">
                         <label class="toggle-switch">
-                            <input type="checkbox" data-action="toggle-active" data-id="${camera.id}" ${camera.is_active ? "checked" : ""}>
+                            <input type="checkbox" data-action="toggle-active" data-id="${camera.id}" ${camera.is_active ? "checked" : ""} ${camera.can_edit === false ? "disabled" : ""}>
                             <span class="slider"></span>
                         </label>
                         <div style="font-size: 0.65rem; margin-top: 4px; font-weight: 600; color: ${camera.is_active ? 'var(--success)' : 'var(--text-subtle)'}">
@@ -610,7 +629,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </td>
                     <td>
                         <div style="display: flex; gap: 6px; justify-content: center;">
-                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" style="padding: 4px 8px; z-index: 2; position: relative;">Xóa</button>
+                            <button class="button danger xs" data-action="delete" data-id="${camera.id}" ${camera.can_edit === false ? "disabled style='padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px; opacity: 0.5; cursor: not-allowed;'" : "style='padding: 4px 8px; z-index: 2; position: relative; display: flex; align-items: center; gap: 4px;'"} title="Xóa"><img src="/static/img/delete.png" style="width:20px; height:20px;"></button>
                         </div>
                     </td>
                 </tr>
@@ -636,6 +655,50 @@ document.addEventListener("DOMContentLoaded", () => {
         };
         const isEditing = fields.id.value !== "";
         const editingId = isEditing ? Number(fields.id.value) : null;
+
+        if (!isEditing) {
+            if (!payload.model_path) {
+                alert("⚠️ Thiếu cấu hình: Vui lòng chọn đường dẫn mô hình AI trước khi lưu camera.");
+                window.portalApi.showNotice(feedback, "Vui lòng chọn đường dẫn mô hình AI.", "error");
+                const modelEl = fields.modelPath;
+                if (modelEl) {
+                    modelEl.focus();
+                    modelEl.style.borderColor = "var(--text-danger)";
+                    setTimeout(() => modelEl.style.borderColor = "", 4000);
+                }
+                return;
+            }
+            if (!payload.roi_points || payload.roi_points === "" || payload.roi_points === "[]") {
+                alert("⚠️ Thiếu cấu hình: Bạn chưa vẽ vùng ROI giám sát giao thông. Hãy bấm nút 'Vẽ ROI' để thiết lập trước khi lưu.");
+                window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI giám sát giao thông.", "error");
+                const roiBtn = document.querySelector(".roi-draw-btn[data-target='roi_points']");
+                if (roiBtn) {
+                    roiBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    roiBtn.style.outline = "2px solid #ef4444";
+                    roiBtn.style.boxShadow = "0 0 12px rgba(239, 68, 68, 0.6)";
+                    setTimeout(() => {
+                        roiBtn.style.outline = "";
+                        roiBtn.style.boxShadow = "";
+                    }, 5000);
+                }
+                return;
+            }
+            if (!payload.no_parking_points || payload.no_parking_points === "" || payload.no_parking_points === "[]") {
+                alert("⚠️ Thiếu cấu hình: Bạn chưa vẽ vùng ROI cấm dừng đỗ. Hãy bấm nút 'Vẽ Vùng Cấm' để thiết lập trước khi lưu.");
+                window.portalApi.showNotice(feedback, "Vui lòng vẽ vùng ROI cấm dừng đỗ.", "error");
+                const npBtn = document.querySelector(".roi-draw-btn[data-target='no_parking_points']");
+                if (npBtn) {
+                    npBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    npBtn.style.outline = "2px solid #ef4444";
+                    npBtn.style.boxShadow = "0 0 12px rgba(239, 68, 68, 0.6)";
+                    setTimeout(() => {
+                        npBtn.style.outline = "";
+                        npBtn.style.boxShadow = "";
+                    }, 5000);
+                }
+                return;
+            }
+        }
 
         try {
             if (isEditing) {

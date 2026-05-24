@@ -7,7 +7,7 @@ from presentation.middlewares.auth import login_required
 congestion_router = APIRouter()
 
 @congestion_router.get("/congestion", name="congestion.congestion_page")
-async def congestion_page(request: Request, user=Depends(login_required)):
+def congestion_page(request: Request, user=Depends(login_required)):
     """Trang nhật ký ùn tắc"""
     if isinstance(user, RedirectResponse):
         return user
@@ -21,7 +21,7 @@ async def congestion_page(request: Request, user=Depends(login_required)):
     )
 
 @congestion_router.get("/congestion/search", name="congestion.congestion_search_page")
-async def congestion_search_page(request: Request, user=Depends(login_required)):
+def congestion_search_page(request: Request, user=Depends(login_required)):
     """Trang tìm kiếm nhật ký ùn tắc nâng cao"""
     if isinstance(user, RedirectResponse):
         return user
@@ -35,7 +35,7 @@ async def congestion_search_page(request: Request, user=Depends(login_required))
     )
 
 @congestion_router.get("/api/congestion")
-async def api_congestion(
+def api_congestion(
     request: Request,
     user=Depends(login_required),
     page: int = 1,

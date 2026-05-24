@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
+import onnxruntime as ort
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -37,7 +37,6 @@ from database.sqlite_db import (
     log_vehicle_count,
     log_detected_license_plate
 )
-from paddleocr import PaddleOCR
 from collections import deque
 
 # Nhãn nhận diện
@@ -157,18 +156,24 @@ class VideoStream:
 
     def _build_ffmpeg_cmd(self) -> list:
         """Xây dựng lệnh FFmpeg tối ưu."""
-        # FFmpeg giải mã độc lập với AI loop, dùng "0" (auto) để tận dụng đa nhân CPU.
-        # Ngay cả với H.265, FFmpeg vẫn chạy ổn định hơn OpenCV.
-        threads_val = "0" 
         cmd = [
             "ffmpeg", "-loglevel", "error",
-            "-threads", "0", 
+            "-threads", "0"
+        ]
+        
+        # Hỗ trợ giải mã phần cứng trên Jetson (NVDEC / V4L2)
+        use_nvdec = os.environ.get("USE_JETSON_NVDEC", "0") == "1"
+        if use_nvdec:
+            # Tuỳ thuộc vào bản FFmpeg trên Jetpack, thường dùng h264_nvv4l2dec hoặc nvmpi
+            cmd.extend(["-c:v", "h264_nvv4l2dec"])
+            
+        cmd.extend([
             "-i", str(self.path),
             "-vf", f"scale={self.draw_w}:{self.draw_h}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-"
-        ]
+        ])
         return cmd
 
     def update(self):
@@ -248,7 +253,79 @@ class VideoStream:
 
 def _canonical_label(label: Any) -> str:
     """Chuẩn hóa label về dạng snake_case."""
-    return str(label).strip().lower().replace("-", "_").replace(" ", "_")
+    if not isinstance(label, str):
+        return str(label)
+    return label.strip().lower().replace(" ", "_")
+
+def create_paddle_ocr() -> "PaddleOCR":
+    """Tạo instance PaddleOCR, tự động nhận diện biến môi trường cho ONNX và cấu hình TensorRT Caching."""
+    import os
+    use_onnx = os.environ.get("USE_PADDLE_ONNX", "0") == "1"
+    
+    if use_onnx:
+        os.makedirs("./trt_cache", exist_ok=True)
+        
+        try:
+            if not hasattr(ort, "_patched_by_cityvision"):
+                _original_InferenceSession = ort.InferenceSession
+                
+                def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+                    if isinstance(path_or_bytes, (str, Path)) and os.path.isdir(path_or_bytes):
+                        path_or_bytes = os.path.join(str(path_or_bytes), "model.onnx")
+                        
+                    model_path = str(path_or_bytes).lower()
+                    
+                    # Cấu hình lõi chung cho mọi model
+                    trt_options = {
+                        'device_id': 0,
+                        'trt_fp16_enable': True,
+                        'trt_engine_cache_enable': True,
+                        'trt_engine_cache_path': './trt_cache',
+                    }
+
+                    # Bơm Dynamic Shapes tùy thuộc vào mô hình đang được load
+                    if "rec" in model_path:
+                        # Profile cho mô hình Nhận diện chữ (Batch 1-10, Width 10-1000)
+                        trt_options['trt_profile_min_shapes'] = 'x:1x3x48x10'
+                        trt_options['trt_profile_opt_shapes'] = 'x:6x3x48x320'
+                        trt_options['trt_profile_max_shapes'] = 'x:10x3x48x1000'
+                    elif "det" in model_path:
+                        # Profile cho mô hình Phát hiện vùng chữ (Batch 1-4)
+                        trt_options['trt_profile_min_shapes'] = 'x:1x3x64x64'
+                        trt_options['trt_profile_opt_shapes'] = 'x:1x3x640x640'
+                        trt_options['trt_profile_max_shapes'] = 'x:4x3x960x960'
+
+                    trt_providers = [
+                        ('TensorrtExecutionProvider', trt_options),
+                        'CUDAExecutionProvider',
+                        'CPUExecutionProvider'
+                    ]
+                    return _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                
+                ort.InferenceSession = _patched_InferenceSession
+                ort._patched_by_cityvision = True
+        except ImportError:
+            print("Cảnh báo: onnxruntime không khả dụng!")
+
+        # Import PaddleOCR tại đây để đảm bảo onnxruntime đã được patch TRƯỚC khi PaddleOCR gọi tới
+        from paddleocr import PaddleOCR 
+
+        det_dir = os.environ.get("PADDLE_ONNX_DET_DIR", None)
+        rec_dir = os.environ.get("PADDLE_ONNX_REC_DIR", None)
+        cls_dir = os.environ.get("PADDLE_ONNX_CLS_DIR", None)
+        
+        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True}
+        # Bắt buộc phải có đủ mô hình DET và REC.
+        # Dù YOLO đã cắt biển số, nhưng biển số xe VN có 2 dòng chữ, 
+        # model DET của OCR vẫn cần thiết để tách dòng trước khi nạp vào REC.
+        if det_dir: ocr_args["det_model_dir"] = det_dir
+        if rec_dir: ocr_args["rec_model_dir"] = rec_dir
+        if cls_dir: ocr_args["cls_model_dir"] = cls_dir
+        
+        return PaddleOCR(**ocr_args)
+    else:
+        from paddleocr import PaddleOCR
+        return PaddleOCR(use_angle_cls=True, lang="en")
 
 
 def _display_label(label_key: str) -> str:
@@ -573,7 +650,8 @@ def process_video(
         )
 
     model = _load_model(model_path) if enable_ai else None
-    traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon) if enable_congestion else None
+    congestion_threshold = float(settings.get("congestion_threshold", 35.0))
+    traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon, congestion_threshold=congestion_threshold) if enable_congestion else None
 
     # AsyncIOWorker: Xử lý I/O nền (Telegram, ghi file, ghi DB)
     io_worker = AsyncIOWorker(num_threads=2, max_queue_size=200)
@@ -630,19 +708,29 @@ def process_video(
 
     # Luồng nền nén ảnh JPEG
     preview_queue = queue.Queue(maxsize=1)
-    preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75}
+    preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
 
     def preview_encoder_worker():
         while not preview_state["stop"]:
             try:
                 frame_to_encode = preview_queue.get(timeout=0.2)
-                # Dùng kích thước preview để nén nhanh
-                preview_state["last_jpeg"] = _encode_preview_frame(
-                    frame_to_encode, 
-                    preview_state["pw"], 
-                    preview_state["ph"],
-                    preview_state["q"]
-                )
+                
+                # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
+                if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
+                    # Dùng kích thước preview để nén nhanh
+                    preview_state["last_jpeg"] = _encode_preview_frame(
+                        frame_to_encode, 
+                        preview_state["pw"], 
+                        preview_state["ph"],
+                        preview_state["q"]
+                    )
+                    # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
+                    if preview_state["force_preview"]:
+                        preview_state["force_preview"] = False
+                else:
+                    # Giữ nguyên last_jpeg của lần cuối cùng để có ảnh thumbnail cũ, 
+                    # không set thành None để giữ thumbnail cho Grid view
+                    pass
             except queue.Empty:
                 continue
 
@@ -651,7 +739,7 @@ def process_video(
     # OCR Manager setup
     import logging
     logging.getLogger("ppocr").setLevel(logging.ERROR)
-    ocr_reader = PaddleOCR(lang='en') if enable_license_plate else None
+    ocr_reader = create_paddle_ocr() if enable_license_plate else None
     ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger) if enable_license_plate else None
     if ocr_manager is not None:
         ocr_manager.save_to_db = save_to_db
@@ -979,8 +1067,8 @@ def process_video(
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
-            # 3. GỬI TIẾN ĐỘ LÊN WEB
-            if progress_callback is not None and frame_index % 2 == 0:
+            # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame để tối ưu độ mượt stream MJPEG)
+            if progress_callback is not None:
                 if preview_queue.empty():
                     preview_queue.put(frame)
 
@@ -992,6 +1080,12 @@ def process_video(
                     "processed_frames": frame_index
                 })
                 
+                # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
+                if response and "viewer_count" in response:
+                    preview_state["viewer_count"] = response["viewer_count"]
+                if response and "force_preview" in response and response["force_preview"]:
+                    preview_state["force_preview"] = True
+
                 # Xử lý lệnh từ Manager (ví dụ đổi chất lượng)
                 if response and "new_quality" in response:
                     q = response["new_quality"]
@@ -1012,6 +1106,28 @@ def process_video(
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
                 if response and "new_settings" in response:
                     new_s = response["new_settings"]
+                    
+                    # Cập nhật nóng các thông số kỹ thuật AI
+                    if "confidence" in new_s:
+                        confidence_threshold = float(new_s["confidence"])
+                        print(f"[Dynamic Settings] Confidence threshold updated to: {confidence_threshold}")
+                    
+                    if "frame_skip" in new_s:
+                        process_stride = max(1, int(new_s["frame_skip"]))
+                        print(f"[Dynamic Settings] Process stride (frame_skip) updated to: {process_stride}")
+                        
+                    if "congestion_threshold" in new_s:
+                        congestion_threshold = float(new_s["congestion_threshold"])
+                        if traffic_monitor is not None:
+                            traffic_monitor.congestion_threshold = congestion_threshold
+                        print(f"[Dynamic Settings] Congestion threshold updated to: {congestion_threshold}%")
+                        
+                    if "parking_violation_time" in new_s:
+                        stop_seconds = float(new_s["parking_violation_time"])
+                        if parking_manager is not None:
+                            parking_manager.stop_seconds = stop_seconds
+                        print(f"[Dynamic Settings] Parking violation time (stop_seconds) updated to: {stop_seconds}s")
+
                     # Bật tắt xử lý AI
                     if "enable_ai" in new_s:
                         db_enable_ai = new_s["enable_ai"]
@@ -1029,7 +1145,7 @@ def process_video(
                             enable_congestion = db_enable_congestion
                             print(f"[Dynamic Settings] Phát hiện tắc nghẽn updated to: {enable_congestion}")
                             if enable_congestion and traffic_monitor is None:
-                                traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon)
+                                traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon, congestion_threshold=congestion_threshold)
                             elif not enable_congestion:
                                 if last_congestion_record_id and save_to_db:
                                     io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
@@ -1053,7 +1169,7 @@ def process_video(
                             print(f"[Dynamic Settings] Nhận diện biển số updated to: {enable_license_plate}")
                             if enable_license_plate and ocr_manager is None:
                                 print("[Dynamic Settings] Loading PaddleOCR model...")
-                                ocr_reader = PaddleOCR(lang='en')
+                                ocr_reader = create_paddle_ocr()
                                 ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
                                 ocr_manager.save_to_db = save_to_db
                                 ocr_manager.start_worker()

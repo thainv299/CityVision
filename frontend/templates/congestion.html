@@ -17,7 +17,13 @@
             <p class="eyebrow">Dữ liệu ghi nhận</p>
             <h3>Lịch sử Ùn tắc theo Camera</h3>
         </div>
-        <button class="button secondary" onclick="loadCongestion()">Làm mới</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" class="button secondary" onclick="window.portalApi.openExportModal('congestion')">
+                <img src="{{ url_for('static', filename='img/export.png') }}" style="width: 16px; height: 16px; margin-right: 6px;">
+                Xuất báo cáo
+            </button>
+            <button class="button secondary" onclick="loadCongestion()">Làm mới</button>
+        </div>
     </div>
 
     <div id="congestionList" style="display: grid; gap: 16px;">
@@ -140,10 +146,10 @@
                                 ` : '<span class="muted">—</span>'}
                             </td>
                             <td style="text-align: center;">
-                                ${log.start_time || 'N/A'}
+                                ${window.portalApi.formatVietnameseDateTime(log.start_time)}
                             </td>
                             <td style="text-align: center;">
-                                ${log.end_time || 'Đang diễn ra'}
+                                ${log.end_time ? window.portalApi.formatVietnameseDateTime(log.end_time) : 'Đang diễn ra'}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill">${log.duration_seconds || 0}s</span>

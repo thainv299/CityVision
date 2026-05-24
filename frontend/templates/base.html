@@ -28,6 +28,20 @@
         .portal-shell {
             margin-top: 0 !important;
         }
+
+        .profile-dropdown a:hover {
+            background-color: var(--surface) !important;
+        }
+        .profile-dropdown button:hover {
+            background-color: rgba(239, 68, 68, 0.05) !important;
+        }
+        @keyframes dropdown-fade-in {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .profile-dropdown {
+            animation: dropdown-fade-in 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
     </style>
 </head>
 
@@ -49,7 +63,65 @@
                     class="fas fa-search-minus"></i></button><button class="zoom-btn" id="zoom-reset-btn"><i
                     class="fas fa-sync-alt"></i></button><button class="zoom-btn" id="zoom-in-btn"><i
                     class="fas fa-search-plus"></i></button></div>
-    </div>{% if current_user %}<div class="portal-shell">
+    </div>
+
+    <!-- Modal Xuất Báo Cáo -->
+    <div id="export-report-modal" class="ds-modal-overlay" style="display: none;">
+        <div class="ds-modal">
+            <div class="ds-modal-header">
+                <h3 style="margin: 0;">Xuất báo cáo</h3>
+                <button type="button" class="ds-modal-close" id="close-export-modal">&times;</button>
+            </div>
+            <div class="ds-modal-body">
+                <form id="export-report-form">
+                    <input type="hidden" id="export-type" name="report_type" value="traffic">
+
+                    <div class="field">
+                        <span>Chọn Camera</span>
+                        <select id="export-camera" name="camera_id">
+                            <option value="all">Tất cả Camera</option>
+                            <!-- Các tùy chọn sẽ được nạp động từ API -->
+                        </select>
+                    </div>
+
+                    <div class="form-row" style="display: flex; gap: 12px; margin-bottom: 16px;">
+                        <div class="field" style="flex: 1; margin-bottom: 0;">
+                            <span>Từ ngày</span>
+                            <input type="date" id="export-start-date" name="start_date">
+                        </div>
+                        <div class="field" style="flex: 1; margin-bottom: 0;">
+                            <span>Đến ngày</span>
+                            <input type="date" id="export-end-date" name="end_date">
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <span>Định dạng file</span>
+                        <div style="display: flex; gap: 16px; margin-top: 8px;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="radio" name="format" value="pdf" checked>
+                                <img src="{{ url_for('static', filename='img/pdf.png') }}" style="width: 24px; height: 24px;">
+                                <span style="color: #ef4444; font-weight: 600;">PDF</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input type="radio" name="format" value="excel">
+                                <img src="{{ url_for('static', filename='img/excel-file.png') }}" style="width: 24px; height: 24px;">
+                                <span style="color: #10b981; font-weight: 600;">Excel</span>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div style="padding: 0 24px 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                <button type="button" class="button secondary" id="cancel-export-btn">Hủy</button>
+                <button type="button" class="button primary" id="confirm-export-btn" style="display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-download"></i> Tải xuống
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {% if current_user %}<div class="portal-shell">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
             <div class="brand-block">
@@ -61,18 +133,31 @@
 
                 <a id="nav-dashboard" class="nav-link {% if page == 'dashboard' %}active{% endif %}"
                     href="{{ url_for('dashboard.dashboard_page') }}">
+                    <img src="{{ url_for('static', filename='img/dashboard.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Dashboard
                 </a>
 
                 {% if current_user.role == 'admin' %}
                 <a id="nav-users" class="nav-link {% if page == 'users' %}active{% endif %}"
                     href="{{ url_for('users.users_page') }}">
+                    <img src="{{ url_for('static', filename='img/user.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Người dùng
+                </a>
+
+                <a id="nav-models" class="nav-link {% if page == 'models' %}active{% endif %}"
+                    href="{{ url_for('models.models_page') }}">
+                    <img src="{{ url_for('static', filename='img/model.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
+                    Quản lý Model
                 </a>
                 {% endif %}
 
                 <a id="nav-cameras" class="nav-link {% if page == 'cameras' %}active{% endif %}"
                     href="{{ url_for('cameras.cameras_page') }}">
+                    <img src="{{ url_for('static', filename='img/camera.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Camera
                 </a>
 
@@ -82,7 +167,8 @@
                     <a id="nav-vehicles" class="nav-link {% if page == 'vehicles' %}active{% endif %}"
                         href="{{ url_for('vehicles.vehicles_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <i class="fas fa-car-side"></i>
+                            <img src="{{ url_for('static', filename='img/car_management.png') }}"
+                                style="width:24px; height:24px;">
                             <span>Phương tiện</span>
                         </div>
                         <div id="chevron-vehicles"
@@ -115,7 +201,8 @@
                         class="nav-link {% if page in ['violations', 'violation-search'] %}active{% endif %}"
                         href="{{ url_for('violations.violations_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <i class="fas fa-parking"></i>
+                            <img src="{{ url_for('static', filename='img/parking_management.png') }}"
+                                style="width:24px; height:24px;">
                             <span>Vi phạm đỗ xe</span>
                         </div>
                         <div id="chevron-violations"
@@ -149,7 +236,8 @@
                         class="nav-link {% if page in ['congestion', 'congestion-search'] %}active{% endif %}"
                         href="{{ url_for('congestion.congestion_page') }}">
                         <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
-                            <i class="fas fa-traffic-light"></i>
+                            <img src="{{ url_for('static', filename='img/congestion_management.png') }}"
+                                style="width:24px; height:24px;">
                             <span>Nhật ký ùn tắc</span>
                         </div>
                         <div id="chevron-congestion"
@@ -184,8 +272,10 @@
 
                 <div class="nav-label" style="margin-top: 16px;">Phân tích AI</div>
 
-                <a id="nav-test-video" class="nav-link {% if page == 'test-video' %}active{% endif %}"
-                    href="{{ url_for('test_video.test_video_page') }}">
+                <a id="nav-monitoring" class="nav-link {% if page == 'monitoring' %}active{% endif %}"
+                    href="{{ url_for('monitoring.monitoring_page') }}">
+                    <img src="{{ url_for('static', filename='img/watch_camera.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     Xem Camera
                 </a>
 
@@ -194,14 +284,10 @@
 
                 <a class="nav-link {% if page == 'settings' %}active{% endif %}" href="/settings"
                     style="margin-top: 20px;">
+                    <img src="{{ url_for('static', filename='img/settings.png') }}"
+                        style="width:24px; height:24px; margin-right:8px; vertical-align: middle;">
                     <span>Settings</span>
                 </a>
-                <form method="post" action="{{ url_for('auth.logout') }}" style="width: 100%;">
-                    <button type="submit" class="nav-link"
-                        style="width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding-left: 24px;">
-                        Logout
-                    </button>
-                </form>
             </nav>
         </aside>
 
@@ -409,7 +495,7 @@
                             { name: "Ùn tắc: Mức 2 (Rất đông)", keywords: "un tac muc 2 rat dong", url: "/congestion?level=2", icon: "fa-traffic-light", color: "#f59e0b" },
                             { name: "Ùn tắc: Mức 3 (Tắc nghẽn)", keywords: "un tac muc 3 tac nghen ket xe", url: "/congestion?level=3", icon: "fa-traffic-light", color: "#ef4444" },
                             { name: "Tìm kiếm Ùn tắc", keywords: "tim kiem un tac search", url: "/congestion/search", icon: "fa-search", color: "#ef4444" },
-                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/test-video", icon: "fa-play-circle", color: "#14b8a6" },
+                            { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/monitoring", icon: "fa-play-circle", color: "#14b8a6" },
                             { name: "Cài đặt hệ thống", keywords: "cai dat he thong settings telegram bot", url: "/settings", icon: "fa-cog", color: "#64748b" }
                         ];
 
@@ -522,13 +608,35 @@
                         <span style="font-size: 14px; font-weight: 500; color: var(--text-muted);">Tiếng Việt</span>
                     </div>
 
-                    <div class="header-profile">
-                        <div class="header-avatar"
-                            style="background-image: url('https://ui-avatars.com/api/?name={{ current_user.full_name | urlencode }}&background=e0e7ff&color=3b82f6')">
+                    <div class="profile-menu-container" style="position: relative;">
+                        <div class="header-profile" id="profile-trigger" style="display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 8px; transition: background 0.2s; cursor: pointer;">
+                            <div class="header-avatar"
+                                style="background-image: url('https://ui-avatars.com/api/?name={{ current_user.full_name | urlencode }}&background=e0e7ff&color=3b82f6')">
+                            </div>
+                            <div class="header-profile-text">
+                                <strong id="header-user-fullname">{{ current_user.full_name or 'Quản trị viên' }}</strong>
+                                <span>{{ 'Admin System' if current_user.role == 'admin' else 'Operator' }}</span>
+                            </div>
+                            <i class="fas fa-chevron-down" id="profile-chevron" style="font-size: 0.75rem; color: var(--text-subtle); margin-left: 4px; transition: transform 0.2s;"></i>
                         </div>
-                        <div class="header-profile-text">
-                            <strong>{{ current_user.full_name or 'Quản trị viên' }}</strong>
-                            <span>{{ 'Admin System' if current_user.role == 'admin' else 'Operator' }}</span>
+
+                        <!-- Dropdown Menu -->
+                        <div class="profile-dropdown" id="profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 8px; width: 220px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 1000; padding: 8px 0; overflow: hidden;">
+                            <a href="#" id="open-profile-btn" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
+                                <i class="fas fa-user-circle" style="color: var(--brand-blue); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                                <span>Thông tin hồ sơ</span>
+                            </a>
+                            <a href="#" id="open-password-btn" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
+                                <i class="fas fa-key" style="color: var(--warning); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                                <span>Đổi mật khẩu</span>
+                            </a>
+                            <div style="border-top: 1px solid var(--border); margin: 6px 0;"></div>
+                            <form method="post" action="{{ url_for('auth.logout') }}" style="width: 100%; margin: 0;">
+                                <button type="submit" style="width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--danger); background: none; border: none; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fas fa-sign-out-alt" style="color: var(--danger); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                                    <span>Đăng xuất</span>
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -537,12 +645,78 @@
             <div class="page-content">
                 {{ page_content | safe }}
             </div>
+            
+            <!-- Modal Hồ sơ cá nhân -->
+            <div id="user-profile-modal" class="ds-modal-overlay" style="display: none;">
+                <div class="ds-modal">
+                    <div class="ds-modal-header">
+                        <h3 style="margin: 0;"><i class="fas fa-user-circle" style="color: var(--brand-blue); margin-right: 8px;"></i>Hồ sơ cá nhân</h3>
+                        <button type="button" class="ds-modal-close" id="close-profile-modal">&times;</button>
+                    </div>
+                    <div class="ds-modal-body">
+                        <form id="user-profile-form">
+                            <div class="field">
+                                <span>Tên đăng nhập</span>
+                                <input type="text" id="profile-username" readonly style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
+                            </div>
+                            <div class="field">
+                                <span>Quyền hạn</span>
+                                <input type="text" id="profile-role" readonly style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
+                            </div>
+                            <div class="field">
+                                <span>Họ và tên</span>
+                                <input type="text" id="profile-fullname" required placeholder="Nhập họ và tên">
+                            </div>
+                            <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                                <button type="button" class="button secondary" id="cancel-profile-btn">Hủy</button>
+                                <button type="submit" class="button primary" id="save-profile-btn">Lưu thay đổi</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Đổi mật khẩu -->
+            <div id="change-password-modal" class="ds-modal-overlay" style="display: none;">
+                <div class="ds-modal">
+                    <div class="ds-modal-header">
+                        <h3 style="margin: 0;"><i class="fas fa-key" style="color: var(--warning); margin-right: 8px;"></i>Đổi mật khẩu</h3>
+                        <button type="button" class="ds-modal-close" id="close-password-modal">&times;</button>
+                    </div>
+                    <div class="ds-modal-body">
+                        <form id="change-password-form">
+                            <div class="field">
+                                <span>Mật khẩu hiện tại</span>
+                                <input type="password" id="pwd-current" required placeholder="Nhập mật khẩu hiện tại">
+                            </div>
+                            <div class="field">
+                                <span>Mật khẩu mới</span>
+                                <input type="password" id="pwd-new" required placeholder="Tối thiểu 6 ký tự">
+                            </div>
+                            <div class="field">
+                                <span>Xác nhận mật khẩu mới</span>
+                                <input type="password" id="pwd-confirm" required placeholder="Nhập lại mật khẩu mới">
+                            </div>
+                            <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+                                <button type="button" class="button secondary" id="cancel-password-btn">Hủy</button>
+                                <button type="submit" class="button primary" id="save-password-btn">Xác nhận</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     {% else %}
-    <main class="public-layout">
-        {{ page_content | safe }}
+    <main class="public-layout"
+        style="background-image: url('/static/img/login_background.png'); background-size: 100% 100%; background-position: center; background-repeat: no-repeat; position: relative; z-index: 0;">
+        <div
+            style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.6); z-index: -1;">
+        </div>
+        <div style="position: relative; z-index: 1; width: 100%; display: flex; justify-content: center;">
+            {{ page_content | safe }}
+        </div>
     </main>
     {% endif %}
 
@@ -691,6 +865,254 @@
                 if (e.key === 'Escape' && modal.style.display === 'flex') closeModal();
             });
         })();
+    </script>
+    <script>
+        // Logic xử lý xuất báo cáo toàn cục
+        document.addEventListener('DOMContentLoaded', () => {
+            const exportModal = document.getElementById('export-report-modal');
+            const closeBtn = document.getElementById('close-export-modal');
+            const cancelBtn = document.getElementById('cancel-export-btn');
+            const confirmBtn = document.getElementById('confirm-export-btn');
+            const exportTypeInput = document.getElementById('export-type');
+
+            // Hàm mở modal công khai để gọi từ các trang khác
+            window.portalApi = window.portalApi || {};
+            window.portalApi.openExportModal = function (reportType) {
+                exportTypeInput.value = reportType;
+                exportModal.style.display = 'flex';
+
+                // Lấy danh sách camera nếu select box đang trống (chỉ có tùy chọn "Tất cả")
+                const cameraSelect = document.getElementById('export-camera');
+                if (cameraSelect.options.length <= 1) {
+                    window.portalApi.get('/api/cameras')
+                        .then(data => {
+                            if (data.cameras) {
+                                data.cameras.forEach(cam => {
+                                    const opt = document.createElement('option');
+                                    opt.value = cam.id;
+                                    opt.textContent = cam.name;
+                                    cameraSelect.appendChild(opt);
+                                });
+                            }
+                        })
+                        .catch(err => console.error("Lỗi tải camera cho báo cáo:", err));
+                }
+            };
+
+            const closeModal = () => {
+                exportModal.style.display = 'none';
+            };
+
+            if (closeBtn) closeBtn.onclick = closeModal;
+            if (cancelBtn) cancelBtn.onclick = closeModal;
+            if (exportModal) {
+                exportModal.onclick = (e) => {
+                    if (e.target === exportModal) closeModal();
+                };
+            }
+
+            if (confirmBtn) {
+                confirmBtn.onclick = async (e) => {
+                    e.preventDefault();
+                    const form = document.getElementById('export-report-form');
+                    const params = new URLSearchParams(new FormData(form));
+
+                    const reportType = params.get('report_type');
+                    const format = params.get('format');
+                    const startDate = params.get('start_date');
+                    const endDate = params.get('end_date');
+                    const cameraId = params.get('camera_id');
+
+                    let url = `/api/reports/export?report_type=${reportType}&format=${format}&camera_id=${cameraId}`;
+                    if (startDate) url += `&start_date=${startDate}`;
+                    if (endDate) url += `&end_date=${endDate}`;
+
+                    try {
+                        const originalBtnText = confirmBtn.innerHTML;
+                        confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang xuất...';
+                        confirmBtn.disabled = true;
+
+                        // Sử dụng chuyển hướng URL thuần túy (GET request)
+                        // Cách này là chuẩn nhất cho mọi trình duyệt và mọi trình quản lý tải xuống (kể cả IDM).
+                        // Nếu IDM bật, nó sẽ bắt đúng 1 file. Nếu IDM tắt, trình duyệt tải đúng 1 file.
+                        window.location.href = url;
+
+                        // Chờ 1 chút rồi đổi lại trạng thái nút
+                        setTimeout(() => {
+                            window.portalApi.showToast("Bắt đầu tải báo cáo...", "success");
+                            closeModal();
+                            confirmBtn.innerHTML = originalBtnText;
+                            confirmBtn.disabled = false;
+                        }, 1500);
+
+                    } catch (error) {
+                        window.portalApi.showToast(error.message, "error");
+                    } finally {
+                        confirmBtn.innerHTML = '<i class="fas fa-download"></i> Tải xuống';
+                        confirmBtn.disabled = false;
+                    }
+                };
+            }
+
+            // ==========================================
+            // LOGIC PROFILE DROPDOWN & MODALS
+            // ==========================================
+            const profileTrigger = document.getElementById('profile-trigger');
+            const profileDropdown = document.getElementById('profile-dropdown');
+            const profileChevron = document.getElementById('profile-chevron');
+
+            if (profileTrigger && profileDropdown) {
+                profileTrigger.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isOpen = profileDropdown.style.display === 'block';
+                    profileDropdown.style.display = isOpen ? 'none' : 'block';
+                    if (profileChevron) {
+                        profileChevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+                    }
+                });
+
+                document.addEventListener('click', (e) => {
+                    if (!profileTrigger.contains(e.target) && !profileDropdown.contains(e.target)) {
+                        profileDropdown.style.display = 'none';
+                        if (profileChevron) {
+                            profileChevron.style.transform = 'rotate(0deg)';
+                        }
+                    }
+                });
+            }
+
+            const profileModal = document.getElementById('user-profile-modal');
+            const passwordModal = document.getElementById('change-password-modal');
+
+            const openProfileBtn = document.getElementById('open-profile-btn');
+            const openPasswordBtn = document.getElementById('open-password-btn');
+
+            const closeProfileBtn = document.getElementById('close-profile-modal');
+            const cancelProfileBtn = document.getElementById('cancel-profile-btn');
+
+            const closePasswordBtn = document.getElementById('close-password-modal');
+            const cancelPasswordBtn = document.getElementById('cancel-password-btn');
+
+            if (openProfileBtn && profileModal) {
+                openProfileBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    profileDropdown.style.display = 'none';
+                    if (profileChevron) profileChevron.style.transform = 'rotate(0deg)';
+
+                    const user = window.portalContext ? window.portalContext.currentUser : null;
+                    if (user) {
+                        document.getElementById('profile-username').value = user.username;
+                        document.getElementById('profile-role').value = user.role === 'admin' ? 'Quản trị viên (Admin)' : 'Vận hành viên (Operator)';
+                        document.getElementById('profile-fullname').value = user.full_name || '';
+                        profileModal.style.display = 'flex';
+                    }
+                });
+            }
+
+            const closeProfile = () => { if (profileModal) profileModal.style.display = 'none'; };
+            if (closeProfileBtn) closeProfileBtn.onclick = closeProfile;
+            if (cancelProfileBtn) cancelProfileBtn.onclick = closeProfile;
+            if (profileModal) {
+                profileModal.onclick = (e) => { if (e.target === profileModal) closeProfile(); };
+            }
+
+            if (openPasswordBtn && passwordModal) {
+                openPasswordBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    profileDropdown.style.display = 'none';
+                    if (profileChevron) profileChevron.style.transform = 'rotate(0deg)';
+
+                    document.getElementById('pwd-current').value = '';
+                    document.getElementById('pwd-new').value = '';
+                    document.getElementById('pwd-confirm').value = '';
+                    passwordModal.style.display = 'flex';
+                });
+            }
+
+            const closePassword = () => { if (passwordModal) passwordModal.style.display = 'none'; };
+            if (closePasswordBtn) closePasswordBtn.onclick = closePassword;
+            if (cancelPasswordBtn) cancelPasswordBtn.onclick = closePassword;
+            if (passwordModal) {
+                passwordModal.onclick = (e) => { if (e.target === passwordModal) closePassword(); };
+            }
+
+            const profileForm = document.getElementById('user-profile-form');
+            if (profileForm) {
+                profileForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const saveBtn = document.getElementById('save-profile-btn');
+                    const fullNameInput = document.getElementById('profile-fullname');
+                    const fullName = fullNameInput.value.trim();
+                    if (!fullName) return;
+
+                    const originalBtnText = saveBtn.innerHTML;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang lưu...';
+                    saveBtn.disabled = true;
+
+                    try {
+                        const res = await window.portalApi.put('/api/profile', { full_name: fullName });
+                        if (res && res.ok) {
+                            window.portalApi.showToast("Cập nhật thông tin thành công!", "success");
+                            if (window.portalContext && window.portalContext.currentUser) {
+                                window.portalContext.currentUser.full_name = fullName;
+                            }
+                            const headerName = document.getElementById('header-user-fullname');
+                            if (headerName) headerName.textContent = fullName;
+                            closeProfile();
+                        } else {
+                            window.portalApi.showToast(res.error || "Không thể cập nhật thông tin.", "error");
+                        }
+                    } catch (err) {
+                        window.portalApi.showToast(err.message || "Đã xảy ra lỗi khi lưu thông tin.", "error");
+                    } finally {
+                        saveBtn.innerHTML = originalBtnText;
+                        saveBtn.disabled = false;
+                    }
+                });
+            }
+
+            const passwordForm = document.getElementById('change-password-form');
+            if (passwordForm) {
+                passwordForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const saveBtn = document.getElementById('save-password-btn');
+                    const oldPwd = document.getElementById('pwd-current').value;
+                    const newPwd = document.getElementById('pwd-new').value;
+                    const confirmPwd = document.getElementById('pwd-confirm').value;
+
+                    if (newPwd.length < 6) {
+                        window.portalApi.showToast("Mật khẩu mới cần tối thiểu 6 ký tự.", "error");
+                        return;
+                    }
+                    if (newPwd !== confirmPwd) {
+                        window.portalApi.showToast("Mật khẩu xác nhận không khớp.", "error");
+                        return;
+                    }
+
+                    const originalBtnText = saveBtn.innerHTML;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang cập nhật...';
+                    saveBtn.disabled = true;
+
+                    try {
+                        const res = await window.portalApi.post('/api/profile/change-password', {
+                            old_password: oldPwd,
+                            new_password: newPwd
+                        });
+                        if (res && res.ok) {
+                            window.portalApi.showToast("Đổi mật khẩu thành công!", "success");
+                            closePassword();
+                        } else {
+                            window.portalApi.showToast(res.error || "Không thể đổi mật khẩu.", "error");
+                        }
+                    } catch (err) {
+                        window.portalApi.showToast(err.message || "Đã xảy ra lỗi khi đổi mật khẩu.", "error");
+                    } finally {
+                        saveBtn.innerHTML = originalBtnText;
+                        saveBtn.disabled = false;
+                    }
+                });
+            }
+        });
     </script>
     {% block scripts %}{% endblock %}
 </body>

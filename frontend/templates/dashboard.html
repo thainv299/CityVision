@@ -24,13 +24,25 @@
 
     <!-- Filter & Quick Actions -->
     <div style="display: flex; gap: 12px; align-items: center;">
-        <select class="field" id="dashboard-period-filter" style="width: auto; padding: 8px 16px; margin-bottom: 0; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer;">
+        <select class="filter-select" id="dashboard-camera-filter">
+            <option value="all" {% if selected_camera_id == 'all' %}selected{% endif %}>Tất cả Camera</option>
+            {% if cameras %}
+                {% for cam in cameras %}
+                <option value="{{ cam.id }}" {% if selected_camera_id == cam.id|string %}selected{% endif %}>{{ cam.name }}</option>
+                {% endfor %}
+            {% endif %}
+        </select>
+        <select class="filter-select" id="dashboard-period-filter">
             <option value="all" {% if stats and stats.period == 'all' %}selected{% endif %}>Tất cả thời gian</option>
             <option value="today" {% if stats and stats.period == 'today' %}selected{% endif %}>Hôm nay</option>
             <option value="7days" {% if stats and stats.period == '7days' %}selected{% endif %}>7 ngày qua</option>
             <option value="30days" {% if stats and stats.period == '30days' %}selected{% endif %}>30 ngày qua</option>
         </select>
 
+        <button type="button" class="button secondary" onclick="window.portalApi.openExportModal('traffic')">
+            <img src="{{ url_for('static', filename='img/export.png') }}" style="width: 16px; height: 16px; margin-right: 6px;">
+            Xuất báo cáo
+        </button>
         <a href="{{ url_for('cameras.cameras_page') }}" class="button secondary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -40,7 +52,7 @@
             </svg>
             Thêm Camera
         </a>
-        <a href="{{ url_for('test_video.test_video_page') }}" class="button primary">
+        <a href="{{ url_for('monitoring.monitoring_page') }}" class="button primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
@@ -66,6 +78,14 @@
         if (periodFilter) {
             periodFilter.addEventListener('change', function() {
                 updateDashboardFilters({ 'period': this.value });
+            });
+        }
+
+        // Bộ lọc theo camera
+        const cameraFilter = document.getElementById('dashboard-camera-filter');
+        if (cameraFilter) {
+            cameraFilter.addEventListener('change', function() {
+                updateDashboardFilters({ 'camera_id': this.value });
             });
         }
 
@@ -194,12 +214,7 @@
                             <td>{{ v.camera_name or 'N/A' }}</td>
                             <td class="muted">
                                 {% if v.time %}
-                                    {% set parts = v.time.split('T') %}
-                                    {% if parts|length > 1 %}
-                                        {{ parts[1][:5] }} {{ parts[0].split('-')[2] }}/{{ parts[0].split('-')[1] }}
-                                    {% else %}
-                                        {{ v.time[:16] }}
-                                    {% endif %}
+                                    <span class="vietnamese-datetime" data-time="{{ v.time }}">{{ v.time }}</span>
                                 {% else %}
                                     N/A
                                 {% endif %}

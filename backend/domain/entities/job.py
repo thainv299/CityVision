@@ -18,6 +18,7 @@ class Job:
     latest_frame: Optional[bytes] = None
     is_paused: bool = False
     camera_id: Optional[int] = None
+    viewer_count: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -34,4 +35,5 @@ class Job:
             "progress": self.progress,
             "is_paused": self.is_paused,
             "camera_id": self.camera_id,
+            "viewer_count": self.viewer_count,
         }

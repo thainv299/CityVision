@@ -1,3 +1,10 @@
+window.checkEditToggleClick = function(wrapper, event) {
+    const editCb = wrapper.querySelector(".camera-edit-cb");
+    if (editCb && editCb.disabled) {
+        window.portalApi.showNotice(document.getElementById("users-feedback"), "Bạn phải cấp quyền 'Xem' trước khi có thể cấp quyền 'Sửa'!", "warning");
+    }
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     const tableBody = document.getElementById("users-table-body");
     const form = document.getElementById("user-form");
@@ -45,16 +52,100 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function setForm(user = null) {
+    function toggleCameraSection(role) {
+        const camSection = document.getElementById("camera-access-section");
+        if (camSection) {
+            camSection.style.display = role === "operator" ? "block" : "none";
+        }
+    }
+
+    form.role.addEventListener("change", (e) => {
+        toggleCameraSection(e.target.value);
+    });
+
+    // Select / Deselect All Cameras
+    const btnSelectAll = document.getElementById("btn-select-all-cams");
+    const btnDeselectAll = document.getElementById("btn-deselect-all-cams");
+    if (btnSelectAll) {
+        btnSelectAll.addEventListener("click", () => {
+            document.querySelectorAll(".camera-access-cb").forEach(cb => {
+                cb.checked = true;
+                const editCb = document.querySelector(`.camera-edit-cb[value="${cb.value}"]`);
+                if(editCb) editCb.disabled = false;
+            });
+        });
+    }
+    if (btnDeselectAll) {
+        btnDeselectAll.addEventListener("click", () => {
+            document.querySelectorAll(".camera-access-cb").forEach(cb => {
+                cb.checked = false;
+                const editCb = document.querySelector(`.camera-edit-cb[value="${cb.value}"]`);
+                if(editCb) {
+                    editCb.checked = false;
+                    editCb.disabled = true;
+                }
+            });
+        });
+    }
+
+    async function setForm(user = null) {
         state.editingId = user?.id || null;
         form.user_id.value = user?.id || "";
         form.username.value = user?.username || "";
         form.full_name.value = user?.full_name || "";
         form.password.value = "";
-        form.role.value = user?.role || "operator";
+        const role = user?.role || "operator";
+        form.role.value = role;
         form.is_active.checked = user ? Boolean(user.is_active) : true;
         formTitle.textContent = user ? `Sửa Người dùng` : "Tạo Người dùng Mới";
+        
+        toggleCameraSection(role);
+        
+        // Reset checkbox
+        document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = false);
+        document.querySelectorAll(".camera-edit-cb").forEach(cb => {
+            cb.checked = false;
+            cb.disabled = true;
+        });
+
+        // Load camera access if editing an operator
+        if (user && role === "operator") {
+            try {
+                const res = await window.portalApi.get(`/api/users/${user.id}/camera-access`);
+                if (res.ok && res.camera_access) {
+                    Object.entries(res.camera_access).forEach(([camId, quyen]) => {
+                        const cb = document.querySelector(`.camera-access-cb[value="${camId}"]`);
+                        if (cb) {
+                            cb.checked = true;
+                            const editCb = document.querySelector(`.camera-edit-cb[value="${camId}"]`);
+                            if(editCb) {
+                                editCb.disabled = false;
+                                editCb.checked = (quyen === 1);
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Lỗi khi load quyền camera:", err);
+            }
+        }
     }
+
+    // Gắn sự kiện cho từng checkbox camera
+    document.addEventListener("change", (e) => {
+        if (e.target.classList.contains("camera-access-cb")) {
+            const camId = e.target.value;
+            const editCb = document.querySelector(`.camera-edit-cb[value="${camId}"]`);
+            if (editCb) {
+                if (e.target.checked) {
+                    editCb.disabled = false;
+                } else {
+                    editCb.disabled = true;
+                    editCb.checked = false;
+                }
+            }
+        }
+    });
 
     function renderUsers() {
         if (totalRowsCount) totalRowsCount.textContent = state.users.length;
@@ -86,6 +177,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 statusBadge = '<span class="ds-badge inactive">Inactive</span>';
             }
             
+            let camCount = 'Tất cả';
+            if (user.role === 'operator') {
+                const total = user.camera_access_ids ? user.camera_access_ids.length : 0;
+                camCount = `${total} cameras`;
+            }
+            
             return `
             <tr>
                 <td style="text-align: center;"><input type="checkbox" class="ds-checkbox"></td>
@@ -101,14 +198,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td>${statusBadge}</td>
                 <td>${displayRole}</td>
                 <td>${joinedDate}</td>
-                <td>${lastActive}</td>
+                <td><span class="small muted">${camCount}</span></td>
                 <td style="text-align: right; padding-right: 24px;">
                     <div style="display: flex; justify-content: flex-end; gap: 8px;">
                         <button class="ds-action-btn" data-action="edit" data-id="${user.id}" title="Edit">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
                         </button>
                         <button class="ds-action-btn delete" data-action="delete" data-id="${user.id}" title="Delete">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                            <img src="/static/img/delete.png" style="width:20px; height:20px;" title="Xóa">
                         </button>
                     </div>
                 </td>
@@ -176,13 +273,32 @@ document.addEventListener("DOMContentLoaded", () => {
         const url = editing ? `/api/users/${state.editingId}` : "/api/users";
 
         try {
+            let userId = state.editingId;
             if (editing) {
                 await window.portalApi.put(url, payload);
                 window.portalApi.showNotice(feedback, "Đã cập nhật người dùng.", "success");
             } else {
-                await window.portalApi.post(url, payload);
+                const res = await window.portalApi.post(url, payload);
+                userId = res.user.id;
                 window.portalApi.showNotice(feedback, "Đã tạo người dùng mới.", "success");
             }
+            
+            // Cập nhật quyền camera cho operator
+            if (payload.role === "operator" && userId) {
+                const cameraAccess = [];
+                document.querySelectorAll(".camera-access-cb:checked").forEach(cb => {
+                    const camId = parseInt(cb.value, 10);
+                    const editCb = document.querySelector(`.camera-edit-cb[value="${camId}"]`);
+                    const quyen = (editCb && editCb.checked) ? 1 : 0;
+                    cameraAccess.push({ id_camera: camId, quyen: quyen });
+                });
+                try {
+                    await window.portalApi.put(`/api/users/${userId}/camera-access`, { camera_access: cameraAccess });
+                } catch(camErr) {
+                    console.error("Lỗi cập nhật quyền camera:", camErr);
+                }
+            }
+
             closeModal();
             await loadUsers();
         } catch (error) {

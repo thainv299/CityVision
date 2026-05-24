@@ -11,7 +11,7 @@ auth_router = APIRouter()
 
 @auth_router.get("/login", name="auth.login_page")
 @auth_router.post("/login")
-async def login_page(
+def login_page(
     request: Request,
     username: Optional[str] = Form(None),
     password: Optional[str] = Form(None)
@@ -37,13 +37,13 @@ async def login_page(
 
 
 @auth_router.post("/logout", name="auth.logout")
-async def logout(request: Request):
+def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url=request.url_for("auth.login_page"), status_code=status.HTTP_303_SEE_OTHER)
 
 
 @auth_router.get("/api/session")
-async def api_session(request: Request):
+def api_session(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse(status_code=401, content={"ok": False, "error": "Chưa đăng nhập"})

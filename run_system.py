@@ -7,7 +7,7 @@ load_dotenv()
 
 if __name__ == "__main__":
     print("="*50)
-    print("Hệ thống Giám sát Giao thông Thông minh - UrbanM AI")
+    print("Hệ thống Giám sát Giao thông Thông minh - CityVision")
     print("Trạng thái: Đang khởi động Backend Web Server...")
     print("Địa chỉ: http://localhost:5000")
     print("="*50)

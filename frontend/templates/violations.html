@@ -17,7 +17,13 @@
             <p class="eyebrow">Dữ liệu theo thời gian thực</p>
             <h3>Danh Sách Vi Phạm Chờ Xử Lý</h3>
         </div>
-        <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" class="button secondary" onclick="window.portalApi.openExportModal('parking')">
+                <img src="{{ url_for('static', filename='img/export.png') }}" style="width: 16px; height: 16px; margin-right: 6px;">
+                Xuất báo cáo
+            </button>
+            <button class="button secondary" onclick="loadViolations()">🔄 Làm mới</button>
+        </div>
     </div>
 
     <div id="violationList" style="display: grid; gap: 16px;">
@@ -248,7 +254,7 @@ function displayViolations(violations) {
                                 <strong>${v.license_plate || 'Chưa rõ'}</strong>
                             </td>
                             <td style="text-align: center;">
-                                ${v.violation_time || 'N/A'}
+                                ${window.portalApi.formatVietnameseDateTime(v.violation_time)}
                             </td>
                             <td style="text-align: center;">
                                 <span class="pill warning">${v.duration_seconds || 0}s</span>
