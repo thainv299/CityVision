@@ -21,14 +21,21 @@ class CameraUseCases:
         if user.is_admin():
             return all_cameras
         # Operator chỉ xem camera mà họ có quyền
-        allowed_ids = set(user.camera_access_ids or [])
+        allowed_ids = set(user.camera_access.keys() if user.camera_access else [])
         return [c for c in all_cameras if c.id in allowed_ids]
 
     def can_user_access_camera(self, user: User, camera_id: int) -> bool:
         """Kiểm tra người dùng có quyền truy cập camera không"""
         if user.is_admin():
             return True
-        return camera_id in (user.camera_access_ids or [])
+        return camera_id in (user.camera_access or {})
+
+    def can_user_edit_camera(self, user: User, camera_id: int) -> bool:
+        """Kiểm tra người dùng có quyền chỉnh sửa camera không"""
+        if user.is_admin():
+            return True
+        # Phải có trong danh sách truy cập và có quyền = 1
+        return user.camera_access and user.camera_access.get(camera_id) == 1
 
     def can_user_delete_camera(self, user: User, camera: Camera) -> bool:
         """Kiểm tra người dùng có quyền xóa camera không.

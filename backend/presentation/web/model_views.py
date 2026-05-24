@@ -3,7 +3,8 @@ from fastapi.responses import RedirectResponse, JSONResponse
 from pathlib import Path
 import os
 import datetime
-
+from database.sqlite_db import create_system_notification, connect
+import threading
 from presentation.container import container
 from presentation.middlewares.auth import admin_required
 
@@ -43,6 +44,27 @@ def list_models(user=Depends(admin_required)):
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
+def _export_model_to_engine_task(file_path: Path):
+    try:
+        from ultralytics import YOLO
+        create_system_notification(
+            "Đang chuyển đổi mô hình", 
+            f"Mô hình {file_path.name} đang được xuất sang TensorRT (.engine). Hệ thống đã tự động dừng các AI camera để ưu tiên tài nguyên. Vui lòng chờ 5-15 phút..."
+        )
+        # Bắt đầu xuất (ưu tiên fp16)
+        model = YOLO(str(file_path))
+        model.export(format='engine', workspace=4, half=True, device='0')
+        
+        create_system_notification(
+            "Chuyển đổi hoàn tất", 
+            f"Mô hình {file_path.name} đã xuất xong định dạng .engine thành công!"
+        )
+    except Exception as e:
+        create_system_notification(
+            "Lỗi chuyển đổi mô hình", 
+            f"Đã có lỗi xảy ra khi xuất {file_path.name}: {str(e)}"
+        )
+
 @model_router.post("/api/models/upload")
 async def upload_model(file: UploadFile = File(...), user=Depends(admin_required)):
     if isinstance(user, RedirectResponse):
@@ -57,6 +79,22 @@ async def upload_model(file: UploadFile = File(...), user=Depends(admin_required
             while content := await file.read(1024 * 1024):
                 buffer.write(content)
                 
+        # Nếu là file .pt, tự động stop camera và export ra .engine
+        if file_path.suffix.lower() == '.pt':
+            # 1. Cập nhật tắt AI trong DB
+            with connect() as conn:
+                conn.execute("UPDATE camera SET enable_ai = 0")
+                cameras = conn.execute("SELECT id FROM camera").fetchall()
+            
+            # 2. Dừng các process đang chạy
+            for cam in cameras:
+                container.job_use_cases.stop_camera_jobs(cam['id'])
+                
+            # 3. Khởi chạy tiến trình ngầm export
+            threading.Thread(target=_export_model_to_engine_task, args=(file_path,), daemon=True).start()
+            
+            return {"ok": True, "message": f"Đã tải lên {file.filename}. Đang tự động chuyển đổi sang TensorRT ngầm..."}
+            
         return {"ok": True, "message": f"Đã tải lên model {file.filename} thành công!"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})

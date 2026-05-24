@@ -244,14 +244,14 @@ def init_db() -> None:
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
-            CREATE TABLE IF NOT EXISTS quyen_truy_cap_camera (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                id_nguoi_dung INTEGER NOT NULL,
+            CREATE TABLE IF NOT EXISTS camera_nguoi_dung (
                 id_camera INTEGER NOT NULL,
+                id_nguoidung INTEGER NOT NULL,
+                quyen INTEGER NOT NULL DEFAULT 0,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (id_nguoi_dung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
-                FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE,
-                UNIQUE(id_nguoi_dung, id_camera)
+                PRIMARY KEY (id_camera, id_nguoidung),
+                FOREIGN KEY (id_nguoidung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
+                FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE
             );
             
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_thoi_gian ON lich_su_phuong_tien(thoi_gian_di_qua);
@@ -267,6 +267,23 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_thong_ke_giao_thong_ngay ON thong_ke_giao_thong(ngay_ghi_nhan);
             """
         )
+
+        # Di chuyển dữ liệu từ bảng cũ sang bảng mới (nếu bảng cũ còn tồn tại)
+        try:
+            # Kiểm tra xem bảng quyen_truy_cap_camera có tồn tại không
+            table_exists = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='quyen_truy_cap_camera'"
+            ).fetchone()
+            if table_exists:
+                # Migrate data (mặc định quyền 1 cho dữ liệu cũ)
+                connection.execute("""
+                    INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen, ngay_tao)
+                    SELECT id_camera, id_nguoi_dung, 1, ngay_tao FROM quyen_truy_cap_camera
+                """)
+                # Xóa bảng cũ
+                connection.execute("DROP TABLE quyen_truy_cap_camera")
+        except Exception as e:
+            logger.error(f"Lỗi khi di chuyển dữ liệu quyền: {e}")
 
         camera_columns = {
             row["name"]
@@ -570,6 +587,27 @@ def broadcast_notification(notification_data: dict):
                 except Exception:
                     pass
 
+def create_system_notification(title: str, content: str, type_name: str = "system") -> None:
+    """Tạo và broadcast thông báo hệ thống."""
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO thong_bao (loai_thong_bao, tieu_de, noi_dung, duong_dan_anh)
+            VALUES (?, ?, ?, ?)
+            """,
+            (type_name, title, content, "/static/img/model.png")
+        )
+        
+        cursor_notif = connection.execute(
+            """
+            SELECT id, loai_thong_bao as type, id_ban_ghi, tieu_de as title, noi_dung, duong_dan_anh as image, ngay_tao as time
+            FROM thong_bao
+            WHERE id = (SELECT last_insert_rowid())
+            """
+        )
+        notif_row = dict(cursor_notif.fetchone())
+        broadcast_notification(notif_row)
+
 def get_unread_notifications(limit: int = 10) -> dict:
     """Lấy danh sách thông báo chưa đọc từ bảng thong_bao tập trung."""
     with connect() as connection:
@@ -646,6 +684,39 @@ def get_vehicle_type_distribution(start_date: str = None, end_date: str = None, 
     
     query += " GROUP BY loai_xe ORDER BY count DESC"
     
+    with connect() as connection:
+        rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+def get_traffic_report_by_camera(start_date: str = None, end_date: str = None, camera_ids: list = None) -> list:
+    """Lấy số lượng phương tiện theo từng camera và loại xe (phục vụ báo cáo PDF).
+    Trả về: [{"camera_id": 1, "camera_name": "...", "description": "...", "vehicle_type": "car", "count": 120}, ...]
+    """
+    query = """
+        SELECT l.id_camera as camera_id, c.ten_camera as camera_name, IFNULL(c.mo_ta, '') as description,
+               l.loai_xe as vehicle_type, COUNT(*) as count
+        FROM lich_su_phuong_tien l
+        LEFT JOIN camera c ON l.id_camera = c.id
+        WHERE l.loai_xe NOT IN ('person', 'license_plate')
+    """
+    params = []
+
+    if camera_ids is not None:
+        if not camera_ids:
+            return []
+        placeholders = ','.join('?' * len(camera_ids))
+        query += f" AND l.id_camera IN ({placeholders})"
+        params.extend(camera_ids)
+
+    if start_date:
+        query += " AND l.thoi_gian_di_qua >= ?"
+        params.append(f"{start_date} 00:00:00")
+    if end_date:
+        query += " AND l.thoi_gian_di_qua <= ?"
+        params.append(f"{end_date} 23:59:59")
+
+    query += " GROUP BY l.id_camera, l.loai_xe ORDER BY l.id_camera, count DESC"
+
     with connect() as connection:
         rows = connection.execute(query, params).fetchall()
     return [dict(row) for row in rows]
@@ -1107,39 +1178,47 @@ def migrate_camera_ids_and_plates() -> dict:
     return results
 
 
-def get_user_camera_ids(user_id: int) -> list:
-    """Lấy danh sách ID camera mà người dùng có quyền truy cập"""
+def get_user_camera_access(user_id: int) -> dict:
+    """Lấy dict {id_camera: quyen} mà người dùng có quyền truy cập"""
     with connect() as connection:
         rows = connection.execute(
-            "SELECT id_camera FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            "SELECT id_camera, quyen FROM camera_nguoi_dung WHERE id_nguoidung = ?",
             (user_id,)
         ).fetchall()
-    return [row["id_camera"] for row in rows]
+    return {row["id_camera"]: row["quyen"] for row in rows}
+
+def get_user_camera_ids(user_id: int) -> list:
+    """Hàm phụ trợ: Lấy danh sách ID camera (để tương thích ngược)"""
+    return list(get_user_camera_access(user_id).keys())
 
 
-def set_user_camera_access(user_id: int, camera_ids: list) -> None:
-    """Gán danh sách quyền truy cập camera cho người dùng (xóa cũ, thêm mới)"""
+def set_user_camera_access(user_id: int, camera_access: list) -> None:
+    """Gán danh sách quyền truy cập camera cho người dùng.
+    camera_access là list các dict: [{"id_camera": 1, "quyen": 1}, ...]
+    """
     with connect() as connection:
         # Xóa toàn bộ quyền cũ
         connection.execute(
-            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ?",
+            "DELETE FROM camera_nguoi_dung WHERE id_nguoidung = ?",
             (user_id,)
         )
         # Thêm quyền mới
-        for cam_id in camera_ids:
+        for access in camera_access:
+            cam_id = access.get("id_camera")
+            quyen = access.get("quyen", 0)
             connection.execute(
-                "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
-                (user_id, int(cam_id))
+                "INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen) VALUES (?, ?, ?)",
+                (int(cam_id), user_id, int(quyen))
             )
         connection.commit()
 
 
-def grant_camera_access(user_id: int, camera_id: int) -> None:
+def grant_camera_access(user_id: int, camera_id: int, quyen: int = 1) -> None:
     """Cấp quyền truy cập 1 camera cho người dùng"""
     with connect() as connection:
         connection.execute(
-            "INSERT OR IGNORE INTO quyen_truy_cap_camera (id_nguoi_dung, id_camera) VALUES (?, ?)",
-            (user_id, camera_id)
+            "INSERT OR IGNORE INTO camera_nguoi_dung (id_camera, id_nguoidung, quyen) VALUES (?, ?, ?)",
+            (camera_id, user_id, quyen)
         )
         connection.commit()
 
@@ -1148,7 +1227,7 @@ def revoke_camera_access(user_id: int, camera_id: int) -> None:
     """Thu hồi quyền truy cập 1 camera của người dùng"""
     with connect() as connection:
         connection.execute(
-            "DELETE FROM quyen_truy_cap_camera WHERE id_nguoi_dung = ? AND id_camera = ?",
+            "DELETE FROM camera_nguoi_dung WHERE id_nguoidung = ? AND id_camera = ?",
             (user_id, camera_id)
         )
         connection.commit()

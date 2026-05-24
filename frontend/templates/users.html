@@ -166,22 +166,49 @@
                         <button type="button" class="button secondary xs" id="btn-select-all-cams">Chọn tất cả</button>
                         <button type="button" class="button secondary xs" id="btn-deselect-all-cams">Bỏ chọn tất cả</button>
                     </div>
-                    <div class="camera-access-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: var(--bg-panel);">
+                    <div class="camera-access-list" style="border: 1px solid var(--border); border-radius: 6px; background: var(--bg-panel); overflow: hidden; margin-top: 8px;">
+                        <!-- Header Row -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--bg-panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20;">
+                            <span class="muted" style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">Tên Camera</span>
+                            <div style="display: flex; gap: 24px; align-items: center; padding-right: 8px;">
+                                <span class="muted" style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; width: 44px; text-align: center;">Xem</span>
+                                <span class="muted" style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; width: 44px; text-align: center;">Sửa</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Body Rows -->
+                        <div style="max-height: 180px; overflow-y: auto; position: relative; z-index: 10;">
                         {% if all_cameras %}
                             {% for cam in all_cameras %}
-                            <label class="toggle-field" style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-                                <div>
-                                    <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb">
-                                    <span style="font-weight: 500;">{{ cam.name }}</span>
+                            <div class="camera-access-row" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg-panel);">
+                                <!-- Thông tin Camera -->
+                                <div style="display: flex; flex-direction: column; flex: 1;">
+                                    <span style="font-weight: 600; color: var(--text-main); font-size: 0.85rem;">{{ cam.name }}</span>
                                 </div>
-                                <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}">
-                                    {{ 'Active' if cam.is_active else 'Inactive' }}
-                                </span>
-                            </label>
+                                
+                                <!-- Toggles Quyền -->
+                                <div style="display: flex; gap: 24px; align-items: center; padding-right: 8px;">
+                                    <div style="width: 44px; display: flex; justify-content: center;">
+                                        <label class="toggle-switch" style="margin: 0; transform: scale(0.85);">
+                                            <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div style="width: 44px; display: flex; justify-content: center;" class="camera-edit-wrapper" data-camid="{{ cam.id }}">
+                                        <label class="toggle-switch" style="margin: 0; transform: scale(0.85);" title="Cấp quyền chỉnh sửa camera">
+                                            <input type="checkbox" name="camera_edit[]" value="{{ cam.id }}" class="camera-edit-cb" disabled>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
                             {% endfor %}
                         {% else %}
-                            <div class="small muted">Chưa có camera nào trong hệ thống.</div>
+                            <div style="padding: 16px; text-align: center;">
+                                <span class="small muted">Chưa có camera nào trong hệ thống.</span>
+                            </div>
                         {% endif %}
+                        </div>
                     </div>
                 </div>
 

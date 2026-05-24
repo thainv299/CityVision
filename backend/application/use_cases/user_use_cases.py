@@ -107,7 +107,7 @@ class UserUseCases:
         user = self.get_user(user_id)
         if user.is_admin():
             raise ValidationError("Tài khoản admin không cần cấp quyền camera (admin có full access).")
-        self.user_repo.update_camera_access(user_id, camera_ids)
+        self.user_repo.update_camera_access(user_id, camera_access)
 
     def delete_user(self, user_id: int, current_user_id: int) -> bool:
         target = self.get_user(user_id)

@@ -48,14 +48,21 @@ def cameras_page(request: Request, user=Depends(login_required)):
 @camera_router.get("/api/cameras")
 def api_list_cameras(user=Depends(login_required)):
     cameras = container.camera_use_cases.list_cameras_for_user(user)
-    return {"ok": True, "cameras": [c.to_dict() for c in cameras]}
+    camera_dicts = []
+    for c in cameras:
+        d = c.to_dict()
+        d["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, c.id)
+        camera_dicts.append(d)
+    return {"ok": True, "cameras": camera_dicts}
 
 
 @camera_router.get("/api/cameras/{camera_id}")
 def api_get_camera(camera_id: int, user=Depends(login_required)):
     try:
         camera = container.camera_use_cases.get_camera(camera_id)
-        return {"ok": True, "camera": camera.to_dict()}
+        d = camera.to_dict()
+        d["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, camera.id)
+        return {"ok": True, "camera": d}
     except NotFoundError:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
 
@@ -122,9 +129,9 @@ def api_create_camera(payload: Dict[str, Any], user=Depends(login_required)):
 
 @camera_router.put("/api/cameras/{camera_id}")
 def api_update_camera(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
-    # Kiểm tra quyền truy cập camera
-    if not container.camera_use_cases.can_user_access_camera(user, camera_id):
-        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn không có quyền truy cập camera này."})
+    # Kiểm tra quyền truy cập và chỉnh sửa camera
+    if not container.camera_use_cases.can_user_edit_camera(user, camera_id):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn chỉ có quyền xem, không có quyền chỉnh sửa camera này."})
     try:
         # Lấy cấu hình cũ trước khi lưu để kiểm tra thay đổi lớn
         try:
@@ -334,6 +341,7 @@ def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
         settings = get_camera_settings(camera_id)
         # Đính kèm mo_hinh_yolo vào settings để UI nạp lên dropdown
         settings["mo_hinh_yolo"] = camera.model_path
+        settings["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, camera_id)
         return {"ok": True, "settings": settings}
     except NotFoundError:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
@@ -343,6 +351,9 @@ def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
 
 @camera_router.put("/api/cameras/{camera_id}/settings")
 def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Depends(login_required)):
+    if not container.camera_use_cases.can_user_edit_camera(user, camera_id):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Bạn chỉ có quyền xem, không có quyền chỉnh sửa cấu hình camera này."})
+        
     try:
         # Kiểm tra camera có tồn tại không
         camera = container.camera_use_cases.get_camera(camera_id)
