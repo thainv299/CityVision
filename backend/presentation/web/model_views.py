@@ -83,7 +83,7 @@ async def upload_model(file: UploadFile = File(...), user=Depends(admin_required
         if file_path.suffix.lower() == '.pt':
             # 1. Cập nhật tắt AI trong DB
             with connect() as conn:
-                conn.execute("UPDATE camera SET enable_ai = 0")
+                conn.execute("UPDATE camera SET bat_xu_ly_ai = 0")
                 cameras = conn.execute("SELECT id FROM camera").fetchall()
             
             # 2. Dừng các process đang chạy
