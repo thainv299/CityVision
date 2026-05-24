@@ -219,33 +219,41 @@
                 }
             };
 
+            progressContainer.style.display = 'block';
+            submitBtn.disabled = true;
+            fileInput.disabled = true;
+            btnReset.disabled = true;
+
             xhr.onload = function() {
                 submitBtn.disabled = false;
+                fileInput.disabled = false;
+                btnReset.disabled = false;
+                
                 if (xhr.status >= 200 && xhr.status < 300) {
                     try {
                         const data = JSON.parse(xhr.responseText);
                         if (data.ok) {
-                            showFeedback(data.message);
+                            alert("✅ Thành công: " + data.message);
                             closeModal();
                             fetchModels();
                         } else {
-                            showFeedback(data.error || 'Lỗi khi upload', true);
+                            alert("❌ Lỗi: " + (data.error || 'Lỗi khi upload'));
                         }
                     } catch (err) {
-                        showFeedback('Lỗi phân tích phản hồi', true);
+                        alert("❌ Lỗi: Không thể phân tích phản hồi từ máy chủ");
                     }
                 } else {
-                    showFeedback('Upload thất bại với mã lỗi: ' + xhr.status, true);
+                    alert("❌ Upload thất bại với mã lỗi: " + xhr.status);
                 }
             };
 
             xhr.onerror = function() {
                 submitBtn.disabled = false;
-                showFeedback('Lỗi kết nối mạng khi upload', true);
+                fileInput.disabled = false;
+                btnReset.disabled = false;
+                alert("❌ Lỗi kết nối mạng khi upload. Vui lòng thử lại.");
             };
 
-            progressContainer.style.display = 'block';
-            submitBtn.disabled = true;
             xhr.send(formData);
         });
 
