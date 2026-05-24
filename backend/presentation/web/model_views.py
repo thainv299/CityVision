@@ -75,9 +75,9 @@ async def upload_model(file: UploadFile = File(...), user=Depends(admin_required
             
         file_path = MODELS_DIR / file.filename
         
+        import shutil
         with open(file_path, "wb") as buffer:
-            while content := await file.read(1024 * 1024):
-                buffer.write(content)
+            shutil.copyfileobj(file.file, buffer)
                 
         # Nếu là file .pt, tự động stop camera và export ra .engine
         if file_path.suffix.lower() == '.pt':
