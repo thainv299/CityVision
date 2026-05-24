@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-
+import onnxruntime as ort
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -37,7 +37,6 @@ from database.sqlite_db import (
     log_vehicle_count,
     log_detected_license_plate
 )
-from paddleocr import PaddleOCR
 from collections import deque
 
 # Nhãn nhận diện
@@ -157,18 +156,24 @@ class VideoStream:
 
     def _build_ffmpeg_cmd(self) -> list:
         """Xây dựng lệnh FFmpeg tối ưu."""
-        # FFmpeg giải mã độc lập với AI loop, dùng "0" (auto) để tận dụng đa nhân CPU.
-        # Ngay cả với H.265, FFmpeg vẫn chạy ổn định hơn OpenCV.
-        threads_val = "0" 
         cmd = [
             "ffmpeg", "-loglevel", "error",
-            "-threads", "0", 
+            "-threads", "0"
+        ]
+        
+        # Hỗ trợ giải mã phần cứng trên Jetson (NVDEC / V4L2)
+        use_nvdec = os.environ.get("USE_JETSON_NVDEC", "0") == "1"
+        if use_nvdec:
+            # Tuỳ thuộc vào bản FFmpeg trên Jetpack, thường dùng h264_nvv4l2dec hoặc nvmpi
+            cmd.extend(["-c:v", "h264_nvv4l2dec"])
+            
+        cmd.extend([
             "-i", str(self.path),
             "-vf", f"scale={self.draw_w}:{self.draw_h}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-"
-        ]
+        ])
         return cmd
 
     def update(self):
@@ -248,7 +253,76 @@ class VideoStream:
 
 def _canonical_label(label: Any) -> str:
     """Chuẩn hóa label về dạng snake_case."""
-    return str(label).strip().lower().replace("-", "_").replace(" ", "_")
+    if not isinstance(label, str):
+        return str(label)
+    return label.strip().lower().replace(" ", "_")
+
+def create_paddle_ocr() -> "PaddleOCR":
+    """Tạo instance PaddleOCR, tự động nhận diện biến môi trường cho ONNX và cấu hình TensorRT Caching."""
+    import os
+    use_onnx = os.environ.get("USE_PADDLE_ONNX", "0") == "1"
+    
+    if use_onnx:
+        os.makedirs("./trt_cache", exist_ok=True)
+        
+        try:
+            if not hasattr(ort, "_patched_by_cityvision"):
+                _original_InferenceSession = ort.InferenceSession
+                
+                def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+                    model_path = str(path_or_bytes).lower()
+                    
+                    # Cấu hình lõi chung cho mọi model
+                    trt_options = {
+                        'device_id': 0,
+                        'trt_fp16_enable': True,
+                        'trt_engine_cache_enable': True,
+                        'trt_engine_cache_path': './trt_cache',
+                    }
+
+                    # Bơm Dynamic Shapes tùy thuộc vào mô hình đang được load
+                    if "rec" in model_path:
+                        # Profile cho mô hình Nhận diện chữ (Batch 1-10, Width 10-1000)
+                        trt_options['trt_profile_min_shapes'] = 'x:1x3x48x10'
+                        trt_options['trt_profile_opt_shapes'] = 'x:6x3x48x320'
+                        trt_options['trt_profile_max_shapes'] = 'x:10x3x48x1000'
+                    elif "det" in model_path:
+                        # Profile cho mô hình Phát hiện vùng chữ (Batch 1-4)
+                        trt_options['trt_profile_min_shapes'] = 'x:1x3x64x64'
+                        trt_options['trt_profile_opt_shapes'] = 'x:1x3x640x640'
+                        trt_options['trt_profile_max_shapes'] = 'x:4x3x960x960'
+
+                    trt_providers = [
+                        ('TensorrtExecutionProvider', trt_options),
+                        'CUDAExecutionProvider',
+                        'CPUExecutionProvider'
+                    ]
+                    return _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                
+                ort.InferenceSession = _patched_InferenceSession
+                ort._patched_by_cityvision = True
+        except ImportError:
+            print("Cảnh báo: onnxruntime không khả dụng!")
+
+        # Import PaddleOCR tại đây để đảm bảo onnxruntime đã được patch TRƯỚC khi PaddleOCR gọi tới
+        from paddleocr import PaddleOCR 
+
+        det_dir = os.environ.get("PADDLE_ONNX_DET_DIR", None)
+        rec_dir = os.environ.get("PADDLE_ONNX_REC_DIR", None)
+        cls_dir = os.environ.get("PADDLE_ONNX_CLS_DIR", None)
+        
+        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True}
+        # Bắt buộc phải có đủ mô hình DET và REC.
+        # Dù YOLO đã cắt biển số, nhưng biển số xe VN có 2 dòng chữ, 
+        # model DET của OCR vẫn cần thiết để tách dòng trước khi nạp vào REC.
+        if det_dir: ocr_args["det_model_dir"] = det_dir
+        if rec_dir: ocr_args["rec_model_dir"] = rec_dir
+        if cls_dir: ocr_args["cls_model_dir"] = cls_dir
+        
+        return PaddleOCR(**ocr_args)
+    else:
+        from paddleocr import PaddleOCR
+        return PaddleOCR(use_angle_cls=True, lang="en")
 
 
 def _display_label(label_key: str) -> str:
@@ -662,7 +736,7 @@ def process_video(
     # OCR Manager setup
     import logging
     logging.getLogger("ppocr").setLevel(logging.ERROR)
-    ocr_reader = PaddleOCR(lang='en') if enable_license_plate else None
+    ocr_reader = create_paddle_ocr() if enable_license_plate else None
     ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger) if enable_license_plate else None
     if ocr_manager is not None:
         ocr_manager.save_to_db = save_to_db
@@ -1092,7 +1166,7 @@ def process_video(
                             print(f"[Dynamic Settings] Nhận diện biển số updated to: {enable_license_plate}")
                             if enable_license_plate and ocr_manager is None:
                                 print("[Dynamic Settings] Loading PaddleOCR model...")
-                                ocr_reader = PaddleOCR(lang='en')
+                                ocr_reader = create_paddle_ocr()
                                 ocr_manager = OCRManager(ocr_reader, alpr_logger=alpr_logger)
                                 ocr_manager.save_to_db = save_to_db
                                 ocr_manager.start_worker()

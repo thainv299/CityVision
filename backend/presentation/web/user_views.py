@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 from core.errors import AppError
 from presentation.container import container, templates
-from presentation.middlewares.auth import admin_required, get_current_user
+from presentation.middlewares.auth import admin_required, get_current_user, login_required
 
 user_router = APIRouter()
 
@@ -77,6 +77,31 @@ def api_update_camera_access(user_id: int, payload: Dict[str, Any], user=Depends
         camera_access = payload.get("camera_access", [])
         container.user_use_cases.update_camera_access(user_id, camera_access)
         return {"ok": True, "message": "Đã cập nhật quyền truy cập camera."}
+    except AppError as exc:
+        return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@user_router.put("/api/profile")
+def api_update_profile(payload: Dict[str, Any], user=Depends(login_required)):
+    try:
+        full_name = payload.get("full_name", "")
+        updated = container.user_use_cases.update_profile(user.id, full_name)
+        return {"ok": True, "user": updated.to_dict()}
+    except AppError as exc:
+        return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@user_router.post("/api/profile/change-password")
+def api_change_password(payload: Dict[str, Any], user=Depends(login_required)):
+    try:
+        old_password = payload.get("old_password", "")
+        new_password = payload.get("new_password", "")
+        container.user_use_cases.change_password(user.id, old_password, new_password)
+        return {"ok": True, "message": "Thay đổi mật khẩu thành công."}
     except AppError as exc:
         return JSONResponse(status_code=exc.status_code, content={"ok": False, "error": exc.message})
     except Exception as e:
