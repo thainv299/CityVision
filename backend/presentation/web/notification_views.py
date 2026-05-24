@@ -26,7 +26,7 @@ def api_mark_notification_read(
     user=Depends(login_required)
 ):
     """Đánh dấu thông báo là đã đọc"""
-    if notif_type not in ["violation", "congestion"]:
+    if notif_type not in ["violation", "congestion", "system"]:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Loại thông báo không hợp lệ"})
         
     success = mark_notification_as_read(notif_type, record_id)
