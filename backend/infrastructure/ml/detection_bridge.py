@@ -270,6 +270,9 @@ def create_paddle_ocr() -> "PaddleOCR":
                 _original_InferenceSession = ort.InferenceSession
                 
                 def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+                    if isinstance(path_or_bytes, (str, Path)) and os.path.isdir(path_or_bytes):
+                        path_or_bytes = os.path.join(str(path_or_bytes), "model.onnx")
+                        
                     model_path = str(path_or_bytes).lower()
                     
                     # Cấu hình lõi chung cho mọi model
