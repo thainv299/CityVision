@@ -348,7 +348,7 @@ function displayViolations(violations) {
                             <td style="text-align: center;">
                                 ${framePath ? `
                                     <div onclick="window.portalApi.previewImage('/${framePath}', 'Vi phạm biển số: ${v.license_plate}')" style="cursor: pointer;" title="Bấm để xem ảnh bằng chứng lớn">
-                                        <img src="/${framePath}" class="plate-thumbnail" alt="Vi phạm ${v.license_plate}" loading="lazy">
+                                        <img src="/api/thumbnail?path=${encodeURIComponent(framePath)}&width=200" class="plate-thumbnail" alt="Vi phạm ${v.license_plate}" loading="lazy">
                                     </div>
                                 ` : '<span class="badge muted">N/A</span>'}
                             </td>
