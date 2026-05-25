@@ -38,7 +38,7 @@ from backend.presentation.web.congestion_views import congestion_router
 from backend.presentation.web.notification_views import notification_router
 from backend.presentation.web.model_views import model_router
 from backend.presentation.web.report_views import router as report_router
-from backend.presentation.web.webhook_views import webhook_router
+# from backend.presentation.web.webhook_views import webhook_router
 
 def create_app() -> FastAPI:
     # 1. Khởi tạo DB
@@ -126,7 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(notification_router)
     app.include_router(model_router)
     app.include_router(report_router, prefix="/api/reports")
-    app.include_router(webhook_router)
+    # app.include_router(webhook_router)
 
     @app.on_event("startup")
     async def startup_event():
