@@ -17,7 +17,7 @@ from modules.traffic.traffic_monitor import TrafficMonitor
 from modules.utils.alpr_logger import ALPRLogger
 from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
-from frontend.database.sqlite_db import log_parking_violation
+from backend.database.sqlite_db import log_parking_violation
 
 class_names = {
     0: "Person", 1: "Bicycle", 2: "Car", 3: "Motorcycle", 

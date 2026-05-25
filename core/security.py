@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 from fastapi import Request, HTTPException, status
-from frontend.database import get_user_by_id
+from backend.database import get_user_by_id
 
 def get_current_user_from_request(request: Request) -> Optional[Dict[str, Any]]:
     try:
