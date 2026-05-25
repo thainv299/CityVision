@@ -140,6 +140,8 @@ class VideoStream:
             self.preview_h = self.draw_h
 
         self._proc = None
+        self._cap = None
+        self._using_gstreamer = False
 
     def start(self):
         t = threading.Thread(target=self.update)
@@ -153,6 +155,70 @@ class VideoStream:
 
     def isOpened(self):
         return self._is_opened
+
+    def _build_gstreamer_pipeline(self) -> str:
+        """Xây dựng chuỗi GStreamer pipeline sử dụng phần cứng NVDEC trên Jetson."""
+        width, height = self.draw_w, self.draw_h
+        is_url = "://" in self.path or self.path.startswith("rtsp")
+        
+        if is_url:
+            return (
+                f"rtspsrc location={self.path} latency=200 ! "
+                f"rtph264depay ! h264parse ! nvv4l2decoder ! "
+                f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
+                f"videoconvert ! video/x-raw, format=BGR ! appsink drop=True sync=False"
+            )
+        else:
+            path = self.path
+            if not path.startswith("file://") and not is_url:
+                import os
+                path = "file://" + os.path.abspath(path)
+            return (
+                f"uridecodebin uri={path} ! "
+                f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
+                f"videoconvert ! video/x-raw, format=BGR ! appsink drop=False"
+            )
+
+    def _run_gstreamer_loop(self):
+        pipeline = self._build_gstreamer_pipeline()
+        print(f"[VideoStream] Đang khởi tạo GStreamer Pipeline: {pipeline}")
+        cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        
+        if not cap.isOpened():
+            raise RuntimeError("GStreamer không thể mở nguồn video này.")
+            
+        self._cap = cap
+        self._using_gstreamer = True
+        is_url = "://" in self.path or self.path.startswith("rtsp")
+        
+        while not self.stopped:
+            ret, frame = cap.read()
+            if not ret:
+                cap.release()
+                if self.stopped:
+                    break
+                if is_url:
+                    time.sleep(5)
+                cap = cv2.VideoCapture(self._build_gstreamer_pipeline(), cv2.CAP_GSTREAMER)
+                self._cap = cap
+                continue
+                
+            if frame.shape[0] != self.draw_h or frame.shape[1] != self.draw_w:
+                frame = cv2.resize(frame, (self.draw_w, self.draw_h))
+                
+            if not self.queue.full():
+                self.queue.put(frame)
+            else:
+                if is_url:
+                    try:
+                        self.queue.get_nowait()
+                        self.queue.put(frame)
+                    except Exception: pass
+                else:
+                    self.queue.put(frame)
+                    
+        if self._cap:
+            self._cap.release()
 
     def _build_ffmpeg_cmd(self) -> list:
         """Xây dựng lệnh FFmpeg tối ưu."""
@@ -176,7 +242,8 @@ class VideoStream:
         ])
         return cmd
 
-    def update(self):
+    def _run_ffmpeg_loop(self):
+        self._using_gstreamer = False
         frame_size = self.draw_w * self.draw_h * 3
         is_url = "://" in self.path or self.path.startswith("rtsp")
 
@@ -220,9 +287,20 @@ class VideoStream:
                         # Nếu là Video File, đợi cho đến khi có chỗ trong queue để không bị giật/mất frame
                         self.queue.put(frame.copy())
             except Exception as e:
-                print(f"[VideoStream] Lỗi luồng đọc: {e}")
+                print(f"[VideoStream FFmpeg] Lỗi luồng đọc: {e}")
                 if not self.stopped:
                     time.sleep(1)
+
+    def update(self):
+        use_gstreamer = os.environ.get("USE_GSTREAMER", "1") == "1"
+        if use_gstreamer:
+            try:
+                self._run_gstreamer_loop()
+                return
+            except Exception as e:
+                print(f"[VideoStream] GStreamer không khả dụng ({e}). Đang chuyển qua FFmpeg dự phòng...")
+        
+        self._run_ffmpeg_loop()
 
     def read(self):
         if self.queue.empty() and self.stopped:
@@ -234,6 +312,8 @@ class VideoStream:
 
     def release(self):
         self.stopped = True
+        if self._using_gstreamer and self._cap:
+            self._cap.release()
         if self._proc:
             try:
                 self._proc.terminate()
@@ -244,7 +324,9 @@ class VideoStream:
 
     def set_pos(self, frame_idx):
         # Reset bằng cách restart process
-        if self._proc:
+        if self._using_gstreamer and self._cap:
+            self._cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        elif self._proc:
             try:
                 self._proc.terminate()
             except Exception:
