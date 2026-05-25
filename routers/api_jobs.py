@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 from core.config import executor, OUTPUTS_DIR, ALLOWED_VIDEO_EXTENSIONS
 from core.utils import json_error, resolve_path, build_test_settings
 from core.security import require_login
-from frontend.database import get_camera
+from backend.database import get_camera
 from services.job_manager import (
     set_job,
     get_job,

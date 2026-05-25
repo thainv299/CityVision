@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 
 from core.utils import json_error, validate_user_payload
 from core.security import require_login, require_admin
-from frontend.database import (
+from backend.database import (
     get_user_record_by_id,
     create_user,
     update_user,
