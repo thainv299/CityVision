@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from core.utils import json_error, validate_camera_payload, normalize_capture_source
 from core.security import require_login
 from services.camera_service import build_placeholder_frame, prepare_snapshot_frame, encode_jpeg
-from frontend.database import (
+from backend.database import (
     get_camera,
     list_cameras,
     create_camera,
