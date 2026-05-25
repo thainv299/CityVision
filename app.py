@@ -24,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 # Import Clean Architecture Components
-from backend.core.config import SECRET_KEY
+from core.config import SECRET_KEY
 from backend.database.sqlite_db import init_db
 from backend.presentation.container import container, templates
 from backend.presentation.web.auth_views import auth_router
@@ -38,7 +38,7 @@ from backend.presentation.web.congestion_views import congestion_router
 from backend.presentation.web.notification_views import notification_router
 from backend.presentation.web.model_views import model_router
 from backend.presentation.web.report_views import router as report_router
-# from backend.presentation.web.webhook_views import webhook_router
+# from presentation.web.webhook_views import webhook_router
 
 def create_app() -> FastAPI:
     # 1. Khởi tạo DB

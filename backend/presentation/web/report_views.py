@@ -7,12 +7,12 @@ from typing import Optional
 from datetime import datetime
 from openpyxl import Workbook
 from fpdf import FPDF
-from backend.database import sqlite_db
+from database import sqlite_db
 import logging
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from backend.presentation.middlewares.auth import login_required
+from presentation.middlewares.auth import login_required
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -305,11 +305,11 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                 # Tiêu đề Camera
                 pdf.set_font("Roboto", "B", 14)
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=8, txt=f"Camera: {cam_name}")
+                pdf.multi_cell(w=190, h=8, text=f"Camera: {cam_name}")
                 if location:
                     pdf.set_font("Roboto", "", 10)
                     pdf.set_x(10)
-                    pdf.multi_cell(w=190, h=6, txt=f"Địa điểm: {location}")
+                    pdf.multi_cell(w=190, h=6, text=f"Địa điểm: {location}")
                 
                 # Đường kẻ phân cách
                 pdf.ln(3)
@@ -321,16 +321,16 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                 pdf.set_font("Roboto", "B", 13)
                 pdf.set_x(10)
                 bien_so = vi.get('Biển số', 'N/A')
-                pdf.multi_cell(w=190, h=9, txt=f"Vi phạm #{violation_counter} — Biển số: {bien_so}")
+                pdf.multi_cell(w=190, h=9, text=f"Vi phạm #{violation_counter} — Biển số: {bien_so}")
                 pdf.ln(3)
                 
                 pdf.set_font("Roboto", "", 11)
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=7, txt=f"Thời gian: {vi.get('Thời gian', 'N/A')}")
+                pdf.multi_cell(w=190, h=7, text=f"Thời gian: {vi.get('Thời gian', 'N/A')}")
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=7, txt=f"Thời gian đỗ: {vi.get('Thời gian đỗ (giây)', 0)} giây")
+                pdf.multi_cell(w=190, h=7, text=f"Thời gian đỗ: {vi.get('Thời gian đỗ (giây)', 0)} giây")
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=7, txt=f"Trạng thái: {vi.get('Trạng thái', 'N/A')}")
+                pdf.multi_cell(w=190, h=7, text=f"Trạng thái: {vi.get('Trạng thái', 'N/A')}")
                 
                 # Ảnh bằng chứng
                 img_path = vi.get('Ảnh')
@@ -343,11 +343,11 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                     else:
                         pdf.ln(3)
                         pdf.set_x(10)
-                        pdf.multi_cell(w=190, h=7, txt="Hình ảnh: Không có (Lỗi file)")
+                        pdf.multi_cell(w=190, h=7, text="Hình ảnh: Không có (Lỗi file)")
                 else:
                     pdf.ln(3)
                     pdf.set_x(10)
-                    pdf.multi_cell(w=190, h=7, txt="Hình ảnh: Không có")
+                    pdf.multi_cell(w=190, h=7, text="Hình ảnh: Không có")
     
     elif report_type == "congestion":
         # ═══════════════════════════════════════════════════════════════
@@ -356,17 +356,17 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
         for idx, row in enumerate(data):
             pdf.set_font("Roboto", "B", 13)
             pdf.set_x(10)
-            pdf.multi_cell(w=190, h=8, txt=f"Bản ghi #{idx+1} — Mức độ: {row.get('Mức độ', 'N/A')}")
+            pdf.multi_cell(w=190, h=8, text=f"Bản ghi #{idx+1} — Mức độ: {row.get('Mức độ', 'N/A')}")
             
             pdf.set_font("Roboto", "", 11)
             pdf.set_x(10)
-            pdf.multi_cell(w=190, h=7, txt=f"Camera: {row.get('Camera', 'N/A')}")
+            pdf.multi_cell(w=190, h=7, text=f"Camera: {row.get('Camera', 'N/A')}")
             pdf.set_x(10)
-            pdf.multi_cell(w=190, h=7, txt=f"Địa điểm: {row.get('Địa điểm', 'N/A')}")
+            pdf.multi_cell(w=190, h=7, text=f"Địa điểm: {row.get('Địa điểm', 'N/A')}")
             pdf.set_x(10)
-            pdf.multi_cell(w=190, h=7, txt=f"Thời gian: {row.get('Thời gian', 'N/A')}")
+            pdf.multi_cell(w=190, h=7, text=f"Thời gian: {row.get('Thời gian', 'N/A')}")
             pdf.set_x(10)
-            pdf.multi_cell(w=190, h=7, txt=f"Kéo dài: {row.get('Kéo dài (giây)', 0)} giây")
+            pdf.multi_cell(w=190, h=7, text=f"Kéo dài: {row.get('Kéo dài (giây)', 0)} giây")
             
             img_path = row.get('Ảnh')
             if img_path:
@@ -377,10 +377,10 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                     pdf.ln(5)
                 else:
                     pdf.set_x(10)
-                    pdf.multi_cell(w=190, h=7, txt="Hình ảnh: Không có (Lỗi file)")
+                    pdf.multi_cell(w=190, h=7, text="Hình ảnh: Không có (Lỗi file)")
             else:
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=7, txt="Hình ảnh: Không có")
+                pdf.multi_cell(w=190, h=7, text="Hình ảnh: Không có")
                 
             pdf.ln(8)
             pdf.set_draw_color(200, 200, 200)
@@ -471,11 +471,11 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                 # Tiêu đề camera
                 pdf.set_font("Roboto", "B", 13)
                 pdf.set_x(10)
-                pdf.multi_cell(w=190, h=8, txt=f"Camera: {cam_data['name']}")
+                pdf.multi_cell(w=190, h=8, text=f"Camera: {cam_data['name']}")
                 if cam_data["description"]:
                     pdf.set_font("Roboto", "", 10)
                     pdf.set_x(10)
-                    pdf.multi_cell(w=190, h=6, txt=f"Địa điểm: {cam_data['description']}")
+                    pdf.multi_cell(w=190, h=6, text=f"Địa điểm: {cam_data['description']}")
                 pdf.ln(3)
                 
                 # Bảng loại xe
@@ -590,7 +590,7 @@ async def export_report(
         
         extra_data = None
         if report_type == "traffic":
-            from backend.database.sqlite_db import get_vehicle_type_distribution, get_traffic_report_by_camera
+            from database.sqlite_db import get_vehicle_type_distribution, get_traffic_report_by_camera
             cam_ids = [int(camera_id)] if camera_id and camera_id != "all" else None
             extra_data = {
                 "vehicle_dist": get_vehicle_type_distribution(start_date, end_date, cam_ids),

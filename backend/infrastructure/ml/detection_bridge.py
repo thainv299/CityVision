@@ -1,5 +1,4 @@
 from __future__ import annotations
-from database.sqlite_db import broadcast_notification
 import os
 import sys
 import time
@@ -9,7 +8,10 @@ import subprocess
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from paddleocr import PaddleOCR
 import onnxruntime as ort
 import cv2
 import numpy as np

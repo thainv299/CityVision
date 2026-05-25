@@ -1,10 +1,11 @@
+from PIL.Image import logger
 import sqlite3
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
 import asyncio
-from core.config import DATABASE_PATH
+from backend.core.config import DATABASE_PATH
 
 
 def connect() -> sqlite3.Connection:
