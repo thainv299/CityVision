@@ -172,7 +172,9 @@ class VideoStream:
             path = self.path
             if not path.startswith("file://") and not is_url:
                 import os
-                path = "file://" + os.path.abspath(path)
+                import urllib.parse
+                # GStreamer URI bắt buộc phải mã hóa dấu cách và ký tự đặc biệt (tiếng Việt)
+                path = "file://" + urllib.parse.quote(os.path.abspath(path))
             return (
                 f"uridecodebin uri={path} ! "
                 f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
