@@ -221,7 +221,14 @@
     function formatVietnameseDateTime(dateString) {
         if (!dateString) return 'N/A';
         try {
-            const date = new Date(dateString);
+            // Chuẩn hóa định dạng thời gian từ SQLite (UTC) để trình duyệt chuyển sang giờ địa phương (+07:00) đúng đắn
+            let formattedStr = dateString;
+            if (typeof dateString === 'string') {
+                if (dateString.includes(' ') && !dateString.includes('T') && !dateString.endsWith('Z') && !dateString.includes('+')) {
+                    formattedStr = dateString.replace(' ', 'T') + 'Z';
+                }
+            }
+            const date = new Date(formattedStr);
             if (isNaN(date.getTime())) return dateString;
             const days = ['Chủ Nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
             const dayName = days[date.getDay()];
@@ -271,12 +278,99 @@
             });
         }
     });
+
 })();
 // Logic thông báo
 let notificationPollingInterval = null;
 let shownNotificationIds = null;
 
+// Khởi tạo trạng thái âm thanh từ localStorage (mặc định là bật)
+let isAudioEnabled = localStorage.getItem('isAudioEnabled') !== 'false';
+
+// Hàm cập nhật trạng thái icon âm thanh ở thanh Header
+function updateAudioIcon() {
+    const audioIcon = document.getElementById('audio-icon');
+    const audioBtn = document.getElementById('audio-toggle-btn');
+    if (!audioIcon) return;
+
+    if (isAudioEnabled) {
+        audioIcon.className = 'fas fa-volume-up';
+        audioIcon.style.color = '#3B82F6'; // Màu xanh active
+        if (audioBtn) audioBtn.title = 'Tắt âm thanh cảnh báo';
+    } else {
+        audioIcon.className = 'fas fa-volume-mute';
+        audioIcon.style.color = '#94A3B8'; // Màu xám mute
+        if (audioBtn) audioBtn.title = 'Bật âm thanh cảnh báo';
+    }
+}
+
+// Khởi tạo hàng đợi âm thanh để tránh phát đè lên nhau khi có nhiều cảnh báo cùng lúc
+let audioQueue = [];
+let isAudioPlaying = false;
+
+// Hàm điều phối hàng đợi âm thanh tuần tự
+function processAudioQueue() {
+    if (isAudioPlaying || audioQueue.length === 0) return;
+
+    isAudioPlaying = true;
+    const currentSrc = audioQueue.shift();
+    const audio = new Audio(currentSrc);
+
+    audio.play()
+        .then(() => {
+            // Khi âm thanh hiện tại phát xong, tiếp tục phát âm thanh tiếp theo trong hàng đợi
+            audio.onended = () => {
+                isAudioPlaying = false;
+                processAudioQueue();
+            };
+        })
+        .catch(err => {
+            console.warn("Autoplay bị chặn hoặc lỗi phát nhạc:", err);
+            isAudioPlaying = false;
+            // Nếu lỗi phát (ví dụ do chặn autoplay), đợi 500ms rồi tiếp tục xử lý hàng đợi
+            setTimeout(processAudioQueue, 500);
+        });
+}
+
+// Phát âm thanh tương ứng với loại vi phạm hoặc mức độ ùn tắc (Hỗ trợ hàng đợi tuần tự)
+function playNotificationSound(type, level = '') {
+    if (!isAudioEnabled) return;
+
+    let audioSrc = '';
+    if (type === 'violation') {
+        audioSrc = '/static/audio/violation.mp3';
+    } else if (type === 'congestion') {
+        if (level === '1') {
+            audioSrc = '/static/audio/congestion_1.mp3';
+        } else if (level === '2') {
+            audioSrc = '/static/audio/congestion_2.mp3';
+        } else if (level === '3') {
+            audioSrc = '/static/audio/congestion_3.mp3';
+        } else {
+            audioSrc = '/static/audio/congestion.mp3';
+        }
+    }
+
+    if (audioSrc) {
+        // Tối ưu chống spam: Nếu tệp âm thanh này đã có trong hàng đợi chờ phát, bỏ qua để tránh lặp từ khóa liên tục
+        if (audioQueue.includes(audioSrc)) {
+            return;
+        }
+
+        // Tối ưu thời gian thực: Giới hạn tối đa 3 âm thanh chờ phát để thông báo luôn bám sát thực tế, không bị trễ quá lâu
+        if (audioQueue.length >= 3) {
+            return;
+        }
+
+        audioQueue.push(audioSrc);
+        processAudioQueue();
+    }
+}
+
 function showNotificationToast(n) {
+    // Phát âm thanh cảnh báo tương ứng
+    playNotificationSound(n.type, n.title);
+
     let type = n.type === 'violation' ? 'error' : 'warning';
     let titleText = n.type === 'violation' ? 'Xe đỗ sai quy định' : 'Cảnh báo ùn tắc (Mức ' + n.title + ')';
     let messageText = n.type === 'violation' ? 'Biển số xe: ' + n.title : (n.noi_dung || 'Đã phát hiện ùn tắc tại khu vực giám sát');
@@ -457,6 +551,27 @@ function setupNotificationSSE() {
 window.portalApi.fetchNotifications = fetchNotifications;
 
 document.addEventListener('DOMContentLoaded', function () {
+    // Khởi tạo nút bật/tắt âm thanh cảnh báo
+    const audioBtn = document.getElementById('audio-toggle-btn');
+    if (audioBtn) {
+        updateAudioIcon();
+        audioBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            isAudioEnabled = !isAudioEnabled;
+            localStorage.setItem('isAudioEnabled', isAudioEnabled);
+            updateAudioIcon();
+
+            // Hiển thị toast thông báo trạng thái
+            if (isAudioEnabled) {
+                window.portalApi.showToast('Đã bật âm thanh cảnh báo', 'success', 'Âm thanh');
+                // Phát thử một âm thanh ngắn để xin quyền autoplay
+                playNotificationSound('congestion', '1');
+            } else {
+                window.portalApi.showToast('Đã tắt âm thanh cảnh báo', 'warning', 'Âm thanh');
+            }
+        });
+    }
+
     if (document.getElementById('bell-icon')) {
         fetchNotifications();
         setupNotificationSSE();

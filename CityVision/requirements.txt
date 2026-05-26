@@ -1,0 +1,9 @@
+opencv-python
+numpy
+ultralytics
+pyTelegramBotAPI
+python-dotenv
+requests
+paddleocr
+av
+FastAPI

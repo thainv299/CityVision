@@ -9,11 +9,11 @@
         <p class="muted" style="font-size: 1.1rem;">Tra cứu biển số xe, vị trí camera và lịch sử vi phạm trên toàn hệ thống</p>
     </div>
 
-    <div class="search-main-container" style="width: 100%; max-width: 900px; position: relative;">
+    <div class="search-main-container" style="width: 100%; max-width: 700px; position: relative;">
         <div class="search-input-wrapper" style="position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-radius: 16px; background: #fff; border: 1px solid var(--border); transition: all 0.3s ease;">
             <img src="{{ url_for('static', filename='img/search.png') }}" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px;">
             <input type="text" id="main-search-input" placeholder="Nhập biển số hoặc tên camera..." 
-                   style="width: 100%; padding: 22px 100px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
+                   style="width: 100%; padding: 22px 60px 22px 64px; border: none; background: transparent; font-size: 1.25rem; font-weight: 500; border-radius: 16px; outline: none;"
                    autocomplete="off">
             
             <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px;">
@@ -115,21 +115,6 @@
 </div>
 
 <style>
-    @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    #toggle-image-search:hover {
-        background: var(--brand-blue-light);
-        border-color: var(--brand-blue);
-    }
-    #toggle-image-search.active {
-        background: var(--brand-blue);
-        color: #fff;
-    }
-</style>
-
-<style>
     .search-input-wrapper:focus-within {
         border-color: var(--brand-blue);
         box-shadow: 0 20px 50px rgba(37, 99, 235, 0.15);
@@ -177,24 +162,6 @@
         border-color: var(--brand-blue);
         color: var(--brand-blue);
         background: rgba(37, 99, 235, 0.05);
-    }
-    .plate-thumbnail {
-        width: 100px;
-        height: 60px;
-        object-fit: cover;
-        border-radius: 8px;
-        border: 2px solid var(--border);
-        transition: all 0.3s var(--ease);
-        cursor: pointer;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        display: block;
-        margin: 0 auto;
-    }
-
-    .plate-thumbnail:hover {
-        transform: scale(1.1) translateY(-2px);
-        border-color: var(--brand-blue);
-        box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.2);
     }
 </style>
 
@@ -415,7 +382,6 @@
         searchImgBtn.disabled = true;
         showIsrState('idle');
     };
-
     // Đóng gợi ý khi click ra ngoài
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-main-container')) {

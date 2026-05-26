@@ -325,6 +325,10 @@
                 </div>
 
                 <div class="header-right">
+                    <!-- Nút bật/tắt âm thanh cảnh báo -->
+                    <div class="icon-btn" id="audio-toggle-btn" title="Bật/Tắt âm thanh cảnh báo" style="margin-right: 8px;">
+                        <i id="audio-icon" class="fas fa-volume-up" style="font-size: 18px; color: #3B82F6;"></i>
+                    </div>
                     <div class="icon-btn" id="bell-icon">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -361,7 +365,11 @@
 
                             bell.onclick = function (e) {
                                 e.stopPropagation();
-                                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+                                const isOpening = dropdown.style.display === 'none' || dropdown.style.display === '';
+                                dropdown.style.display = isOpening ? 'block' : 'none';
+                                if (isOpening && typeof window.portalApi.fetchNotifications === 'function') {
+                                    window.portalApi.fetchNotifications();
+                                }
                             };
 
                             // Logic Dropdown Sidebar (Phương tiện)
