@@ -7,7 +7,7 @@ from collections import Counter
 from . import ocr_processor
 
 class OCRManager:
-    def __init__(self, reader, interval=4, vote_threshold=3, max_lost_frames=5, alpr_logger=None):
+    def __init__(self, reader, interval=2, vote_threshold=3, max_lost_frames=5, alpr_logger=None):
         self.reader = reader
         self.OCR_INTERVAL = interval
         self.VOTE_THRESHOLD = vote_threshold
