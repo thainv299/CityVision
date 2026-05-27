@@ -160,13 +160,15 @@ class VideoStream:
         """Xây dựng chuỗi GStreamer pipeline sử dụng phần cứng NVDEC trên Jetson."""
         width, height = self.draw_w, self.draw_h
         is_url = "://" in self.path or self.path.startswith("rtsp")
+        is_hevc = self._force_single_thread # _force_single_thread được truyền vào bằng giá trị is_hevc
         
         if is_url:
+            depay = "rtph265depay ! h265parse" if is_hevc else "rtph264depay ! h264parse"
             return (
                 f"rtspsrc location={self.path} latency=200 ! "
-                f"rtph264depay ! h264parse ! nvv4l2decoder ! "
+                f"{depay} ! nvv4l2decoder ! "
                 f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
-                f"videoconvert ! video/x-raw, format=BGR ! appsink drop=True sync=False"
+                f"appsink drop=True sync=False"
             )
         else:
             path = self.path
@@ -174,11 +176,13 @@ class VideoStream:
                 import os
                 import urllib.parse
                 # GStreamer URI bắt buộc phải mã hóa dấu cách và ký tự đặc biệt (tiếng Việt)
-                path = "file://" + urllib.parse.quote(os.path.abspath(path))
+                path = urllib.parse.quote(os.path.abspath(path))
+            
+            demux = "qtdemux ! h265parse" if is_hevc else "qtdemux ! h264parse"
             return (
-                f"uridecodebin uri={path} ! "
-                f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
-                f"videoconvert ! video/x-raw, format=BGR ! appsink drop=False"
+                f"filesrc location={path} ! {demux} ! "
+                f"nvv4l2decoder ! nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
+                f"appsink drop=False"
             )
 
     def _run_gstreamer_loop(self):
@@ -207,6 +211,10 @@ class VideoStream:
                 
             if frame.shape[0] != self.draw_h or frame.shape[1] != self.draw_w:
                 frame = cv2.resize(frame, (self.draw_w, self.draw_h))
+                
+            # Loại bỏ kênh Alpha (BGRx -> BGR) bằng CPU SIMD siêu nhanh
+            if frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 
             if not self.queue.full():
                 self.queue.put(frame)
@@ -422,7 +430,7 @@ def _display_label(label_key: str) -> str:
     return label_key.replace("_", " ")
 
 
-def _is_hevc(path: Path) -> bool:
+def _is_hevc(path: Any) -> bool:
     """Kiểm tra video có dùng codec H.265/HEVC không."""
     try:
         result = subprocess.run([
@@ -624,11 +632,10 @@ def process_video(
         raise FileNotFoundError(f"Không tìm thấy video đầu vào: {input_video_path}")
 
     # FIX #2: Detect HEVC một lần duy nhất, dùng lại kết quả cho cả remux và VideoStream
-    is_hevc = False
-    if isinstance(input_video_path, Path):
-        is_hevc = _is_hevc(input_video_path)
+    is_hevc = _is_hevc(input_video_path)
 
-    if is_hevc:
+    # Chỉ remux nếu là file cục bộ (Path), không remux RTSP/URL
+    if is_hevc and isinstance(input_video_path, Path):
         remuxed_path = _remux_to_faststart(input_video_path)
         if remuxed_path != input_video_path:
             if should_cleanup_temp:
