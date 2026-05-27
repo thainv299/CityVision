@@ -27,7 +27,6 @@ from modules.utils.alpr_logger import ALPRLogger
 from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
 from modules.utils.async_io_worker import AsyncIOWorker
-from modules.utils.gpu_cv import resize as gpu_resize
 from database.sqlite_db import (
     connect,
     log_passed_vehicle,
@@ -206,7 +205,7 @@ class VideoStream:
                 continue
                 
             if frame.shape[0] != self.draw_h or frame.shape[1] != self.draw_w:
-                frame = gpu_resize(frame, (self.draw_w, self.draw_h))
+                frame = cv2.resize(frame, (self.draw_w, self.draw_h))
                 
             if not self.queue.full():
                 self.queue.put(frame)
@@ -567,7 +566,7 @@ def _encode_preview_frame(frame: np.ndarray, preview_w: int = 0, preview_h: int 
 
     # Resize xuống kích thước preview để nén nhanh hơn (INTER_NEAREST cho tốc độ nhanh nhất)
     if preview_w > 0 and preview_h > 0 and (frame.shape[1] != preview_w or frame.shape[0] != preview_h):
-        preview = gpu_resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_NEAREST)
+        preview = cv2.resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_NEAREST)
     else:
         preview = frame
 
