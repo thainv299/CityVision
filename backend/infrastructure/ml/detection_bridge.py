@@ -599,7 +599,10 @@ def _load_model(model_path: Path) -> YOLO:
     """Tải model YOLO, hỗ trợ TensorRT .engine."""
     model_str = str(model_path)
     if model_str.lower().endswith(".engine"):
-        return YOLO(model_str, task="detect")
+        model = YOLO(model_str, task="detect")
+        # Phục hồi tên các class cho file .engine được build thủ công bằng trtexec
+        model.names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
+        return model
 
     model = YOLO(model_str)
     preferred_device = os.environ.get("WEB_DETECT_DEVICE", "").strip()
