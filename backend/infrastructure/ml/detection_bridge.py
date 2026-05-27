@@ -600,8 +600,8 @@ def _load_model(model_path: Path) -> YOLO:
     model_str = str(model_path)
     if model_str.lower().endswith(".engine"):
         model = YOLO(model_str, task="detect")
-        # Phục hồi tên các class cho file .engine được build thủ công bằng trtexec
-        model.model.names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
+        # Phục hồi tên các class cho file .engine (tránh lỗi str has no attribute names do lazy-loading)
+        model.custom_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
         return model
 
     model = YOLO(model_str)
@@ -906,7 +906,8 @@ def process_video(
             # Tiền xử lý list xe cho OCR
             for result in results:
                 for box in result.boxes:
-                    lbl = _canonical_label(model.names[int(box.cls[0])])
+                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
+                    lbl = _canonical_label(lbl_name)
                     if lbl in PARKING_LABELS:
                         vx1, vy1, vx2, vy2 = map(int, box.xyxy[0])
                         v_track_id = int(box.id[0]) if box.id is not None else -1
@@ -915,7 +916,8 @@ def process_video(
             # Vòng lặp chính xử lý detection
             for result in results:
                 for box in result.boxes:
-                    label = _canonical_label(model.names[int(box.cls[0])])
+                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
+                    label = _canonical_label(lbl_name)
                     if label not in DETECTABLE_LABELS:
                         continue
                     if label in LICENSE_PLATE_LABELS and not enable_license_plate:
@@ -975,7 +977,8 @@ def process_video(
                         license_plate = None
                         if enable_license_plate:
                             for p_box in result.boxes:
-                                p_lbl = _canonical_label(model.names[int(p_box.cls[0])])
+                                p_lbl_name = getattr(model, "custom_names", model.names)[int(p_box.cls[0])]
+                                p_lbl = _canonical_label(p_lbl_name)
                                 if p_lbl in LICENSE_PLATE_LABELS:
                                     p_tid = int(p_box.id[0]) if p_box.id is not None else -1
                                     px1, py1, px2, py2 = map(int, p_box.xyxy[0])
