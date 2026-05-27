@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from modules.utils import gpu_cv
 
 # --- NGƯỠNG CẢNH BÁO GIAO THÔNG (CONGESTION THRESHOLDS) ---
 CONG_COUNT_THR = 15              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
@@ -109,7 +110,7 @@ class TrafficMonitor:
                 cv2.rectangle(vehicles_mask, (x1, y1), (x2, y2), 255, -1)
                 
             # Giao 2 vùng lại (Chỉ lấy phần xe nằm TRONG ROI)
-            overlap_mask = cv2.bitwise_and(vehicles_mask, self._cached_roi_mask)
+            overlap_mask = gpu_cv.bitwise_and(vehicles_mask, self._cached_roi_mask)
             
             # Đếm số pixel màu trắng
             occupied_pixel_area = cv2.countNonZero(overlap_mask)
@@ -172,7 +173,7 @@ class TrafficMonitor:
             sub_img = frame[curr_y - th - 5 : curr_y + baseline + 5, 30 - 5 : 30 + tw + 5]
             if sub_img.size > 0:
                 black_rect = np.zeros(sub_img.shape, dtype=np.uint8)
-                res = cv2.addWeighted(sub_img, 0.5, black_rect, 0.5, 1.0)
+                res = gpu_cv.addWeighted(sub_img, 0.5, black_rect, 0.5, 1.0)
                 frame[curr_y - th - 5 : curr_y + baseline + 5, 30 - 5 : 30 + tw + 5] = res
             
             # Vẽ chữ

@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import re
+from modules.utils import gpu_cv
 
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -24,8 +25,8 @@ def get_plate_perspective(img_bgr):
     else:
         dst_w, dst_h = 480, 120   
 
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    gray = gpu_cv.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    blur = gpu_cv.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(blur, 50, 200)
     dilated = cv2.dilate(edged, np.ones((3, 3), np.uint8), iterations=1)
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -49,23 +50,22 @@ def get_plate_perspective(img_bgr):
         ordered_pts = order_points(rect_pts)
         dst_pts = np.array([[0, 0], [dst_w - 1, 0], [dst_w - 1, dst_h - 1], [0, dst_h - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(ordered_pts, dst_pts)
-        img_plate_color = cv2.warpPerspective(img_bgr, M, (dst_w, dst_h))
+        img_plate_color = gpu_cv.warpPerspective(img_bgr, M, (dst_w, dst_h))
         status_text = f"Nan goc ({dst_w}x{dst_h})"
     else:
-        img_plate_color = cv2.resize(img_bgr, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
+        img_plate_color = gpu_cv.resize(img_bgr, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
         status_text = f"Phong to ({dst_w}x{dst_h})"
     
     return img_plate_color, status_text, dst_w, dst_h
 
 def preprocess_plate(img_bgr):
     h, w = img_bgr.shape[:2]
-    img_scaled = cv2.resize(img_bgr, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+    img_scaled = gpu_cv.resize(img_bgr, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
     
-    img_gray = cv2.cvtColor(img_scaled, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(4, 4))
-    img_enhanced = clahe.apply(img_gray)
+    img_gray = gpu_cv.cvtColor(img_scaled, cv2.COLOR_BGR2GRAY)
+    img_enhanced = gpu_cv.applyCLAHE(img_gray, clipLimit=1.5, tileGridSize=(4, 4))
     
-    img_enhanced_bgr = cv2.cvtColor(img_enhanced, cv2.COLOR_GRAY2BGR)
+    img_enhanced_bgr = gpu_cv.cvtColor(img_enhanced, cv2.COLOR_GRAY2BGR)
     return img_enhanced_bgr
 
 def correct_plate_format(text):
