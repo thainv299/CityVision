@@ -393,7 +393,14 @@ def create_paddle_ocr() -> "PaddleOCR":
                         'CUDAExecutionProvider',
                         'CPUExecutionProvider'
                     ]
-                    return _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                    
+                    session = _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                    
+                    # IN RA MÀN HÌNH ĐỂ USER THẤY RÕ RÀNG
+                    print(f"[ONNX GPU] Đã kích hoạt lõi TensorRT cho model {os.path.basename(model_path)}.")
+                    print(f"[ONNX GPU] Các bộ xử lý đang chạy: {session.get_providers()}")
+                    
+                    return session
                 
                 ort.InferenceSession = _patched_InferenceSession
                 ort._patched_by_cityvision = True
