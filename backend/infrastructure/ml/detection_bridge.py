@@ -27,6 +27,7 @@ from modules.utils.alpr_logger import ALPRLogger
 from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
 from modules.utils.async_io_worker import AsyncIOWorker
+from modules.utils.hw_jpeg_encoder import HardwareJPEGEncoder
 from database.sqlite_db import (
     connect,
     log_passed_vehicle,
@@ -556,30 +557,6 @@ def _full_frame_polygon(width: int, height: int) -> List[List[int]]:
     ]
 
 
-def _encode_preview_frame(frame: np.ndarray, preview_w: int = 0, preview_h: int = 0, jpeg_quality: int = 75) -> Optional[bytes]:
-    """Mã hóa frame sang JPEG để preview MJPEG.
-    Resize xuống preview_w x preview_h trước khi encode để giảm tải CPU encode.
-    Frame AI vẫn giữ nguyên độ nét PIPE_WIDTH.
-    """
-    if frame is None or frame.size == 0:
-        return None
-
-    # Resize xuống kích thước preview để nén nhanh hơn (INTER_NEAREST cho tốc độ nhanh nhất)
-    if preview_w > 0 and preview_h > 0 and (frame.shape[1] != preview_w or frame.shape[0] != preview_h):
-        preview = cv2.resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_NEAREST)
-    else:
-        preview = frame
-
-    success, encoded = cv2.imencode(
-        '.jpg',
-        preview,
-        [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality],
-    )
-    if not success:
-        return None
-    return encoded.tobytes()
-
-
 def _get_drawing_params(width: int) -> Tuple[float, int, int]:
     """
     Tính toán các tham số vẽ (fontScale, thickness, offset) dựa trên chiều rộng frame.
@@ -801,6 +778,9 @@ def process_video(
     preview_queue = queue.Queue(maxsize=1)
     preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
 
+    # Khởi tạo Hardware JPEG Encoder
+    hw_encoder = HardwareJPEGEncoder()
+
     def preview_encoder_worker():
         while not preview_state["stop"]:
             try:
@@ -808,8 +788,7 @@ def process_video(
                 
                 # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
                 if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
-                    # Dùng kích thước preview để nén nhanh
-                    preview_state["last_jpeg"] = _encode_preview_frame(
+                    preview_state["last_jpeg"] = hw_encoder.encode(
                         frame_to_encode, 
                         preview_state["pw"], 
                         preview_state["ph"],
