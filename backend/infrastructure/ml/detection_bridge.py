@@ -1155,6 +1155,7 @@ def process_video(
             fps_now = time.time()
             if fps_now - fps_prev_time >= 1.0:
                 current_fps = fps_frame_count / (fps_now - fps_prev_time)
+                print(f"[Camera {camera_id}] Tốc độ xử lý: {current_fps:.1f} FPS")
                 fps_prev_time = fps_now
                 fps_frame_count = 0
             if show_fps:
