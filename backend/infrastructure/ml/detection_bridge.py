@@ -174,13 +174,13 @@ class VideoStream:
             path = self.path
             if not path.startswith("file://") and not is_url:
                 import os
-                import urllib.parse
-                # GStreamer URI bắt buộc phải mã hóa dấu cách và ký tự đặc biệt (tiếng Việt)
-                path = urllib.parse.quote(os.path.abspath(path))
+                path = os.path.abspath(path)
+            elif path.startswith("file://"):
+                path = path[7:] # Cắt bỏ file:// để lấy đường dẫn thật
             
             demux = "qtdemux ! h265parse" if is_hevc else "qtdemux ! h264parse"
             return (
-                f"filesrc location={path} ! {demux} ! "
+                f"filesrc location=\"{path}\" ! {demux} ! "
                 f"nvv4l2decoder ! nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
                 f"appsink drop=False"
             )
@@ -407,7 +407,7 @@ def create_paddle_ocr() -> "PaddleOCR":
         rec_dir = os.environ.get("PADDLE_ONNX_REC_DIR", None)
         cls_dir = os.environ.get("PADDLE_ONNX_CLS_DIR", None)
         
-        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True, "show_log": False}
+        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True, "show_log": True}
         # Bắt buộc phải có đủ mô hình DET và REC.
         # Dù YOLO đã cắt biển số, nhưng biển số xe VN có 2 dòng chữ, 
         # model DET của OCR vẫn cần thiết để tách dòng trước khi nạp vào REC.
@@ -415,8 +415,9 @@ def create_paddle_ocr() -> "PaddleOCR":
         if rec_dir: ocr_args["rec_model_dir"] = rec_dir
         if cls_dir: ocr_args["cls_model_dir"] = cls_dir
         
+        # Bật log tạm thời để bạn thấy được TensorRT khởi động
         import logging
-        logging.getLogger("ppocr").setLevel(logging.ERROR)
+        logging.getLogger("ppocr").setLevel(logging.INFO)
         return PaddleOCR(**ocr_args)
     else:
         from paddleocr import PaddleOCR
