@@ -10,7 +10,6 @@ import json
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-import onnxruntime as ort
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -350,6 +349,7 @@ def create_paddle_ocr() -> "PaddleOCR":
         os.makedirs("./trt_cache", exist_ok=True)
         
         try:
+            import onnxruntime as ort
             if not hasattr(ort, "_patched_by_cityvision"):
                 _original_InferenceSession = ort.InferenceSession
                 
@@ -398,7 +398,7 @@ def create_paddle_ocr() -> "PaddleOCR":
         rec_dir = os.environ.get("PADDLE_ONNX_REC_DIR", None)
         cls_dir = os.environ.get("PADDLE_ONNX_CLS_DIR", None)
         
-        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True}
+        ocr_args = {"use_angle_cls": True, "lang": "en", "use_onnx": True, "show_log": False}
         # Bắt buộc phải có đủ mô hình DET và REC.
         # Dù YOLO đã cắt biển số, nhưng biển số xe VN có 2 dòng chữ, 
         # model DET của OCR vẫn cần thiết để tách dòng trước khi nạp vào REC.
@@ -406,10 +406,14 @@ def create_paddle_ocr() -> "PaddleOCR":
         if rec_dir: ocr_args["rec_model_dir"] = rec_dir
         if cls_dir: ocr_args["cls_model_dir"] = cls_dir
         
+        import logging
+        logging.getLogger("ppocr").setLevel(logging.ERROR)
         return PaddleOCR(**ocr_args)
     else:
         from paddleocr import PaddleOCR
-        return PaddleOCR(use_angle_cls=True, lang="en")
+        import logging
+        logging.getLogger("ppocr").setLevel(logging.ERROR)
+        return PaddleOCR(lang="en", use_gpu=False, show_log=False)
 
 
 def _display_label(label_key: str) -> str:
