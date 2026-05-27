@@ -601,7 +601,7 @@ def _load_model(model_path: Path) -> YOLO:
     if model_str.lower().endswith(".engine"):
         model = YOLO(model_str, task="detect")
         # Phục hồi tên các class cho file .engine được build thủ công bằng trtexec
-        model.names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
+        model.model.names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
         return model
 
     model = YOLO(model_str)
