@@ -16,6 +16,7 @@ except ImportError:
 class HardwareJPEGEncoder:
     """
     Sử dụng GStreamer nvjpegenc để nén ảnh sang JPEG bằng phần cứng trên Jetson.
+    Pipeline mới: appsrc(RGBA, full-res) → nvvidconv(resize + I420, VIC HW) → nvjpegenc(HW)
     Tự động fallback về cv2.imencode (CPU) nếu chạy trên Windows hoặc môi trường không hỗ trợ.
     """
     def __init__(self):
@@ -23,23 +24,28 @@ class HardwareJPEGEncoder:
         self.appsrc = None
         self.appsink = None
         
-        self.width = 0
-        self.height = 0
+        # Kích thước đầu vào (frame gốc từ camera)
+        self.in_width = 0
+        self.in_height = 0
+        # Kích thước đầu ra (preview gửi lên web)
+        self.out_width = 0
+        self.out_height = 0
         self.quality = 0
         self.is_hardware = GSTREAMER_AVAILABLE
         
-    def _build_pipeline(self, w, h, q):
+    def _build_pipeline(self, in_w, in_h, out_w, out_h, q):
         if self.pipeline:
             self.pipeline.set_state(Gst.State.NULL)
             self.pipeline = None
             
-        print(f"[HW-JPEG] Khởi tạo GStreamer Pipeline: {w}x{h} (Quality: {q})")
-        # Sử dụng NVJPEGENC để nén bằng phần cứng
-        # appsrc nhận ảnh RGBA (vì nvvidconv hỗ trợ tốt RGBA sang I420)
+        print(f"[HW-JPEG] Khởi tạo GStreamer Pipeline: {in_w}x{in_h} → {out_w}x{out_h} (Quality: {q})")
+        # appsrc nhận ảnh RGBA ở KÍCH THƯỚC GỐC (1080p)
+        # nvvidconv đảm nhiệm RESIZE + chuyển đổi màu trên phần cứng VIC
+        # → Loại bỏ hoàn toàn cv2.resize khỏi CPU
         pipeline_str = (
             f"appsrc name=src format=TIME is-live=true do-timestamp=true ! "
-            f"video/x-raw,format=RGBA,width={w},height={h},framerate=30/1 ! "
-            f"nvvidconv ! video/x-raw(memory:NVMM),format=I420 ! "
+            f"video/x-raw,format=RGBA,width={in_w},height={in_h},framerate=30/1 ! "
+            f"nvvidconv ! video/x-raw(memory:NVMM),format=I420,width={out_w},height={out_h} ! "
             f"nvjpegenc quality={q} ! "
             f"appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true"
         )
@@ -60,37 +66,49 @@ class HardwareJPEGEncoder:
             self.pipeline = None
 
     def encode(self, frame: np.ndarray, preview_w: int = 0, preview_h: int = 0, quality: int = 75):
-        """Mã hóa frame sang JPEG. Tự động resize nếu có yêu cầu."""
+        """Mã hóa frame sang JPEG. Resize được thực hiện trên phần cứng VIC (không dùng CPU)."""
         if frame is None or frame.size == 0:
             return None
-            
-        # Resize frame nếu có yêu cầu
-        if preview_w > 0 and preview_h > 0 and (frame.shape[1] != preview_w or frame.shape[0] != preview_h):
-            process_frame = cv2.resize(frame, (preview_w, preview_h), interpolation=cv2.INTER_NEAREST)
-            h, w = preview_h, preview_w
-        else:
-            process_frame = frame
-            h, w = frame.shape[:2]
+        
+        in_h, in_w = frame.shape[:2]
+        out_w = preview_w if preview_w > 0 else in_w
+        out_h = preview_h if preview_h > 0 else in_h
 
         # FALLBACK: Nếu không có Hardware hoặc khởi tạo lỗi
         if not self.is_hardware:
+            if out_w != in_w or out_h != in_h:
+                process_frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+            else:
+                process_frame = frame
             success, encoded = cv2.imencode('.jpg', process_frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
             if success:
                 return encoded.tobytes()
             return None
             
         # DYNAMIC REBUILD: Kiểm tra nếu kích thước hoặc chất lượng thay đổi
-        if w != self.width or h != self.height or quality != self.quality:
-            self._build_pipeline(w, h, quality)
-            self.width, self.height, self.quality = w, h, quality
+        need_rebuild = (
+            in_w != self.in_width or in_h != self.in_height or
+            out_w != self.out_width or out_h != self.out_height or
+            quality != self.quality
+        )
+        if need_rebuild:
+            self._build_pipeline(in_w, in_h, out_w, out_h, quality)
+            self.in_width, self.in_height = in_w, in_h
+            self.out_width, self.out_height = out_w, out_h
+            self.quality = quality
             
         if not self.is_hardware:
             # Fallback nếu rebuild thất bại
+            if out_w != in_w or out_h != in_h:
+                process_frame = cv2.resize(frame, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+            else:
+                process_frame = frame
             success, encoded = cv2.imencode('.jpg', process_frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
             return encoded.tobytes() if success else None
             
-        # Convert BGR to RGBA cho GStreamer appsrc
-        rgba_frame = cv2.cvtColor(process_frame, cv2.COLOR_BGR2RGBA)
+        # Convert BGR → RGBA cho GStreamer appsrc (CPU SIMD, nhẹ hơn resize rất nhiều)
+        # nvvidconv sẽ đảm nhiệm phần RESIZE nặng nề trên phần cứng VIC
+        rgba_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
         data = rgba_frame.tobytes()
         
         # Push buffer
