@@ -35,139 +35,213 @@
     </div>
 </div>
 
-<!-- Result viewer -->
+<!-- Multi-view Viewer Panel -->
 <section id="viewer-panel" class="panel margin-top" hidden>
     <div class="panel-header">
         <div>
-            <p class="eyebrow" id="active-camera-name">Đang xử lý...</p>
+            <p class="eyebrow" id="active-camera-name">Giám sát Đa Màn hình</p>
             <h3>Luồng Phân tích Trực tiếp</h3>
         </div>
-        <div style="display: flex; gap: 8px;">
-            <button type="button" class="button secondary sm" id="stop-test-job"
-                style="background-color: var(--color-error, #f44336); color: white; border-color: transparent;">
-                Dừng Giám sát
+        <div class="mv-toolbar">
+            <!-- Layout selector -->
+            <div class="mv-layout-group">
+                <button type="button" class="mv-layout-btn active" data-layout="1x1" title="1 Camera">
+                    <div class="mv-grid-icon" style="grid-template-columns: 1fr;">
+                        <span></span>
+                    </div>
+                    1×1
+                </button>
+                <button type="button" class="mv-layout-btn" data-layout="2x2" title="4 Camera">
+                    <div class="mv-grid-icon" style="grid-template-columns: 1fr 1fr;">
+                        <span></span><span></span><span></span><span></span>
+                    </div>
+                    2×2
+                </button>
+                <button type="button" class="mv-layout-btn" data-layout="3x3" title="9 Camera">
+                    <div class="mv-grid-icon" style="grid-template-columns: 1fr 1fr 1fr;">
+                        <span></span><span></span><span></span>
+                        <span></span><span></span><span></span>
+                        <span></span><span></span><span></span>
+                    </div>
+                    3×3
+                </button>
+            </div>
+
+            <span class="mv-stream-counter" id="mv-stream-counter" style="display: none;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span id="mv-active-count">0</span> đang phát
+            </span>
+
+            <button type="button" class="mv-stop-all-btn" id="mv-stop-all-btn" title="Dừng tất cả">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <rect x="6" y="6" width="12" height="12" rx="1" />
+                </svg>
+                Dừng tất cả
             </button>
-            <button type="button" id="fullscreen-btn" class="button secondary sm" title="Toàn màn hình">
+
+            <button type="button" id="fullscreen-btn" class="button secondary sm" title="Toàn màn hình"
+                style="margin-left: auto;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
+                </svg>
                 Toàn màn hình
             </button>
         </div>
     </div>
 
-    <div style="display: flex; flex-direction: column; gap: 24px;">
-        <!-- Video Display Area -->
-        <article class="panel"
-            style="padding: 16px; background: #000; border-radius: 12px; overflow: hidden; width: 100%;">
-            <div id="stream-viewer-wrapper"
-                style="position: relative; width: 100%; height: auto; min-height: 400px; background: #000; display: flex; align-items: center; justify-content: center;">
-                <img id="stream-output" class="preview-frame" alt="AI Analysis Stream"
-                    style="width: 100%; height: auto; max-height: 80vh; object-fit: contain; display: block; margin: 0 auto; z-index: 1;">
+    <!-- Multi-view Grid -->
+    <div id="multiview-wrapper" style="position: relative;">
+        <div id="multiview-grid" class="multiview-grid layout-1x1">
+            <!-- Slots will be rendered dynamically by JS -->
+        </div>
 
-                <!-- Cấu hình Video & Hiển thị -->
-                <div id="quality-settings-container" class="video-overlay-control"
-                    style="position: absolute; bottom: 12px; right: 12px; z-index: 100;">
-                    <div id="quality-menu" class="quality-menu" style="display: none; min-width: 250px; padding: 12px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; color: #fff; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);">
-                        <p class="menu-title" style="color: #94A3B8; font-size: 11px; margin-bottom: 8px;">ĐỘ PHÂN GIẢI</p>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px;">
-                            <button type="button" class="quality-option" style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;" data-quality="low">480p</button>
-                            <button type="button" class="quality-option" style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;" data-quality="medium">720p</button>
-                            <button type="button" class="quality-option active" style="padding: 6px 8px; color: #fff; background: #2563EB; border-radius: 6px; text-align: center; font-size: 11px;" data-quality="high">1080p</button>
-                            <button type="button" class="quality-option" style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;" data-quality="ultra">FHD</button>
-                        </div>
-                        
-                        <p class="menu-title" style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">HIỂN THỊ VÙNG (ROI)</p>
-                        <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-roi-surveillance-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Vùng Giám sát (ROI)
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-roi-parking-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Vùng Cấm đỗ (ROI)
-                            </label>
-                        </div>
-
-                        <p class="menu-title" style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">KHUNG NHẬN DIỆN (BOX)</p>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-person-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Người đi bộ
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-bicycle-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Xe đạp
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-motorcycle-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Xe máy
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-car-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Ô tô con
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-bus-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Xe bus
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-truck-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Xe tải
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-box-plate-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Biển số xe
-                            </label>
-                        </div>
-
-                        <p class="menu-title" style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">HIỆU NĂNG</p>
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
-                                <input type="checkbox" id="show-fps-chk" checked style="accent-color: #2563EB; width: 14px; height: 14px;">
-                                Hiển thị tốc độ (FPS)
-                            </label>
-                        </div>
-                    </div>
-                    <button type="button" id="quality-gear-btn" class="gear-btn" title="Cài đặt hiển thị" style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: #fff; cursor: pointer; transition: all 0.3s;">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path
-                                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                            <circle cx="12" cy="12" r="3" />
-                        </svg>
-                    </button>
+        <!-- Global Display & Video Settings -->
+        <div id="quality-settings-container" class="video-overlay-control"
+            style="position: absolute; bottom: 12px; right: 12px; z-index: 100;">
+            <div id="quality-menu" class="quality-menu"
+                style="display: none; min-width: 250px; padding: 12px; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; color: #fff; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5); transform-origin: bottom right; position: absolute; bottom: 45px; right: 0;">
+                <p class="menu-title" style="color: #94A3B8; font-size: 11px; margin-bottom: 8px;">ĐỘ PHÂN GIẢI (TOÀN
+                    CỤC)</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px;">
+                    <button type="button" class="quality-option"
+                        style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;"
+                        data-quality="low">480p</button>
+                    <button type="button" class="quality-option"
+                        style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;"
+                        data-quality="medium">720p</button>
+                    <button type="button" class="quality-option active"
+                        style="padding: 6px 8px; color: #fff; background: #2563EB; border-radius: 6px; text-align: center; font-size: 11px;"
+                        data-quality="high">1080p</button>
+                    <button type="button" class="quality-option"
+                        style="padding: 6px 8px; color: #E2E8F0; background: rgba(255,255,255,0.05); border-radius: 6px; text-align: center; font-size: 11px;"
+                        data-quality="ultra">FHD</button>
                 </div>
 
-                <div id="stream-loader"
-                    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); z-index: 2; color: #fff;">
-                    <div class="loader-spinner"
-                        style="width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.1); border-top-color: var(--brand-blue, #2563eb); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;">
-                    </div>
-                    <p id="stream-loader-text" style="margin: 0; font-weight: 500; font-size: 0.95rem;">Đang khởi tạo
-                        luồng dữ liệu AI...</p>
+                <p class="menu-title"
+                    style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    HIỂN THỊ VÙNG (ROI)</p>
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+                    <label
+                        style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-roi-surveillance-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Vùng Giám sát (ROI)
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-roi-parking-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Vùng Cấm đỗ (ROI)
+                    </label>
                 </div>
 
-                <button type="button" id="fullscreen-exit-btn" class="fullscreen-exit-btn" title="Thoát (ESC)">
-                    ✕ Thoát
-                </button>
-            </div>
-        </article>
+                <p class="menu-title"
+                    style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    KHUNG NHẬN DIỆN (BOX)</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px;">
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-person-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Người đi bộ
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-bicycle-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Xe đạp
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-motorcycle-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Xe máy
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-car-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Ô tô con
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-bus-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Xe bus
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-truck-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Xe tải
+                    </label>
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 11px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-box-plate-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Biển số xe
+                    </label>
+                </div>
 
-        <!-- Thông tin & Kết quả -->
-        <div
-            style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; background: var(--bg-panel); padding: 20px; border-radius: 12px; border: 1px solid var(--border);">
-            <div id="result-summary-container">
-                <p class="eyebrow">Cấu hình AI Hoạt động</p>
-                <div id="result-summary"
-                    style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
+                <p class="menu-title"
+                    style="color: #94A3B8; font-size: 11px; margin-bottom: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08);">
+                    HIỆU NĂNG</p>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <label
+                        style="display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; color: #E2E8F0;">
+                        <input type="checkbox" id="show-fps-chk" checked
+                            style="accent-color: #2563EB; width: 14px; height: 14px;">
+                        Hiển thị tốc độ (FPS)
+                    </label>
                 </div>
             </div>
+            <button type="button" id="quality-gear-btn" class="gear-btn" title="Cài đặt hiển thị"
+                style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1); border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: #fff; cursor: pointer; transition: all 0.3s; margin-left: auto;">
+                <img src="{{ url_for('static', filename='img/setting_camera.png') }}" alt="Settings"
+                    style="width: 20px; height: 20px; object-fit: contain; filter: brightness(0) invert(1);">
+            </button>
+        </div>
 
-            <div id="job-info-container">
-                <p class="eyebrow">Trạng thái Hệ thống</p>
-                <div id="job-status-panel" style="margin-top: 12px;"></div>
+        <button type="button" id="fullscreen-exit-btn" class="fullscreen-exit-btn" title="Thoát (ESC)">
+            ✕ Thoát
+        </button>
+    </div>
+
+    <!-- Thông tin & Kết quả (chỉ hiện ở mode 1x1) -->
+    <div id="single-view-info"
+        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; background: var(--bg-panel); padding: 20px; border-radius: 12px; border: 1px solid var(--border); margin-top: 16px;">
+        <div id="result-summary-container">
+            <p class="eyebrow">Cấu hình AI Hoạt động</p>
+            <div id="result-summary"
+                style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 12px;">
             </div>
+        </div>
+
+        <div id="job-info-container">
+            <p class="eyebrow">Trạng thái Hệ thống</p>
+            <div id="job-status-panel" style="margin-top: 12px;"></div>
         </div>
     </div>
 </section>
+
+<!-- Camera Picker Popup (cho multi-view) -->
+<div id="mv-camera-picker-overlay" class="mv-camera-picker-overlay" style="display: none;">
+    <div class="mv-camera-picker">
+        <div class="mv-picker-header">
+            <h3>Chọn Camera</h3>
+            <button type="button" class="mv-picker-close" id="mv-picker-close">✕</button>
+        </div>
+        <div class="mv-picker-search">
+            <input type="text" id="mv-picker-search-input" placeholder="Tìm kiếm camera...">
+        </div>
+        <div class="mv-picker-list" id="mv-picker-list">
+            <div class="mv-picker-empty">Đang tải danh sách camera...</div>
+        </div>
+    </div>
+</div>
 
 <!-- Cửa sổ vẽ vùng quan sát (ROI) -->
 <div id="roi-drawing-modal"
@@ -202,9 +276,10 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/roi_tool.js') }}?v=2.0"></script>
-<script src="{{ url_for('static', filename='js/monitoring.js') }}?v=4.3"></script>
+<script src="{{ url_for('static', filename='js/monitoring.js') }}?v=5.2"></script>
 {% endblock %}

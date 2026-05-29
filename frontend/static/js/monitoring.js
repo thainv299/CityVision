@@ -1,51 +1,477 @@
-// Initialize immediately since script loads at end of page (after DOM is ready)
+// ═══════════════════════════════════════════════════════════════
+// CityVision AI — Multi-view Monitoring Controller
+// ═══════════════════════════════════════════════════════════════
+
 function initMonitoringForm() {
+    // ── DOM ELEMENTS ────────────────────────────────────────
     const feedback = document.getElementById("test-job-feedback");
     const statusPanel = document.getElementById("job-status-panel");
     const viewerPanel = document.getElementById("viewer-panel");
     const activeCameraName = document.getElementById("active-camera-name");
-    const streamOutput = document.getElementById("stream-output");
-    const streamOutputNote = document.getElementById("stream-output-note");
     const resultSummary = document.getElementById("result-summary");
-    const stopButton = document.getElementById("stop-test-job");
     const previewGrid = document.getElementById("camera-preview-grid");
     const refreshGridBtn = document.getElementById("cameras-refresh-grid");
+    const multiviewGrid = document.getElementById("multiview-grid");
+    const singleViewInfo = document.getElementById("single-view-info");
 
-    let currentJobId = null;
-    let pollingHandle = null;
+    // ── STATE ───────────────────────────────────────────────
     let allCameras = [];
     let refreshTimer = null;
     let activeCameraConfig = null;
 
-    // ── JOB MANAGEMENT ──────────────────────────────────────
-    function stopPolling() {
-        if (pollingHandle) {
-            clearInterval(pollingHandle);
-            pollingHandle = null;
+    // Multi-view state
+    let currentLayout = '1x1'; // '1x1' | '2x2' | '3x3'
+    const LAYOUT_SIZES = { '1x1': 1, '2x2': 4, '3x3': 9 };
+
+    // Each slot: { index, cameraId, camera, jobId, pollingHandle, streamUrl, state: 'empty'|'loading'|'streaming'|'error' }
+    let slots = [];
+    let pickerTargetSlot = null; // Which slot index the picker is targeting
+
+    // ── SLOT MANAGEMENT ────────────────────────────────────
+    function getSlotCount() {
+        return LAYOUT_SIZES[currentLayout] || 1;
+    }
+
+    function getActiveSlots() {
+        return slots.filter(s => s.state === 'streaming' || s.state === 'loading');
+    }
+
+    function getUsedCameraIds() {
+        return slots.filter(s => s.cameraId).map(s => s.cameraId);
+    }
+
+    function findFirstEmptySlot() {
+        return slots.find(s => s.state === 'empty');
+    }
+
+    function updateStreamCounter() {
+        const counter = document.getElementById('mv-stream-counter');
+        const countEl = document.getElementById('mv-active-count');
+        const activeCount = getActiveSlots().length;
+        if (counter && countEl) {
+            countEl.textContent = activeCount;
+            counter.style.display = activeCount > 0 ? 'inline-flex' : 'none';
         }
     }
 
-    function clearStream() {
-        if (streamOutput) {
-            streamOutput.removeAttribute("src");
-            delete streamOutput.dataset.jobId;
+    // ── RENDER SLOTS ───────────────────────────────────────
+    function renderSlots() {
+        if (!multiviewGrid) return;
+        const count = getSlotCount();
+
+        // Update grid class
+        multiviewGrid.className = `multiview-grid layout-${currentLayout}`;
+
+        // Ensure slots array matches count
+        while (slots.length < count) {
+            slots.push({ index: slots.length, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty' });
         }
-        const loader = document.getElementById('stream-loader');
-        if (loader) {
-            loader.style.display = 'flex';
-            const spinner = loader.querySelector('.loader-spinner');
-            if (spinner) spinner.style.display = 'block';
+
+        // Build HTML for each slot
+        multiviewGrid.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const slot = slots[i];
+            const slotEl = document.createElement('div');
+            slotEl.className = `mv-slot ${slot.state}`;
+            slotEl.dataset.slotIndex = i;
+
+            if (slot.state === 'empty') {
+                slotEl.innerHTML = `
+                    <div class="mv-slot-empty">
+                        <div class="mv-plus-icon">+</div>
+                        <span>Chọn camera</span>
+                    </div>
+                `;
+                slotEl.addEventListener('click', () => openCameraPicker(i));
+            } else if (slot.state === 'loading') {
+                slotEl.innerHTML = `
+                    <div class="mv-slot-loader">
+                        <div class="mv-spinner"></div>
+                        <p>Đang kết nối...</p>
+                    </div>
+                    <div class="mv-slot-status">
+                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                    </div>
+                `;
+            } else if (slot.state === 'streaming') {
+                slotEl.innerHTML = `
+                    <img class="mv-stream-img" src="${slot.streamUrl}" alt="${slot.camera ? slot.camera.name : 'Stream'}">
+                    <div class="mv-slot-overlay">
+                        <div class="mv-slot-cam-name">
+                            <span class="mv-live-dot"></span>
+                            ${slot.camera ? slot.camera.name : 'Camera'}
+                        </div>
+                        <div class="mv-slot-actions">
+                            <button type="button" class="mv-slot-btn close-btn" data-action="close" data-slot="${i}" title="Đóng">✕</button>
+                        </div>
+                    </div>
+                    <div class="mv-slot-status">
+                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                        <span class="mv-slot-badge live">LIVE</span>
+                    </div>
+                `;
+                // Click-to-close and action buttons
+                const closeBtn = slotEl.querySelector('[data-action="close"]');
+                if (closeBtn) {
+                    closeBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        removeSlot(i);
+                    });
+                }
+            } else if (slot.state === 'error') {
+                slotEl.innerHTML = `
+                    <div class="mv-slot-loader" style="background: rgba(239,68,68,0.1);">
+                        <p style="color: #f87171;">⚠ Lỗi kết nối</p>
+                    </div>
+                    <div class="mv-slot-status">
+                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                    </div>
+                `;
+                slotEl.addEventListener('click', () => {
+                    removeSlot(i);
+                    openCameraPicker(i);
+                });
+            }
+
+            multiviewGrid.appendChild(slotEl);
+        }
+
+        // Show/hide single-view info panel (only in 1x1)
+        if (singleViewInfo) {
+            singleViewInfo.style.display = currentLayout === '1x1' ? '' : 'none';
+        }
+
+        updateStreamCounter();
+    }
+
+    // ── ASSIGN CAMERA TO SLOT ──────────────────────────────
+    async function assignCameraToSlot(slotIndex, camera) {
+        if (slotIndex >= slots.length) return;
+
+        const slot = slots[slotIndex];
+
+        // Clean up existing job in this slot
+        if (slot.jobId) {
+            await stopSlotJob(slotIndex);
+        }
+
+        slot.cameraId = camera.id;
+        slot.camera = camera;
+        slot.state = 'loading';
+        renderSlots();
+
+        // Build payload
+        const payload = {
+            camera_id: camera.id,
+            roi_points: camera.roi_points ? JSON.stringify({ points: camera.roi_points, ...(camera.roi_meta || {}) }) : "",
+            no_parking_points: camera.no_parking_points ? JSON.stringify({ points: camera.no_parking_points, ...(camera.no_park_meta || {}) }) : "",
+            enable_congestion: camera.enable_congestion ? "on" : "off",
+            enable_illegal_parking: camera.enable_illegal_parking ? "on" : "off",
+            enable_license_plate: camera.enable_license_plate ? "on" : "off",
+            enable_ai: camera.enable_ai ? "on" : "off",
+            model_path: camera.model_path || "",
+            show_roi_surveillance: "on",
+            show_roi_parking: "on",
+            show_fps: "on",
+            show_box_person: "on",
+            show_box_bicycle: "on",
+            show_box_motorcycle: "on",
+            show_box_car: "on",
+            show_box_bus: "on",
+            show_box_truck: "on",
+            show_box_plate: "on"
+        };
+
+        try {
+            const fd = new FormData();
+            for (const key in payload) fd.append(key, payload[key]);
+
+            const data = await window.portalApi.submitForm("/api/test-jobs", fd);
+            const job = data.job;
+            slot.jobId = job.id;
+
+            // Start polling
+            slot.pollingHandle = setInterval(() => pollSlotJob(slotIndex), 3000);
+            pollSlotJob(slotIndex);
+
+            // In 1x1 mode, update the info panel
+            if (currentLayout === '1x1') {
+                activeCameraConfig = camera;
+                activeCameraName.textContent = `Camera: ${camera.name}`;
+                renderActiveFeatures(camera);
+            }
+
+            // Auto-adjust quality for multi-view
+            if (currentLayout !== '1x1') {
+                const quality = currentLayout === '2x2' ? 'medium' : 'low';
+                setTimeout(async () => {
+                    try {
+                        await window.portalApi.post(`/api/test-jobs/${job.id}/quality`, { quality });
+                    } catch (e) { /* ignore */ }
+                }, 2000);
+            }
+        } catch (error) {
+            slot.state = 'error';
+            renderSlots();
+            if (window.portalApi.showToast) {
+                window.portalApi.showToast(`Lỗi khởi tạo camera: ${error.message}`, 'error');
+            }
         }
     }
 
-    function startStream(jobId, streamUrl) {
-        if (!streamOutput || !streamUrl) return;
-        streamOutput.dataset.jobId = jobId;
-        streamOutput.src = streamUrl;
-        const loader = document.getElementById('stream-loader');
-        if (loader) loader.style.display = 'none';
+    async function pollSlotJob(slotIndex) {
+        const slot = slots[slotIndex];
+        if (!slot || !slot.jobId) return;
+
+        try {
+            const data = await window.portalApi.get(`/api/test-jobs/${slot.jobId}`);
+            const job = data.job;
+
+            if (job.stream_url && slot.state !== 'streaming') {
+                slot.streamUrl = job.stream_url;
+                slot.state = 'streaming';
+                renderSlots();
+            }
+
+            // In 1x1 mode, also update status panel
+            if (currentLayout === '1x1' && slotIndex === 0) {
+                renderStatus(job);
+            }
+
+            if (job.status !== 'queued' && job.status !== 'running') {
+                clearInterval(slot.pollingHandle);
+                slot.pollingHandle = null;
+
+                if (job.status === 'completed' && currentLayout === '1x1') {
+                    renderSummary(job.summary || {});
+                } else if (job.status === 'failed') {
+                    slot.state = 'error';
+                    renderSlots();
+                }
+            }
+        } catch (error) {
+            clearInterval(slot.pollingHandle);
+            slot.pollingHandle = null;
+            slot.state = 'error';
+            renderSlots();
+        }
     }
 
+    async function stopSlotJob(slotIndex) {
+        const slot = slots[slotIndex];
+        if (!slot) return;
+
+        if (slot.pollingHandle) {
+            clearInterval(slot.pollingHandle);
+            slot.pollingHandle = null;
+        }
+
+        if (slot.jobId) {
+            try {
+                await window.portalApi.post(`/api/test-jobs/${slot.jobId}/stop`);
+            } catch (e) { /* ignore */ }
+        }
+    }
+
+    function removeSlot(slotIndex) {
+        const slot = slots[slotIndex];
+        if (!slot) return;
+
+        stopSlotJob(slotIndex);
+
+        slot.cameraId = null;
+        slot.camera = null;
+        slot.jobId = null;
+        slot.streamUrl = null;
+        slot.state = 'empty';
+        renderSlots();
+    }
+
+    // ── STOP ALL ───────────────────────────────────────────
+    async function stopAllSlots() {
+        const promises = slots.map((slot, i) => {
+            if (slot.state === 'streaming' || slot.state === 'loading') {
+                return stopSlotJob(i).then(() => {
+                    slot.cameraId = null;
+                    slot.camera = null;
+                    slot.jobId = null;
+                    slot.streamUrl = null;
+                    slot.state = 'empty';
+                });
+            }
+            return Promise.resolve();
+        });
+        await Promise.all(promises);
+        renderSlots();
+    }
+
+    const stopAllBtn = document.getElementById('mv-stop-all-btn');
+    if (stopAllBtn) {
+        stopAllBtn.addEventListener('click', stopAllSlots);
+    }
+
+    // ── LAYOUT SWITCHING ───────────────────────────────────
+    function setLayout(layout) {
+        if (layout === currentLayout) return;
+        const oldCount = getSlotCount();
+        currentLayout = layout;
+        const newCount = getSlotCount();
+
+        // Update toolbar button states
+        document.querySelectorAll('.mv-layout-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.layout === layout);
+        });
+
+        // If shrinking, stop jobs in excess slots
+        if (newCount < oldCount) {
+            for (let i = newCount; i < oldCount; i++) {
+                if (slots[i] && (slots[i].state === 'streaming' || slots[i].state === 'loading')) {
+                    removeSlot(i);
+                }
+            }
+            slots.length = newCount;
+        }
+
+        // Auto-adjust quality for existing streams
+        const quality = layout === '1x1' ? 'high' : (layout === '2x2' ? 'medium' : 'low');
+        slots.forEach(slot => {
+            if (slot.jobId && slot.state === 'streaming') {
+                window.portalApi.post(`/api/test-jobs/${slot.jobId}/quality`, { quality }).catch(() => { });
+            }
+        });
+
+        // Update header text
+        const labels = { '1x1': 'Giám sát Camera', '2x2': 'Multi-view 2×2', '3x3': 'Multi-view 3×3' };
+        if (activeCameraName && currentLayout !== '1x1') {
+            activeCameraName.textContent = labels[layout];
+        }
+
+        renderSlots();
+    }
+
+    // Bind layout buttons
+    document.querySelectorAll('.mv-layout-btn').forEach(btn => {
+        btn.addEventListener('click', () => setLayout(btn.dataset.layout));
+    });
+
+    // ── CAMERA PICKER ──────────────────────────────────────
+    const pickerOverlay = document.getElementById('mv-camera-picker-overlay');
+    const pickerList = document.getElementById('mv-picker-list');
+    const pickerSearchInput = document.getElementById('mv-picker-search-input');
+    const pickerCloseBtn = document.getElementById('mv-picker-close');
+
+    function openCameraPicker(slotIndex) {
+        pickerTargetSlot = slotIndex;
+        renderPickerList('');
+        if (pickerOverlay) pickerOverlay.style.display = 'flex';
+        if (pickerSearchInput) {
+            pickerSearchInput.value = '';
+            setTimeout(() => pickerSearchInput.focus(), 100);
+        }
+    }
+
+    function closeCameraPicker() {
+        if (pickerOverlay) pickerOverlay.style.display = 'none';
+        pickerTargetSlot = null;
+    }
+
+    function renderPickerList(searchQuery) {
+        if (!pickerList) return;
+        const usedIds = getUsedCameraIds();
+        const query = searchQuery.toLowerCase().trim();
+
+        let filtered = allCameras;
+        if (query) {
+            filtered = allCameras.filter(c =>
+                c.name.toLowerCase().includes(query) ||
+                String(c.id).includes(query)
+            );
+        }
+
+        if (filtered.length === 0) {
+            pickerList.innerHTML = '<div class="mv-picker-empty">Không tìm thấy camera nào.</div>';
+            return;
+        }
+
+        pickerList.innerHTML = filtered.map(camera => {
+            const isUsed = usedIds.includes(camera.id);
+            return `
+                <div class="mv-picker-item ${isUsed ? 'disabled' : ''}" data-camera-id="${camera.id}">
+                    <div class="mv-picker-item-thumb">
+                        <img src="/api/cameras/${camera.id}/snapshot?ts=${Date.now()}" alt="${camera.name}" onerror="this.style.display='none'">
+                    </div>
+                    <div class="mv-picker-item-info">
+                        <div class="mv-picker-name">${camera.name}</div>
+                        <div class="mv-picker-detail">
+                            <span class="mv-picker-status-dot ${camera.is_active ? 'online' : 'offline'}"></span>
+                            ${camera.is_active ? 'Đang hoạt động' : 'Không hoạt động'}
+                            · ID: ${camera.id}
+                        </div>
+                    </div>
+                    ${isUsed ? '<span class="mv-picker-used-badge">Đang dùng</span>' : ''}
+                </div>
+            `;
+        }).join('');
+
+        // Bind click events
+        pickerList.querySelectorAll('.mv-picker-item:not(.disabled)').forEach(item => {
+            item.addEventListener('click', () => {
+                const cameraId = parseInt(item.dataset.cameraId);
+                const camera = allCameras.find(c => c.id === cameraId);
+                if (camera && pickerTargetSlot !== null) {
+                    closeCameraPicker();
+                    assignCameraToSlot(pickerTargetSlot, camera);
+                }
+            });
+        });
+    }
+
+    if (pickerCloseBtn) {
+        pickerCloseBtn.addEventListener('click', closeCameraPicker);
+    }
+    if (pickerOverlay) {
+        pickerOverlay.addEventListener('click', (e) => {
+            if (e.target === pickerOverlay) closeCameraPicker();
+        });
+    }
+    if (pickerSearchInput) {
+        pickerSearchInput.addEventListener('input', () => {
+            renderPickerList(pickerSearchInput.value);
+        });
+    }
+
+    // ESC to close picker
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && pickerOverlay && pickerOverlay.style.display === 'flex') {
+            closeCameraPicker();
+        }
+    });
+
+    // ── START MONITORING (backward compat + multi-view) ────
+    function startMonitoring(camera) {
+        viewerPanel.hidden = false;
+        viewerPanel.scrollIntoView({ behavior: "smooth" });
+
+        if (currentLayout === '1x1') {
+            // Clear all existing slots first
+            slots.forEach((s, i) => {
+                if (s.state !== 'empty') removeSlot(i);
+            });
+            slots = [{ index: 0, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty' }];
+            renderSlots();
+            assignCameraToSlot(0, camera);
+        } else {
+            // Multi-view: assign to first empty slot
+            const emptySlot = findFirstEmptySlot();
+            if (emptySlot) {
+                assignCameraToSlot(emptySlot.index, camera);
+            } else {
+                window.portalApi.showToast(`Tất cả ô đã đầy. Đóng 1 camera trước hoặc chuyển sang layout lớn hơn.`, 'warning');
+            }
+        }
+    }
+
+    // ── RENDER HELPERS (from old code) ─────────────────────
     function renderActiveFeatures(camera) {
         if (!resultSummary) return;
         activeCameraConfig = camera;
@@ -116,192 +542,59 @@ function initMonitoringForm() {
         resultSummary.insertAdjacentHTML('beforeend', statsHtml);
     }
 
-    async function pollJob(jobId) {
-        try {
-            const data = await window.portalApi.get(`/api/test-jobs/${jobId}`);
-            const job = data.job;
+    // ── DISPLAY SETTINGS ─────────
+    const setupDisplaySettings = () => {
+        const gearBtn = document.getElementById("quality-gear-btn");
+        const menu = document.getElementById("quality-menu");
 
-            if (job.stream_url && streamOutput.dataset.jobId !== job.id) {
-                startStream(job.id, job.stream_url);
-            }
+        // Toggle menu
+        if (gearBtn && menu) {
+            gearBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                menu.style.display = menu.style.display === "none" ? "block" : "none";
+            });
 
-            // Cập nhật text loading nếu đang chờ
-            const loaderText = document.getElementById('stream-loader-text');
-            if (loaderText) {
-                if (job.status === "queued") loaderText.textContent = "Đang chờ đến lượt xử lý AI...";
-                else if (job.status === "running" && !job.stream_url) loaderText.textContent = "Đang khởi tạo mô hình & luồng dữ liệu...";
-            }
+            // Close menu when clicking outside
+            document.addEventListener("click", (e) => {
+                if (menu.style.display === "block" && !menu.contains(e.target) && e.target !== gearBtn) {
+                    menu.style.display = "none";
+                }
+            });
+        }
 
-            renderStatus(job);
-
-            if (job.status !== "queued" && job.status !== "running") {
-                stopPolling();
-                if (job.status === "completed") {
-                    renderSummary(job.summary || {});
-                } else if (job.status === "failed") {
-                    const loader = document.getElementById('stream-loader');
-                    if (loader) {
-                        loader.style.display = 'flex';
-                        const spinner = loader.querySelector('.loader-spinner');
-                        if (spinner) spinner.style.display = 'none';
-                        if (loaderText) loaderText.textContent = "Lỗi: " + (job.error || "Không thể kết nối");
+        // Resolution options
+        const qualityOptions = document.querySelectorAll(".quality-option");
+        qualityOptions.forEach(btn => {
+            btn.addEventListener("click", async () => {
+                // Update inline styles to reflect active state
+                qualityOptions.forEach(b => {
+                    b.classList.remove("active");
+                    b.style.background = "rgba(255,255,255,0.05)";
+                    b.style.color = "#E2E8F0";
+                });
+                btn.classList.add("active");
+                btn.style.background = "#2563EB";
+                btn.style.color = "#fff";
+                
+                const quality = btn.dataset.quality;
+                const activeSlots = getActiveSlots();
+                for (const slot of activeSlots) {
+                    if (slot.jobId) {
+                        try {
+                            await window.portalApi.post(`/api/test-jobs/${slot.jobId}/quality`, { quality });
+                        } catch (e) {
+                            console.error("Lỗi cập nhật phân giải:", e);
+                        }
                     }
                 }
-            }
-        } catch (error) {
-            stopPolling();
-        }
-    }
-
-    async function startMonitoring(camera) {
-        stopPolling();
-        clearStream();
-
-        viewerPanel.hidden = false;
-        viewerPanel.scrollIntoView({ behavior: "smooth" });
-        activeCameraName.textContent = `Camera: ${camera.name}`;
-
-        const loader = document.getElementById('stream-loader');
-        const loaderText = document.getElementById('stream-loader-text');
-        if (loader) loader.style.display = 'flex';
-        if (loaderText) loaderText.textContent = "Đang kết nối luồng AI...";
-
-        renderActiveFeatures(camera);
-
-        // Reset tất cả ô checkbox khi khởi động (True)
-        const checkBoxes = [
-            "show-roi-surveillance-chk",
-            "show-roi-parking-chk",
-            "show-fps-chk",
-            "show-box-person-chk",
-            "show-box-bicycle-chk",
-            "show-box-motorcycle-chk",
-            "show-box-car-chk",
-            "show-box-bus-chk",
-            "show-box-truck-chk",
-            "show-box-plate-chk"
-        ];
-        checkBoxes.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.checked = true;
-        });
-
-        const payload = {
-            camera_id: camera.id,
-            roi_points: camera.roi_points ? JSON.stringify({ points: camera.roi_points, ...(camera.roi_meta || {}) }) : "",
-            no_parking_points: camera.no_parking_points ? JSON.stringify({ points: camera.no_parking_points, ...(camera.no_park_meta || {}) }) : "",
-            enable_congestion: camera.enable_congestion ? "on" : "off",
-            enable_illegal_parking: camera.enable_illegal_parking ? "on" : "off",
-            enable_license_plate: camera.enable_license_plate ? "on" : "off",
-            enable_ai: camera.enable_ai ? "on" : "off",
-            model_path: camera.model_path || "",
-            // Luôn mặc định hiển thị toàn bộ khi mới khởi động
-            show_roi_surveillance: "on",
-            show_roi_parking: "on",
-            show_fps: "on",
-            show_box_person: "on",
-            show_box_bicycle: "on",
-            show_box_motorcycle: "on",
-            show_box_car: "on",
-            show_box_bus: "on",
-            show_box_truck: "on",
-            show_box_plate: "on"
-        };
-
-        try {
-            const fd = new FormData();
-            for (const key in payload) fd.append(key, payload[key]);
-
-            const data = await window.portalApi.submitForm("/api/test-jobs", fd);
-            const job = data.job;
-            currentJobId = job.id;
-
-            pollingHandle = setInterval(() => pollJob(job.id), 3000);
-            pollJob(job.id);
-        } catch (error) {
-            window.portalApi.showNotice(feedback, error.message, "error");
-        }
-    }
-
-    if (stopButton) {
-        stopButton.addEventListener("click", async () => {
-            if (!currentJobId) return;
-            stopButton.disabled = true;
-            try {
-                await window.portalApi.post(`/api/test-jobs/${currentJobId}/stop`);
-                stopPolling();
-                const loader = document.getElementById('stream-loader');
-                const loaderText = document.getElementById('stream-loader-text');
-                const spinner = document.querySelector('.loader-spinner');
-                if (loader) loader.style.display = 'flex';
-                if (spinner) spinner.style.display = 'none';
-                if (loaderText) loaderText.textContent = "Đã dừng giám sát.";
-                streamOutput.src = "";
-            } catch (error) {
-                console.error("Lỗi dừng job:", error);
-            } finally {
-                stopButton.disabled = false;
-            }
-        });
-    }
-
-    // ── QUALITY SETTINGS ────────────────────────────────────
-    const setupQualitySettings = () => {
-        const qualityGearBtn = document.getElementById("quality-gear-btn");
-        const qualityMenu = document.getElementById("quality-menu");
-        const qualityOptions = document.querySelectorAll(".quality-option");
-
-        if (!qualityGearBtn || !qualityMenu) {
-            console.warn("[UI] Không tìm thấy nút cài đặt chất lượng.");
-            return;
-        }
-
-        qualityGearBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const isHidden = qualityMenu.style.display === "none";
-            qualityMenu.style.display = isHidden ? "flex" : "none";
-        });
-
-        // Đóng menu khi click ra ngoài
-        document.addEventListener("click", () => {
-            if (qualityMenu) qualityMenu.style.display = "none";
-        });
-
-        qualityMenu.addEventListener("click", (e) => e.stopPropagation());
-
-        qualityOptions.forEach(opt => {
-            opt.addEventListener("click", async () => {
-                if (!currentJobId) {
-                    window.portalApi.showToast("Vui lòng khởi động camera trước", "warning");
-                    return;
-                }
-                const quality = opt.dataset.quality;
-
-                try {
-                    await window.portalApi.post(`/api/test-jobs/${currentJobId}/quality`, { quality });
-
-                    // Update UI (Ghi đè thuộc tính CSS inline để di chuyển nền xanh sang tab được chọn)
-                    qualityOptions.forEach(o => {
-                        o.classList.remove("active");
-                        o.style.background = "rgba(255, 255, 255, 0.05)";
-                        o.style.color = "#E2E8F0";
-                    });
-                    opt.classList.add("active");
-                    opt.style.background = "#2563EB";
-                    opt.style.color = "#fff";
-                    qualityMenu.style.display = "none";
-
-                    window.portalApi.showToast(`Đã chuyển sang chất lượng ${opt.textContent}`, "success");
-                } catch (error) {
-                    console.error("Lỗi đổi chất lượng:", error);
-                    window.portalApi.showToast("Không thể đổi chất lượng lúc này", "error");
+                
+                if (window.portalApi.showToast) {
+                    window.portalApi.showToast(`Đã đổi chất lượng hiển thị sang ${btn.textContent.trim()}`, "success");
                 }
             });
         });
-    };
 
-    // ── DISPLAY & OVERLAY SETTINGS ──────────────────────────
-    const setupDisplaySettings = () => {
+        // Checkboxes
         const checkBoxes = [
             { id: "show-roi-surveillance-chk", key: "show_roi_surveillance" },
             { id: "show-roi-parking-chk", key: "show_roi_parking" },
@@ -315,43 +608,41 @@ function initMonitoringForm() {
             { id: "show-box-plate-chk", key: "show_box_plate" }
         ];
 
-        // 1. Đặt tất cả các checkbox mặc định là checked (True) khi khởi tạo giao diện
         checkBoxes.forEach(item => {
             const el = document.getElementById(item.id);
             if (el) {
                 el.checked = true;
-            }
-        });
-
-        // 2. Đăng ký bộ lắng nghe sự kiện thay đổi của từng checkbox (Không lưu bộ nhớ trình duyệt)
-        checkBoxes.forEach(item => {
-            const el = document.getElementById(item.id);
-            if (el) {
                 el.addEventListener("change", async () => {
-                    // Nếu có job đang chạy, gửi cập nhật in-memory lập tức sang backend
-                    if (currentJobId) {
-                        try {
-                            const payload = {};
-                            payload[item.key] = el.checked;
-
-                            await window.portalApi.post(`/api/test-jobs/${currentJobId}/settings`, payload);
-                        } catch (error) {
-                            console.error("Lỗi cập nhật cấu hình hiển thị:", error);
+                    // Apply to all active slots
+                    const activeSlots = getActiveSlots();
+                    for (const slot of activeSlots) {
+                        if (slot.jobId) {
+                            try {
+                                const payload = {};
+                                payload[item.key] = el.checked;
+                                await window.portalApi.post(`/api/test-jobs/${slot.jobId}/settings`, payload);
+                            } catch (error) {
+                                console.error("Lỗi cập nhật cấu hình hiển thị:", error);
+                            }
                         }
+                    }
+                    
+                    if (window.portalApi.showToast) {
+                        const status = el.checked ? "Bật" : "Tắt";
+                        const labelText = el.parentElement.textContent.trim();
+                        window.portalApi.showToast(`Đã ${status} ${labelText}`, "success");
                     }
                 });
             }
         });
     };
 
-    setupQualitySettings();
     setupDisplaySettings();
 
     // ── CAMERA DASHBOARD GRID ──────────────────────────────
     function renderPreviewGrid() {
         if (!previewGrid) return;
 
-        // Hiển thị Skeleton Loading nếu đang tải
         if (allCameras.length === 0 && !previewGrid.dataset.loaded) {
             previewGrid.innerHTML = Array(6).fill(0).map(() => `
                 <div class="skeleton" style="height: 380px; border-radius: 16px; width: 100%;"></div>
@@ -450,7 +741,6 @@ function initMonitoringForm() {
         const camera = allCameras.find(c => c.id === cameraId);
         if (!camera) return;
 
-        // Tắt hết các tính năng khác khi tắt AI
         let payload = { ...camera, [feature]: value };
         if (feature === "enable_ai" && !value) {
             payload.enable_congestion = false;
@@ -462,7 +752,6 @@ function initMonitoringForm() {
             await window.portalApi.put(`/api/cameras/${cameraId}`, payload);
             await loadAllCameras();
 
-            // Hiển thị cấu hình đang bật
             if (activeCameraConfig && activeCameraConfig.id === cameraId) {
                 activeCameraConfig = { ...activeCameraConfig, ...payload };
                 renderActiveFeatures(activeCameraConfig);
@@ -484,7 +773,6 @@ function initMonitoringForm() {
         });
 
         previewGrid.addEventListener("click", async (e) => {
-            // Nếu click vào switch hoặc slider thì bỏ qua (để 'change' xử lý)
             if (e.target.closest(".switch") || e.target.closest(".slider")) {
                 return;
             }
@@ -511,8 +799,8 @@ function initMonitoringForm() {
         });
     }
 
-    // Fullscreen logic
-    const fsContainer = document.getElementById("stream-viewer-wrapper");
+    // ── FULLSCREEN LOGIC ───────────────────────────────────
+    const fsContainer = document.getElementById("multiview-wrapper");
     const fsEnterBtn = document.getElementById("fullscreen-btn");
     const fsExitBtn = document.getElementById("fullscreen-exit-btn");
 
@@ -541,9 +829,12 @@ function initMonitoringForm() {
         });
     }
 
-    // Khởi động
+    // ── INIT ───────────────────────────────────────────────
+    // Initialize with 1 empty slot
+    slots = [{ index: 0, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty' }];
+
     loadAllCameras();
-    refreshTimer = setInterval(refreshSnapshots, 10000); // 10s refresh for snapshots
+    refreshTimer = setInterval(refreshSnapshots, 10000);
 }
 
 document.addEventListener('DOMContentLoaded', initMonitoringForm);
