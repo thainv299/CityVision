@@ -8,6 +8,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import HTTPException
 import os
 import shutil
+import time
+import threading
 from datetime import datetime
 dashboard_router = APIRouter()
 
@@ -214,7 +216,15 @@ def api_restore_backup(backup_id: str, user=Depends(login_required)):
         if os.path.exists(source_logs):
             shutil.copytree(source_logs, PROJECT_ROOT / "logs", dirs_exist_ok=True)
             
-        return {"ok": True, "message": "Khôi phục thành công. Vui lòng khởi động lại hệ thống!"}
+        def delayed_restart():
+            print("[System] Hệ thống đang tự động khởi động lại sau lệnh khôi phục...")
+            time.sleep(1.5)
+            import sys
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+        threading.Thread(target=delayed_restart, daemon=True).start()
+            
+        return {"ok": True, "message": "Khôi phục thành công. Hệ thống đang tự động khởi động lại..."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
 
