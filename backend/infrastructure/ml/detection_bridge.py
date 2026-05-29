@@ -788,6 +788,7 @@ def process_video(
     fps_prev_time = started_at
     fps_frame_count = 0
     current_fps = 0.0
+    accumulated_process_time = 0.0
 
     # Luồng nền nén ảnh JPEG
     preview_queue = queue.Queue(maxsize=1)
@@ -1149,9 +1150,11 @@ def process_video(
             fps_now = time.time()
             if fps_now - fps_prev_time >= 1.0:
                 current_fps = fps_frame_count / (fps_now - fps_prev_time)
-                print(f"[Camera {camera_id}] Tốc độ xử lý: {current_fps:.1f} FPS")
+                max_fps = fps_frame_count / accumulated_process_time if accumulated_process_time > 0 else 0.0
+                print(f"[Camera {camera_id}] Tốc độ thực tế: {current_fps:.1f} FPS | Hiệu năng tối đa: {max_fps:.1f} FPS")
                 fps_prev_time = fps_now
                 fps_frame_count = 0
+                accumulated_process_time = 0.0
             if show_fps:
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
@@ -1287,6 +1290,7 @@ def process_video(
 
             # 4. THROTTLE & PROFILING
             elapsed = time.time() - frame_start_time
+            accumulated_process_time += elapsed
             
             if elapsed < ideal_frame_time:
                 time.sleep(ideal_frame_time - elapsed)
