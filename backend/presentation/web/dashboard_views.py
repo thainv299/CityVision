@@ -4,8 +4,11 @@ from fastapi.concurrency import run_in_threadpool
 from core.config import PROJECT_ROOT
 from presentation.container import container, templates
 from presentation.middlewares.auth import get_current_user, login_required
-from fastapi.responses import HTMLResponse
-
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import HTTPException
+import os
+import shutil
+from datetime import datetime
 dashboard_router = APIRouter()
 
 
@@ -114,4 +117,120 @@ async def api_mark_notification_read(request: Request, user=Depends(login_requir
         success = await run_in_threadpool(container.dashboard_use_cases.mark_notification_read, notif_type, int(record_id))
         return {"ok": success}
     except Exception as e:
-        return {"ok": False, "message": str(e)}
+        return {"ok": False, "message": str(e)}
+
+# --- BACKUP & RESTORE API ---
+
+def get_backup_dir():
+    # Sử dụng biến môi trường BACKUP_DIR hoặc mặc định lưu trong thư mục backups ở gốc dự án
+    backup_path = os.getenv("BACKUP_DIR", str(PROJECT_ROOT / "backups"))
+    os.makedirs(backup_path, exist_ok=True)
+    return backup_path
+
+@dashboard_router.get("/api/system/backups")
+def api_list_backups(user=Depends(login_required)):
+    if not user.is_admin():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    backup_dir = get_backup_dir()
+    backups = []
+    
+    try:
+        for item in os.listdir(backup_dir):
+            item_path = os.path.join(backup_dir, item)
+            if os.path.isdir(item_path):
+                # Calculate total size
+                total_size = 0
+                for dirpath, _, filenames in os.walk(item_path):
+                    for f in filenames:
+                        fp = os.path.join(dirpath, f)
+                        if not os.path.islink(fp):
+                            total_size += os.path.getsize(fp)
+                
+                try:
+                    dt = datetime.strptime(item, "backup_%Y%m%d_%H%M%S")
+                    timestamp = dt.isoformat()
+                except ValueError:
+                    timestamp = datetime.fromtimestamp(os.path.getctime(item_path)).isoformat()
+                
+                backups.append({
+                    "id": item,
+                    "timestamp": timestamp,
+                    "size_mb": round(total_size / (1024 * 1024), 2)
+                })
+    except Exception as e:
+        print(f"Lỗi khi đọc danh sách backup: {e}")
+        
+    backups.sort(key=lambda x: x["timestamp"], reverse=True)
+    return {"ok": True, "backups": backups}
+
+@dashboard_router.post("/api/system/backups")
+def api_create_backup(user=Depends(login_required)):
+    if not user.is_admin():
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    backup_dir = get_backup_dir()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    folder_name = f"backup_{timestamp}"
+    target_dir = os.path.join(backup_dir, folder_name)
+    
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # 1. Copy database
+        db_path = PROJECT_ROOT / "urbanm_ai.db"
+        if db_path.exists():
+            shutil.copy2(db_path, os.path.join(target_dir, "urbanm_ai.db"))
+            
+        # 2. Copy logs folder
+        logs_path = PROJECT_ROOT / "logs"
+        if logs_path.exists():
+            target_logs = os.path.join(target_dir, "logs")
+            shutil.copytree(logs_path, target_logs, dirs_exist_ok=True)
+            
+        return {"ok": True, "message": "Tạo bản sao lưu thành công", "backup_id": folder_name}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
+
+@dashboard_router.post("/api/system/backups/{backup_id}/restore")
+def api_restore_backup(backup_id: str, user=Depends(login_required)):
+    if not user.is_admin():
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    backup_dir = get_backup_dir()
+    source_dir = os.path.join(backup_dir, backup_id)
+    
+    if not os.path.isdir(source_dir):
+        return JSONResponse(status_code=404, content={"ok": False, "message": "Bản sao lưu không tồn tại"})
+        
+    try:
+        # 1. Restore database
+        source_db = os.path.join(source_dir, "urbanm_ai.db")
+        if os.path.exists(source_db):
+            shutil.copy2(source_db, PROJECT_ROOT / "urbanm_ai.db")
+            
+        # 2. Restore logs
+        source_logs = os.path.join(source_dir, "logs")
+        if os.path.exists(source_logs):
+            shutil.copytree(source_logs, PROJECT_ROOT / "logs", dirs_exist_ok=True)
+            
+        return {"ok": True, "message": "Khôi phục thành công. Vui lòng khởi động lại hệ thống!"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
+
+@dashboard_router.delete("/api/system/backups/{backup_id}")
+def api_delete_backup(backup_id: str, user=Depends(login_required)):
+    if not user.is_admin():
+        raise HTTPException(status_code=403, detail="Forbidden")
+        
+    backup_dir = get_backup_dir()
+    target_dir = os.path.join(backup_dir, backup_id)
+    
+    if not os.path.isdir(target_dir):
+        return JSONResponse(status_code=404, content={"ok": False, "message": "Bản sao lưu không tồn tại"})
+        
+    try:
+        shutil.rmtree(target_dir)
+        return {"ok": True, "message": "Đã xoá bản sao lưu"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})

@@ -146,6 +146,31 @@
             </div>
         </div>
     </div>
+
+    <!-- Backup & Restore Section -->
+    <div class="ds-chart-card"
+        style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fas fa-history" style="margin-right: 8px; color: #8B5CF6;"></i>Sao lưu & Khôi phục hệ thống</span>
+            <button onclick="createBackup()" id="create-backup-btn" style="background: #8B5CF6; border: none; padding: 8px 16px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; transition: all 0.2s;"><i class="fas fa-plus" style="margin-right: 5px;"></i>Tạo bản sao lưu mới</button>
+        </h3>
+        
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+                <thead>
+                    <tr style="background: #F8FAFC; color: #475569;">
+                        <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E2E8F0; border-radius: 8px 0 0 8px;">Tên Bản Sao Lưu (ID)</th>
+                        <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E2E8F0;">Thời gian tạo</th>
+                        <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E2E8F0;">Dung lượng</th>
+                        <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E2E8F0; border-radius: 0 8px 8px 0; text-align: right;">Thao tác</th>
+                    </tr>
+                </thead>
+                <tbody id="backup-list-body">
+                    <tr><td colspan="4" style="text-align: center; padding: 20px; color: #94A3B8;">Đang tải danh sách...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <div id="no-cameras-notice"
@@ -294,6 +319,109 @@
     // Gọi load camera ngay khi tải trang
     document.addEventListener("DOMContentLoaded", () => {
         onCameraChange();
+        loadBackups();
     });
+
+    // --- BACKUP & RESTORE LOGIC ---
+    async function loadBackups() {
+        const tbody = document.getElementById('backup-list-body');
+        try {
+            const res = await fetch('/api/system/backups');
+            const data = await res.json();
+            if(data.ok && data.backups) {
+                if(data.backups.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #94A3B8;">Chưa có bản sao lưu nào</td></tr>';
+                    return;
+                }
+                
+                let html = '';
+                data.backups.forEach(b => {
+                    const dateObj = new Date(b.timestamp);
+                    const dateStr = dateObj.toLocaleString('vi-VN');
+                    html += `
+                        <tr style="border-bottom: 1px solid #F1F5F9;">
+                            <td style="padding: 12px; color: #334155; font-weight: 600;"><i class="fas fa-folder-open" style="color: #94A3B8; margin-right: 8px;"></i>${b.id}</td>
+                            <td style="padding: 12px; color: #64748B;">${dateStr}</td>
+                            <td style="padding: 12px; color: #64748B;">${b.size_mb} MB</td>
+                            <td style="padding: 12px; text-align: right;">
+                                <button onclick="restoreBackup('${b.id}')" style="background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; transition: all 0.2s; margin-right: 5px;"><i class="fas fa-undo" style="margin-right: 5px;"></i>Khôi phục</button>
+                                <button onclick="deleteBackup('${b.id}')" style="background: white; color: #64748B; border: 1px solid #E2E8F0; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; transition: all 0.2s;"><i class="fas fa-trash-alt"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #EF4444;">Lỗi tải danh sách sao lưu</td></tr>';
+            }
+        } catch(e) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px; color: #EF4444;">Lỗi kết nối máy chủ</td></tr>';
+        }
+    }
+
+    async function createBackup() {
+        const btn = document.getElementById('create-backup-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 5px;"></i>Đang tạo...';
+        
+        try {
+            const res = await fetch('/api/system/backups', { method: 'POST' });
+            const data = await res.json();
+            if(data.ok) {
+                if(window.portalApi && window.portalApi.showToast) {
+                    window.portalApi.showToast('Đã tạo bản sao lưu thành công', 'success');
+                } else {
+                    alert('Tạo sao lưu thành công');
+                }
+                loadBackups();
+            } else {
+                alert('Lỗi: ' + data.message);
+            }
+        } catch(e) {
+            alert('Lỗi: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus" style="margin-right: 5px;"></i>Tạo bản sao lưu mới';
+        }
+    }
+
+    async function restoreBackup(backupId) {
+        if(!confirm('CẢNH BÁO NGUY HIỂM: Bạn có chắc chắn muốn khôi phục lại bản sao lưu ' + backupId + ' không?\n\nToàn bộ dữ liệu hiện tại (Database & Logs) sẽ bị GHI ĐÈ bằng dữ liệu từ bản sao lưu này. Sau khi khôi phục, bạn sẽ phải KHỞI ĐỘNG LẠI (Restart) phần mềm!')) {
+            return;
+        }
+        
+        try {
+            const res = await fetch(`/api/system/backups/${backupId}/restore`, { method: 'POST' });
+            const data = await res.json();
+            if(data.ok) {
+                alert('Khôi phục thành công! Vui lòng khởi động lại (Restart) terminal/ứng dụng ngay bây giờ để các thay đổi có tác dụng hoàn toàn.');
+            } else {
+                alert('Lỗi: ' + data.message);
+            }
+        } catch(e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
+
+    async function deleteBackup(backupId) {
+        if(!confirm('Bạn có chắc chắn muốn Xoá bản sao lưu ' + backupId + ' không? Hành động này không thể hoàn tác!')) {
+            return;
+        }
+        
+        try {
+            const res = await fetch(`/api/system/backups/${backupId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if(data.ok) {
+                if(window.portalApi && window.portalApi.showToast) {
+                    window.portalApi.showToast('Đã xoá bản sao lưu', 'success');
+                }
+                loadBackups();
+            } else {
+                alert('Lỗi: ' + data.message);
+            }
+        } catch(e) {
+            alert('Lỗi: ' + e.message);
+        }
+    }
 </script>
 {% endblock %}
