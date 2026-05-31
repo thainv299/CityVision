@@ -255,7 +255,8 @@ class ParkingManager:
             "plate": plate_folder,
             "label": data.get('label', ''),
             "start_time": data.get('start_time', datetime.datetime.now()).strftime('%Y-%m-%d %H:%M:%S'),
-            "violation_time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            "violation_time": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "bbox": data.get('bbox')
         }
         if self.save_to_db:
             with open(json_path, 'w', encoding='utf-8') as jf:
@@ -403,10 +404,11 @@ class ParkingManager:
                         'frames_needed': int(10 * self.fps),
                         'img_t0': img_t0,
                         'img_t1': img_t1,
-                        'plate': license_plate,  # Store actual plate or None - will update when OCR confirms
+                        'plate': license_plate,  # Lưu biển số thực tế hoặc None - sẽ cập nhật khi OCR xác nhận
                         'start_time': start_time,
                         'label': label,
-                        'track_id': track_id  # Store original track_id as fallback
+                        'track_id': track_id,  # Lưu track_id gốc làm dự phòng (fallback)
+                        'bbox': bbox
                     }
                     
                     h, w = frame.shape[:2]

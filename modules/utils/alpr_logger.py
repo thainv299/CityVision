@@ -10,7 +10,7 @@ class ALPRLogger:
         self.csv_path = os.path.join(self.logs_dir, "ALPR_log.csv")
         self.disappear_threshold = disappear_threshold
         self.plate_sessions = {}
-        self.logged_v_tracks = set() # Track IDs already logged to DB
+        self.logged_v_tracks = set() # Track IDs đã được ghi vào DB
         self.db_callback = db_callback
         self.id_camera = id_camera
         
@@ -25,7 +25,7 @@ class ALPRLogger:
                 writer = csv.writer(f)
                 writer.writerow(["Time", "Frame", "Plate", "Full_Frame_Image_Path"])
 
-    def process_plate(self, plate_text, current_frame, plate_img, full_frame, plate_coords, v_track_id=None):
+    def process_plate(self, plate_text, current_frame, plate_img, full_frame, plate_coords, v_track_id=None, vehicle_bbox=None):
         is_new_session = False
         
         if v_track_id is not None:
@@ -43,7 +43,7 @@ class ALPRLogger:
         
         if is_new_session:
             if self.save_to_db:
-                self._save_log(plate_text, current_frame, full_frame, plate_coords)
+                self._save_log(plate_text, current_frame, full_frame, plate_coords, vehicle_bbox=vehicle_bbox)
             
     def log_vehicle_without_plate(self, current_frame, full_frame, vehicle_coords):
         """Ghi lại phương tiện ngay cả khi không thấy biển số"""
@@ -52,14 +52,14 @@ class ALPRLogger:
         plate_text = "Không phát hiện biển số xe"
         self._save_log(plate_text, current_frame, full_frame, vehicle_coords)
 
-    def _save_log(self, plate_text, current_frame, full_frame, plate_coords):
+    def _save_log(self, plate_text, current_frame, full_frame, plate_coords, vehicle_bbox=None):
         now = datetime.now()
         timestamp = now.strftime("%Y%m%d_%H%M%S")
         year = now.strftime("%Y")
         month = now.strftime("%m")
         day = now.strftime("%d")
         
-        # Create date-based folder structure: logs/plates/YYYY/MM/DD/
+        # Tạo cấu trúc thư mục theo ngày: logs/plates/YYYY/MM/DD/
         date_dir = os.path.join(self.plates_dir, year, month, day)
         os.makedirs(date_dir, exist_ok=True)
         
@@ -95,14 +95,28 @@ class ALPRLogger:
             cv2.putText(evidence_frame, "No Plate", (x1, max(30, y1 - 10)), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8 * (w/1280), (0, 0, 255), f_thick)
         
-        # Web path (forward slashes)
+        # Đường dẫn web (dùng dấu gạch chéo)
         web_path = img_path.replace(os.sep, "/")
         time_str = now.strftime("%Y-%m-%d %H:%M:%S")
         csv_row = [time_str, current_frame, plate_text, web_path]
         
+        # Lưu dữ liệu JSON
+        json_path = os.path.join(date_dir, f"{img_name}_meta.json")
+        meta = {
+            "plate": plate_text,
+            "timestamp": time_str,
+            "bbox": vehicle_bbox if vehicle_bbox else plate_coords
+        }
+        
         if self.io_worker is not None:
             self.io_worker.enqueue_save_image(img_path, evidence_frame)
             self.io_worker.enqueue_csv_append(self.csv_path, csv_row)
+            try:
+                import json
+                with open(json_path, 'w', encoding='utf-8') as jf:
+                    json.dump(meta, jf, indent=4)
+            except:
+                pass
             if self.db_callback:
                 self.io_worker.enqueue_db_write(
                     self.db_callback,
@@ -119,6 +133,12 @@ class ALPRLogger:
             with open(self.csv_path, 'a', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(csv_row)
+            try:
+                import json
+                with open(json_path, 'w', encoding='utf-8') as jf:
+                    json.dump(meta, jf, indent=4)
+            except:
+                pass
             if self.db_callback:
                 try:
                     self.db_callback(
