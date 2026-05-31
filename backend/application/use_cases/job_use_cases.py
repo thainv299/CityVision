@@ -14,7 +14,6 @@ class JobUseCases:
         self.detection_service = detection_service
         self.file_storage = file_storage
         
-        self.executor = ThreadPoolExecutor(max_workers=20)
         self.job_lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
         self.pause_events: Dict[str, threading.Event] = {}
@@ -245,7 +244,16 @@ class JobUseCases:
                     "latest_status": summary.get("latest_status"),
                 },
             )
-            # Cleanup pause event
+        except RuntimeError as exc:
+            self.set_job(
+                job_id,
+                status="aborted",
+                message="Đã dừng quá trình phân tích bởi người dùng.",
+                error=str(exc),
+                summary=None,
+                output_filename=None,
+                finished_at=time.time(),
+            )
             with self.job_lock:
                 self.pause_events.pop(job_id, None)
         except Exception as exc:
@@ -311,15 +319,19 @@ class JobUseCases:
             },
         )
 
-        self.executor.submit(
-            self.run_detection_job,
-            job_id,
-            input_stream,
-            input_path,
-            input_ext,
-            settings,
-            delete_after_job
+        thread = threading.Thread(
+            target=self.run_detection_job,
+            args=(
+                job_id,
+                input_stream,
+                input_path,
+                input_ext,
+                settings,
+                delete_after_job
+            ),
+            daemon=True
         )
+        thread.start()
         return job
 
     def request_single_preview(self, job_id: str):
@@ -414,6 +426,3 @@ class JobUseCases:
                     job.message = "Đã dừng task do server tắt."
                     if job_id in self.pause_events:
                         self.pause_events[job_id].clear()
-        
-        # Shutdown executor
-        self.executor.shutdown(wait=False)

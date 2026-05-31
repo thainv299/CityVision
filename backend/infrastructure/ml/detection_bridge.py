@@ -1096,7 +1096,8 @@ def process_video(
                 conf_st_txt, conf_st_clr = traffic_monitor.get_status_for_level(confirmed_lvl, avg_spd)
                 
                 # 4. Vẽ lên Frame và cập nhật status
-                traffic_monitor.draw_status(frame, avg_spd, conf_st_txt, conf_st_clr, f_scale, f_thick)
+                is_admin = bool(settings.get("is_admin", False))
+                traffic_monitor.draw_status(frame, avg_spd, conf_st_txt, conf_st_clr, f_scale, f_thick, is_admin=is_admin)
                 latest_status = conf_st_txt
 
                 # --- ĐỒNG BỘ DATABASE (Sync based on Confirmed Level) ---
@@ -1308,7 +1309,6 @@ def process_video(
             log_vehicle_count(camera_id, unique_passed_count)
         if parking_manager and parking_manager.violation_records:
             try:
-                from database.sqlite_db import update_violation_end_time
                 print(f"[DetectionBridge] Đang dọn dẹp {len(parking_manager.violation_records)} vi phạm chưa kết thúc...")
                 for tid, v_id in list(parking_manager.violation_records.items()):
                     print(f"[DetectionBridge] Cập nhật thời gian kết thúc cho vi phạm {v_id}")

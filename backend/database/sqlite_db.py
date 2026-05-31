@@ -284,7 +284,7 @@ def init_db() -> None:
                 # Xóa bảng cũ
                 connection.execute("DROP TABLE quyen_truy_cap_camera")
         except Exception as e:
-            logger.warning(f"Lỗi khi di chuyển dữ liệu: {e}")
+            print(f"[Database] Lỗi khi di chuyển dữ liệu: {e}")
 
         # Thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe nếu chưa có
         try:
@@ -292,9 +292,9 @@ def init_db() -> None:
         except sqlite3.OperationalError:
             try:
                 connection.execute("ALTER TABLE vi_pham_do_xe ADD COLUMN thoi_gian_ket_thuc TEXT")
-                logger.info("Đã thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe")
+                print("[Database] Đã thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe")
             except Exception as e:
-                logger.error(f"Lỗi khi thêm cột thoi_gian_ket_thuc: {e}")
+                print(f"[Database] Lỗi khi thêm cột thoi_gian_ket_thuc: {e}")
 
         camera_columns = {
             row["name"]

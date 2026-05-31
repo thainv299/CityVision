@@ -150,18 +150,24 @@ class TrafficMonitor:
         else:
             return "Trang thai: Thong thoang (MUC 0)", (0, 255, 0)
 
-    def draw_status(self, frame, avg_speed, status_text, status_color, f_scale=0.7, f_thick=2):
+    def draw_status(self, frame, avg_speed, status_text, status_color, f_scale=0.7, f_thick=2, is_admin=False):
         # Tính toán offset dọc dựa trên font_scale để các dòng không bị đè lên nhau trên 4K
         line_height = int(40 * (f_scale / 0.7))
         start_y = int(40 * (f_scale / 0.7))
         margin = 10
         
-        texts = [
-            (f"Vehicles: {self.vehicle_count} | People: {self.people_count}", (255, 255, 0), f_scale),
-            (f"Occupancy: {self.last_occupancy:.1f}%", (255, 255, 0), f_scale),
-            (f"Avg Speed: {int(avg_speed)} px/s", (255, 255, 0), f_scale),
-            (status_text, status_color, f_scale * 1.1)
-        ]
+        if is_admin:
+            texts = [
+                (f"Vehicles: {self.vehicle_count} | People: {self.people_count}", (255, 255, 0), f_scale),
+                (f"Occupancy: {self.last_occupancy:.1f}%", (255, 255, 0), f_scale),
+                (f"Avg Speed: {int(avg_speed)} px/s", (255, 255, 0), f_scale),
+                (status_text, status_color, f_scale * 1.1)
+            ]
+        else:
+            texts = [
+                (f"Vehicles: {self.vehicle_count} | People: {self.people_count}", (255, 255, 0), f_scale),
+                (status_text, status_color, f_scale * 1.1)
+            ]
 
         for i, (txt, color, scale) in enumerate(texts):
             curr_y = start_y + i * line_height
