@@ -121,7 +121,9 @@
         style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
         <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; display: flex; justify-content: space-between; align-items: center;">
             <span><i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu lịch sử</span>
+            {% if current_user.role == 'admin' %}
             <button onclick="restartSystem()" id="restart-system-btn" style="background: #F59E0B; border: none; padding: 8px 16px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; transition: all 0.2s;"><i class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code</button>
+            {% endif %}
         </h3>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
@@ -151,6 +153,7 @@
     </div>
 
     <!-- Backup & Restore Section -->
+    {% if current_user.role == 'admin' %}
     <div class="ds-chart-card"
         style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
         <h3
@@ -186,6 +189,7 @@
             </table>
         </div>
     </div>
+    {% endif %}
 </div>
 
 <div id="no-cameras-notice"
@@ -340,6 +344,7 @@
     // --- BACKUP & RESTORE LOGIC ---
     async function loadBackups() {
         const tbody = document.getElementById('backup-list-body');
+        if (!tbody) return;
         try {
             const res = await fetch('/api/system/backups');
             const data = await res.json();

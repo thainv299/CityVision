@@ -55,12 +55,27 @@ def api_violations(
         except: record_id = None
 
     offset = (page - 1) * limit
+    accessible_cameras = container.camera_use_cases.list_cameras_for_user(user)
+    accessible_ids = [c.id for c in accessible_cameras]
+    
     from database.sqlite_db import get_illegal_parking_violations, get_total_records_count
-    violations = get_illegal_parking_violations(limit, offset, filter_type, date, hour, camera_id, record_id)
+    
+    if not accessible_ids:
+        return {
+            "ok": True, "total": 0, "page": page, "limit": limit,
+            "violations": [], "filter": filter_type
+        }
+
+    violations = get_illegal_parking_violations(limit, offset, filter_type, date, hour, camera_id, record_id, allowed_camera_ids=accessible_ids)
     
     # Tính tổng để phân trang (với bộ lọc)
     conds = []
     params = []
+    
+    placeholders = ','.join('?' * len(accessible_ids))
+    conds.append(f"id_camera IN ({placeholders})")
+    params.extend(accessible_ids)
+    
     if filter_type == "has_plate":
         conds.append("(bien_so IS NOT NULL AND bien_so != '' AND bien_so NOT LIKE '%Không%' AND bien_so NOT LIKE 'ID_%')")
     elif filter_type == "no_plate":

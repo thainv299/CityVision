@@ -1492,6 +1492,9 @@ input:checked + .slider:before {
     .main-header { padding: 0 24px; }
     .page-content { padding: 24px 30px; }
     .search-container { width: 260px; }
+    
+    /* Stack split layouts vertically on laptops to prevent squishing */
+    .two-columns { grid-template-columns: 1fr; }
 }
 
 /* TABLETS & SMALL LAPTOPS (iPad Pro, 13" Laptops) */

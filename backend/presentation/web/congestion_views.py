@@ -59,12 +59,27 @@ def api_congestion(
         except: record_id = None
 
     offset = (page - 1) * limit
+    accessible_cameras = container.camera_use_cases.list_cameras_for_user(user)
+    accessible_ids = [c.id for c in accessible_cameras]
+
     from database.sqlite_db import get_congestion_history, get_total_records_count
-    logs = get_congestion_history(limit, offset, level, date, hour, camera_id, record_id)
+    
+    if not accessible_ids:
+        return {
+            "ok": True, "total": 0, "page": page, "limit": limit,
+            "logs": [], "level": level
+        }
+
+    logs = get_congestion_history(limit, offset, level, date, hour, camera_id, record_id, allowed_camera_ids=accessible_ids)
     
     # Tính tổng để phân trang (với bộ lọc)
     conds = []
     params = []
+    
+    placeholders = ','.join('?' * len(accessible_ids))
+    conds.append(f"id_camera IN ({placeholders})")
+    params.extend(accessible_ids)
+    
     if level is not None:
         conds.append("muc_do_un_tac = ?")
         params.append(level)

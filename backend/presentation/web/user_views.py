@@ -74,7 +74,9 @@ def api_get_camera_access(user_id: int, user=Depends(admin_required)):
 def api_update_camera_access(user_id: int, payload: Dict[str, Any], user=Depends(admin_required)):
     """Cập nhật danh sách quyền truy cập camera cho user (chỉ dành cho operator)"""
     try:
+        # Nhận trực tiếp danh sách dict [{"id_camera": 1, "quyen": 0}, ...]
         camera_access = payload.get("camera_access", [])
+        
         container.user_use_cases.update_camera_access(user_id, camera_access)
         return {"ok": True, "message": "Đã cập nhật quyền truy cập camera."}
     except AppError as exc:

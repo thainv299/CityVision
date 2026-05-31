@@ -607,6 +607,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <td>
                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                             <div style="font-weight: 700; color: var(--text-main);">${camera.name}</div>
+                            ${camera.can_edit === false ? '<span style="font-size: 0.65rem; padding: 2px 6px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 4px; color: #ef4444; font-weight: 600;">Chỉ xem</span>' : '<span style="font-size: 0.65rem; padding: 2px 6px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 4px; color: #22c55e; font-weight: 600;">Toàn quyền</span>'}
                             ${!camera.enable_ai ? '<span style="font-size: 0.65rem; padding: 2px 6px; background: rgba(100, 116, 139, 0.1); border: 1px solid rgba(100, 116, 139, 0.2); border-radius: 4px; color: var(--text-subtle); font-weight: 600;">RAW Stream</span>' : ''}
                         </div>
                         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
