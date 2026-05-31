@@ -354,7 +354,7 @@ def init_db() -> None:
 
 
 
-def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:
+def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type: str = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None, allowed_camera_ids: list = None) -> list:
     """Lấy danh sách xe đỗ sai có phân trang và bộ lọc"""
     query = """
         SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
@@ -365,6 +365,13 @@ def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type
     """
     conditions = []
     params = []
+
+    if allowed_camera_ids is not None:
+        if not allowed_camera_ids:
+            return []
+        placeholders = ','.join('?' * len(allowed_camera_ids))
+        conditions.append(f"pv.id_camera IN ({placeholders})")
+        params.extend(allowed_camera_ids)
 
     if filter_type == "has_plate":
         conditions.append("(pv.bien_so IS NOT NULL AND pv.bien_so != '' AND pv.bien_so NOT LIKE '%Không%' AND pv.bien_so NOT LIKE 'ID_%')")
@@ -462,7 +469,7 @@ def get_congestion_count(start_date: str = None, end_date: str = None, camera_id
         row = connection.execute(query, params).fetchone()
     return row["total"] if row and row["total"] else 0
 
-def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None) -> list:    
+def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None, allowed_camera_ids: list = None) -> list:    
     """Lấy lịch sử ùn tắc có phân trang và bộ lọc"""
     query = """
         SELECT n.id, n.id_camera as camera_id, n.muc_do_un_tac as congestion_level,
@@ -474,6 +481,13 @@ def get_congestion_history(limit: int = 30, offset: int = 0, level: int = None, 
     """
     conditions = []
     params = []
+
+    if allowed_camera_ids is not None:
+        if not allowed_camera_ids:
+            return []
+        placeholders = ','.join('?' * len(allowed_camera_ids))
+        conditions.append(f"n.id_camera IN ({placeholders})")
+        params.extend(allowed_camera_ids)
 
     if level is not None:
         conditions.append("n.muc_do_un_tac = ?")
@@ -914,7 +928,7 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
         connection.commit()
 
 
-def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: str = None, search_query: str = None, camera_id: int = None) -> list:
+def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: str = None, search_query: str = None, camera_id: int = None, allowed_camera_ids: list = None) -> list:
     """Lấy danh sách biển số được phát hiện với bộ lọc, tìm kiếm và phân trang"""
     query = """
         SELECT b.id, b.bien_so as license_plate, b.ngay_phat_hien as detected_date, b.thoi_gian_phat_hien as detected_time, 
@@ -925,6 +939,13 @@ def get_detected_license_plates(limit: int = 30, offset: int = 0, filter_type: s
     """
     params = []
     conditions = []
+
+    if allowed_camera_ids is not None:
+        if not allowed_camera_ids:
+            return []
+        placeholders = ','.join('?' * len(allowed_camera_ids))
+        conditions.append(f"b.id_camera IN ({placeholders})")
+        params.extend(allowed_camera_ids)
 
     if filter_type == "has_plate":
         conditions.append("(b.bien_so != 'Không phát hiện biển số xe' AND b.bien_so != '' AND b.bien_so IS NOT NULL)")

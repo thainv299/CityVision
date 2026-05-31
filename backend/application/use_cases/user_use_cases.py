@@ -102,7 +102,7 @@ class UserUseCases:
         if not updated:
             raise NotFoundError("Không tìm thấy người dùng.")
 
-    def update_camera_access(self, user_id: int, camera_ids: List[int]) -> None:
+    def update_camera_access(self, user_id: int, camera_access: List[dict]) -> None:
         """Cập nhật danh sách quyền truy cập camera cho người dùng (chỉ dành cho operator)"""
         user = self.get_user(user_id)
         if user.is_admin():

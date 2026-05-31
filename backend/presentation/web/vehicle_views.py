@@ -51,12 +51,29 @@ def api_vehicles(
         
     offset = (page - 1) * limit
     
+    accessible_cameras = container.camera_use_cases.list_cameras_for_user(user)
+    accessible_ids = [c.id for c in accessible_cameras]
+    
     from database.sqlite_db import get_detected_license_plates, get_total_records_count
-    plates = get_detected_license_plates(limit, offset, filter_type, search_query, camera_id)
+    
+    # Nếu không có quyền truy cập camera nào thì trả về rỗng luôn
+    if not accessible_ids:
+        return {
+            "ok": True, "total": 0, "page": page, "limit": limit,
+            "plates": [], "filter": filter_type, "search": search_query, "camera_id": camera_id
+        }
+
+    plates = get_detected_license_plates(limit, offset, filter_type, search_query, camera_id, allowed_camera_ids=accessible_ids)
     
     # Tính tổng để phân trang
     conds = []
     params = []
+    
+    # Thêm điều kiện quyền truy cập camera
+    placeholders = ','.join('?' * len(accessible_ids))
+    conds.append(f"id_camera IN ({placeholders})")
+    params.extend(accessible_ids)
+    
     if filter_type == "has_plate":
         conds.append("(bien_so != 'Không phát hiện biển số xe' AND bien_so != '' AND bien_so IS NOT NULL)")
     elif filter_type == "no_plate":
