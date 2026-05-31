@@ -93,11 +93,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const btnSelectAll = document.getElementById("btn-select-all-cams");
     const btnDeselectAll = document.getElementById("btn-deselect-all-cams");
+
+    function updateCameraAccessSelects() {
+        document.querySelectorAll(".camera-access-cb").forEach(cb => {
+            const select = document.getElementById(`perm-select-${cb.value}`);
+            if (select) {
+                select.disabled = !cb.checked;
+                if (!cb.checked) select.value = "0";
+            }
+        });
+    }
+
     if (btnSelectAll) btnSelectAll.addEventListener("click", () => {
         document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = true);
+        updateCameraAccessSelects();
     });
     if (btnDeselectAll) btnDeselectAll.addEventListener("click", () => {
         document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = false);
+        updateCameraAccessSelects();
+    });
+    
+    document.addEventListener("change", (e) => {
+        if (e.target.classList.contains("camera-access-cb")) {
+            updateCameraAccessSelects();
+        }
     });
 
     // ─── SET FORM ───────────────────────────────────────
@@ -114,14 +133,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         toggleCameraSection(role);
         document.querySelectorAll(".camera-access-cb").forEach(cb => cb.checked = false);
+        updateCameraAccessSelects();
 
         if (user && role === "operator") {
             try {
                 const res = await window.portalApi.get(`/api/users/${user.id}/camera-access`);
-                if (res.ok && res.camera_ids) {
-                    res.camera_ids.forEach(camId => {
+                if (res.ok && res.camera_access) {
+                    // camera_access is an object { camera_id: permission_level }
+                    Object.keys(res.camera_access).forEach(camId => {
                         const cb = document.querySelector(`.camera-access-cb[value="${camId}"]`);
-                        if (cb) cb.checked = true;
+                        if (cb) {
+                            cb.checked = true;
+                            const select = document.getElementById(`perm-select-${camId}`);
+                            if (select) {
+                                select.disabled = false;
+                                select.value = res.camera_access[camId].toString();
+                            }
+                        }
                     });
                 }
             } catch (err) {
@@ -347,7 +375,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (user.role === 'admin') {
                 camCount = '<span class="cam-count-chip all">Tất cả</span>';
             } else {
-                const total = user.camera_access_ids ? user.camera_access_ids.length : 0;
+                const total = user.camera_access ? Object.keys(user.camera_access).length : 0;
                 camCount = `<span class="cam-count-chip">${total} camera</span>`;
             }
 
@@ -557,9 +585,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Cập nhật quyền camera cho operator
             if (payload.role === "operator" && userId) {
-                const cameraIds = Array.from(document.querySelectorAll(".camera-access-cb:checked")).map(cb => parseInt(cb.value, 10));
+                const cameraAccessData = Array.from(document.querySelectorAll(".camera-access-cb:checked")).map(cb => {
+                    const camId = parseInt(cb.value, 10);
+                    const select = document.getElementById(`perm-select-${camId}`);
+                    const quyen = select ? parseInt(select.value, 10) : 0;
+                    return { id_camera: camId, quyen: quyen };
+                });
                 try {
-                    await window.portalApi.put(`/api/users/${userId}/camera-access`, { camera_ids: cameraIds });
+                    await window.portalApi.put(`/api/users/${userId}/camera-access`, { camera_access: cameraAccessData });
                 } catch (camErr) {
                     console.error("Lỗi cập nhật quyền camera:", camErr);
                 }
