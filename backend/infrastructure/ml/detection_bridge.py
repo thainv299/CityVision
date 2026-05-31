@@ -1306,6 +1306,10 @@ def process_video(
             update_congestion_end_time(last_congestion_record_id)
         if save_to_db:
             log_vehicle_count(camera_id, unique_passed_count)
+        if parking_manager and parking_manager.violation_end_callback:
+            for tid, v_id in parking_manager.violation_records.items():
+                parking_manager.violation_end_callback(v_id)
+            parking_manager.violation_records.clear()
         io_worker.shutdown(wait=True, timeout=60.0)
         if should_cleanup_temp and input_video_path.exists():
             try:
