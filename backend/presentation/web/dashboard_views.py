@@ -216,15 +216,18 @@ def api_restore_backup(backup_id: str, user=Depends(login_required)):
         if os.path.exists(source_logs):
             shutil.copytree(source_logs, PROJECT_ROOT / "logs", dirs_exist_ok=True)
             
-        def delayed_restart():
-            print("[System] Hệ thống đang tự động khởi động lại sau lệnh khôi phục...")
-            time.sleep(1.5)
-            import sys
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+        def delayed_shutdown():
+            """Tắt hẳn tiến trình sau khi đã gửi response cho client.
+            - Trên Jetson (systemd Restart=always): Service tự khởi động lại.
+            - Trên Windows (chạy tay): Tiến trình dừng hẳn, cần chạy lại thủ công.
+            """
+            print("[System] Hệ thống đang tắt để áp dụng dữ liệu khôi phục...")
+            time.sleep(1.5)  # Chờ response HTTP kịp gửi xong cho trình duyệt
+            os._exit(0)
             
-        threading.Thread(target=delayed_restart, daemon=True).start()
+        threading.Thread(target=delayed_shutdown, daemon=True).start()
             
-        return {"ok": True, "message": "Khôi phục thành công. Hệ thống đang tự động khởi động lại..."}
+        return {"ok": True, "message": "Khôi phục thành công. Hệ thống đang khởi động lại..."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
 

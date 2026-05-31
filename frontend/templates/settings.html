@@ -408,36 +408,60 @@
             const res = await fetch(`/api/system/backups/${backupId}/restore`, { method: 'POST' });
             const data = await res.json();
             if (data.ok) {
-                // Tạo một overlay che màn hình trong lúc chờ khởi động lại
+                // Tạo overlay che màn hình trong lúc chờ server restart
                 const overlay = document.createElement('div');
-                overlay.style.position = 'fixed';
-                overlay.style.top = '0';
-                overlay.style.left = '0';
-                overlay.style.width = '100vw';
-                overlay.style.height = '100vh';
-                overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-                overlay.style.color = 'white';
-                overlay.style.display = 'flex';
-                overlay.style.flexDirection = 'column';
-                overlay.style.alignItems = 'center';
-                overlay.style.justifyContent = 'center';
-                overlay.style.zIndex = '9999';
+                overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;';
                 overlay.innerHTML = `
                     <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #4379EE;"></i>
                     <h2 style="margin-bottom: 10px;">Đang khôi phục hệ thống...</h2>
-                    <p style="color: #CBD5E1;">Vui lòng không đóng trình duyệt. Trang sẽ tự động tải lại sau <span id="countdown-timer">5</span> giây.</p>
+                    <p id="restore-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restore-elapsed">0</span>s)</p>
                 `;
                 document.body.appendChild(overlay);
 
-                let countdown = 5;
-                const interval = setInterval(() => {
-                    countdown--;
-                    const timerEl = document.getElementById('countdown-timer');
-                    if (timerEl) timerEl.textContent = countdown;
+                // Polling: Chờ server tắt xong rồi sống lại
+                let elapsed = 0;
+                let serverWentDown = false; // Đánh dấu server đã thực sự tắt chưa
+                const maxWait = 120;
+                const pollInterval = setInterval(async () => {
+                    elapsed++;
+                    const elapsedEl = document.getElementById('restore-elapsed');
+                    if (elapsedEl) elapsedEl.textContent = elapsed;
 
-                    if (countdown <= 0) {
-                        clearInterval(interval);
-                        window.location.reload();
+                    if (elapsed >= maxWait) {
+                        clearInterval(pollInterval);
+                        document.getElementById('restore-status-text').innerHTML = 
+                            '<span style="color: #F87171;">Máy chủ không phản hồi sau ' + maxWait + 's. Vui lòng khởi động lại thủ công.</span>';
+                        return;
+                    }
+
+                    // Chờ 2 giây cho server kịp nhận lệnh shutdown
+                    if (elapsed < 2) return;
+
+                    try {
+                        const ping = await fetch('/api/system/backups', { 
+                            method: 'GET',
+                            signal: AbortSignal.timeout(2000)
+                        });
+                        if (ping.ok && serverWentDown) {
+                            // Server đã tắt rồi sống lại → Restore hoàn tất!
+                            clearInterval(pollInterval);
+                            document.getElementById('restore-status-text').innerHTML = 
+                                '<span style="color: #34D399;">Máy chủ đã sẵn sàng! Đang tải lại trang...</span>';
+                            setTimeout(() => window.location.reload(), 500);
+                        }
+                        // Nếu server vẫn phản hồi mà chưa đánh dấu went down → chưa tắt xong, chờ tiếp
+                    } catch (_) {
+                        // Server không phản hồi → đã tắt thật!
+                        serverWentDown = true;
+                        document.getElementById('restore-status-text').innerHTML = 
+                            'Máy chủ đã tắt. Đang chờ khởi động lại... (<span id="restore-elapsed">' + elapsed + '</span>s)';
+                    }
+
+                    // Nếu đã quá 15s mà server không tắt được (chạy trên Windows dev)
+                    if (elapsed >= 15 && !serverWentDown) {
+                        clearInterval(pollInterval);
+                        document.getElementById('restore-status-text').innerHTML = 
+                            '<span style="color: #FBBF24;">Dữ liệu đã được khôi phục. Vui lòng tắt server (Ctrl+C) rồi chạy lại để áp dụng hoàn toàn.</span>';
                     }
                 }, 1000);
             } else {
