@@ -71,6 +71,12 @@ class ALPRLogger:
         evidence_frame = full_frame.copy()
         h, w = full_frame.shape[:2]
         f_thick = max(1, int(round(2 * (w / 1280))))
+        
+        # Vẽ bounding box của phương tiện (màu xanh lá) nếu có
+        if vehicle_bbox:
+            vx1, vy1, vx2, vy2 = vehicle_bbox
+            cv2.rectangle(evidence_frame, (vx1, vy1), (vx2, vy2), (0, 255, 0), f_thick)
+            
         x1, y1, x2, y2 = plate_coords
         cv2.rectangle(evidence_frame, (x1, y1), (x2, y2), (0, 0, 255), f_thick)
         
@@ -81,7 +87,7 @@ class ALPRLogger:
             img_pil = Image.fromarray(cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(img_pil)
             
-            font_size = int(30 * (w / 1280))
+            font_size = int(60 * (w / 1280))
             try:
                 # Arial hỗ trợ Unicode tốt trên Windows
                 font = ImageFont.truetype("arial.ttf", font_size)
@@ -93,7 +99,7 @@ class ALPRLogger:
         except Exception as e:
             print(f"[ALPR Logger] Lỗi vẽ font tiếng Việt: {e}")
             cv2.putText(evidence_frame, "No Plate", (x1, max(30, y1 - 10)), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8 * (w/1280), (0, 0, 255), f_thick)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5 * (w/1280), (0, 0, 255), f_thick + 1)
         
         # Đường dẫn web (dùng dấu gạch chéo)
         web_path = img_path.replace(os.sep, "/")
