@@ -247,7 +247,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const targetId = btn.dataset.target;
             try {
                 let frameUrl = null;
-                const sourceValue = fields.streamSource.value.trim();
+                // Ưu tiên lấy giá trị thật từ hidden field (chứa đường dẫn đầy đủ)
+                // Nếu không có thì fallback về giá trị hiển thị trên ô input
+                const sourceValue = (fields.streamSourceHidden.value || fields.streamSource.value).trim();
                 
                 // Chuẩn hóa đường dẫn để so sánh chính xác (tránh lỗi dấu / và \)
                 const normalizePath = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
