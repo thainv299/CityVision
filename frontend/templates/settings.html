@@ -418,9 +418,11 @@
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;';
                 overlay.innerHTML = `
-                    <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #4379EE;"></i>
-                    <h2 style="margin-bottom: 10px;">Đang khôi phục hệ thống...</h2>
-                    <p id="restore-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restore-elapsed">0</span>s)</p>
+                    <div id="restore-overlay-content" style="display: flex; flex-direction: column; align-items: center; text-align: center;">
+                        <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #4379EE;"></i>
+                        <h2 style="margin-bottom: 10px;">Đang khôi phục hệ thống...</h2>
+                        <p id="restore-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restore-elapsed">0</span>s)</p>
+                    </div>
                 `;
                 document.body.appendChild(overlay);
 
@@ -448,26 +450,22 @@
                             method: 'GET',
                             signal: AbortSignal.timeout(2000)
                         });
-                        if (ping.ok && serverWentDown) {
-                            // Server đã tắt rồi sống lại → Restore hoàn tất!
+                        if (ping.ok && (serverWentDown || elapsed > 3)) {
                             clearInterval(pollInterval);
-                            document.getElementById('restore-status-text').innerHTML = 
-                                '<span style="color: #34D399;">Máy chủ đã sẵn sàng! Đang tải lại trang...</span>';
-                            setTimeout(() => window.location.reload(), 500);
+                            const overlayContent = document.getElementById('restore-overlay-content');
+                            if (overlayContent) {
+                                overlayContent.innerHTML = `
+                                    <img src="/static/img/verified.gif" alt="Success" style="width: 100px; height: 100px; margin-bottom: 20px;">
+                                    <h2 style="margin-bottom: 10px; color: #10B981;">Khôi phục dữ liệu thành công!</h2>
+                                    <p style="color: #CBD5E1;">Đang tải lại trang web...</p>
+                                `;
+                            }
+                            setTimeout(() => window.location.reload(), 2500);
                         }
-                        // Nếu server vẫn phản hồi mà chưa đánh dấu went down → chưa tắt xong, chờ tiếp
                     } catch (_) {
-                        // Server không phản hồi → đã tắt thật!
                         serverWentDown = true;
                         document.getElementById('restore-status-text').innerHTML = 
-                            'Máy chủ đã tắt. Đang chờ khởi động lại... (<span id="restore-elapsed">' + elapsed + '</span>s)';
-                    }
-
-                    // Nếu đã quá 15s mà server không tắt được (chạy trên Windows dev)
-                    if (elapsed >= 15 && !serverWentDown) {
-                        clearInterval(pollInterval);
-                        document.getElementById('restore-status-text').innerHTML = 
-                            '<span style="color: #FBBF24;">Dữ liệu đã được khôi phục. Vui lòng tắt server (Ctrl+C) rồi chạy lại để áp dụng hoàn toàn.</span>';
+                            'Máy chủ đang áp dụng dữ liệu... (<span id="restore-elapsed">' + elapsed + '</span>s)';
                     }
                 }, 1000);
             } else {
@@ -518,9 +516,11 @@
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;';
                 overlay.innerHTML = `
-                    <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #F59E0B;"></i>
-                    <h2 style="margin-bottom: 10px;">Đang cập nhật hệ thống...</h2>
-                    <p id="restart-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restart-elapsed">0</span>s)</p>
+                    <div id="restart-overlay-content" style="display: flex; flex-direction: column; align-items: center; text-align: center;">
+                        <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #F59E0B;"></i>
+                        <h2 style="margin-bottom: 10px;">Đang cập nhật hệ thống...</h2>
+                        <p id="restart-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restart-elapsed">0</span>s)</p>
+                    </div>
                 `;
                 document.body.appendChild(overlay);
 
@@ -546,22 +546,22 @@
                             method: 'GET',
                             signal: AbortSignal.timeout(2000)
                         });
-                        if (ping.ok && serverWentDown) {
+                        if (ping.ok && (serverWentDown || elapsed > 3)) {
                             clearInterval(pollInterval);
-                            document.getElementById('restart-status-text').innerHTML = 
-                                '<span style="color: #34D399;">Máy chủ đã sẵn sàng! Đang tải lại trang...</span>';
-                            setTimeout(() => window.location.reload(), 500);
+                            const overlayContent = document.getElementById('restart-overlay-content');
+                            if (overlayContent) {
+                                overlayContent.innerHTML = `
+                                    <img src="/static/img/verified.gif" alt="Success" style="width: 100px; height: 100px; margin-bottom: 20px;">
+                                    <h2 style="margin-bottom: 10px; color: #10B981;">Cập nhật hệ thống thành công!</h2>
+                                    <p style="color: #CBD5E1;">Đang tải lại trang web...</p>
+                                `;
+                            }
+                            setTimeout(() => window.location.reload(), 2500);
                         }
                     } catch (_) {
                         serverWentDown = true;
                         document.getElementById('restart-status-text').innerHTML = 
-                            'Máy chủ đã tắt. Đang chờ khởi động lại... (<span id="restart-elapsed">' + elapsed + '</span>s)';
-                    }
-
-                    if (elapsed >= 15 && !serverWentDown) {
-                        clearInterval(pollInterval);
-                        document.getElementById('restart-status-text').innerHTML = 
-                            '<span style="color: #FBBF24;">Lệnh khởi động lại đã được gửi. Vui lòng tắt server (Ctrl+C) rồi chạy lại bằng tay.</span>';
+                            'Máy chủ đang áp dụng bản cập nhật... (<span id="restart-elapsed">' + elapsed + '</span>s)';
                     }
                 }, 1000);
             } else {
