@@ -9,15 +9,11 @@ from infrastructure.file_system.local_storage import LocalStorage
 from database.sqlite_db import log_detected_license_plate
 
 
-def _make_thread_daemon():
-    threading.current_thread().daemon = True
-
 class JobUseCases:
     def __init__(self, detection_service: DetectionInterface, file_storage: LocalStorage):
         self.detection_service = detection_service
         self.file_storage = file_storage
         
-        self.executor = ThreadPoolExecutor(max_workers=20, initializer=_make_thread_daemon)
         self.job_lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
         self.pause_events: Dict[str, threading.Event] = {}
@@ -323,15 +319,19 @@ class JobUseCases:
             },
         )
 
-        self.executor.submit(
-            self.run_detection_job,
-            job_id,
-            input_stream,
-            input_path,
-            input_ext,
-            settings,
-            delete_after_job
+        thread = threading.Thread(
+            target=self.run_detection_job,
+            args=(
+                job_id,
+                input_stream,
+                input_path,
+                input_ext,
+                settings,
+                delete_after_job
+            ),
+            daemon=True
         )
+        thread.start()
         return job
 
     def request_single_preview(self, job_id: str):
@@ -426,6 +426,3 @@ class JobUseCases:
                     job.message = "Đã dừng task do server tắt."
                     if job_id in self.pause_events:
                         self.pause_events[job_id].clear()
-        
-        # Shutdown executor
-        self.executor.shutdown(wait=False)
