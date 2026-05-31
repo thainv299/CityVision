@@ -439,7 +439,7 @@ async def api_create_test_job(
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
-    return JSONResponse(status_code=202, content={"ok": True, "job": payload})
+    return JSONResponse(status_code=200, content={"ok": True, "job": payload})
 
 
 @monitoring_router.get("/api/test-jobs/{job_id}")
