@@ -402,6 +402,9 @@ async def api_create_test_job(
         # Bổ sung camera_id vào settings để bridge biết ghi vào đâu
         test_settings["camera_id"] = camera.id
         
+        # Bổ sung vai trò người dùng để hiển thị thông số AI tương ứng
+        test_settings["is_admin"] = (user.get("vai_tro") == "admin") if isinstance(user, dict) else (getattr(user, "vai_tro", "") == "admin")
+        
         # LOGIC MỚI: Tối ưu hóa Job
         # 1. Nếu camera đang KÍCH HOẠT (is_active=True), ưu tiên dùng Job nền có sẵn
         if camera.is_active and not (upload_id or (video_file and video_file.filename)):
