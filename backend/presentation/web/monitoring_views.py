@@ -403,7 +403,10 @@ async def api_create_test_job(
         test_settings["camera_id"] = camera.id
         
         # Bổ sung vai trò người dùng để hiển thị thông số AI tương ứng
-        test_settings["is_admin"] = (user.get("vai_tro") == "admin") if isinstance(user, dict) else (getattr(user, "vai_tro", "") == "admin")
+        if isinstance(user, dict):
+            test_settings["is_admin"] = (user.get("role") == "admin" or user.get("vai_tro") == "admin")
+        else:
+            test_settings["is_admin"] = user.is_admin() if hasattr(user, "is_admin") else (getattr(user, "role", "") == "admin")
         
         # LOGIC MỚI: Tối ưu hóa Job
         # 1. Nếu camera đang KÍCH HOẠT (is_active=True), ưu tiên dùng Job nền có sẵn
