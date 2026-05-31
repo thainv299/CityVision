@@ -146,13 +146,21 @@ function initMonitoringForm() {
 
     // ── ASSIGN CAMERA TO SLOT ──────────────────────────────
     async function assignCameraToSlot(slotIndex, camera) {
-        if (slotIndex >= slots.length) return;
+        const index = parseInt(slotIndex);
+        if (isNaN(index) || index >= slots.length) {
+            console.warn("[CityVision] Invalid slot index or out of bounds:", slotIndex);
+            return;
+        }
 
-        const slot = slots[slotIndex];
+        const slot = slots[index];
+        if (!slot) {
+            console.warn("[CityVision] Slot at index is undefined:", index);
+            return;
+        }
 
         // Clean up existing job in this slot
         if (slot.jobId) {
-            await stopSlotJob(slotIndex);
+            await stopSlotJob(index);
         }
 
         slot.cameraId = camera.id;
@@ -191,8 +199,8 @@ function initMonitoringForm() {
             slot.jobId = job.id;
 
             // Start polling
-            slot.pollingHandle = setInterval(() => pollSlotJob(slotIndex), 3000);
-            pollSlotJob(slotIndex);
+            slot.pollingHandle = setInterval(() => pollSlotJob(index), 3000);
+            pollSlotJob(index);
 
             // In 1x1 mode, update the info panel
             if (currentLayout === '1x1') {
@@ -418,9 +426,13 @@ function initMonitoringForm() {
             item.addEventListener('click', () => {
                 const cameraId = parseInt(item.dataset.cameraId);
                 const camera = allCameras.find(c => c.id === cameraId);
+                console.log("[CityVision] Picker selected camera ID:", cameraId, "found camera:", camera, "target slot:", pickerTargetSlot);
                 if (camera && pickerTargetSlot !== null) {
+                    const targetSlot = pickerTargetSlot;
                     closeCameraPicker();
-                    assignCameraToSlot(pickerTargetSlot, camera);
+                    assignCameraToSlot(targetSlot, camera);
+                } else {
+                    console.warn("[CityVision] Cannot assign slot. Camera:", camera, "target slot:", pickerTargetSlot);
                 }
             });
         });
@@ -832,6 +844,7 @@ function initMonitoringForm() {
     // ── INIT ───────────────────────────────────────────────
     // Initialize with 1 empty slot
     slots = [{ index: 0, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty' }];
+    renderSlots();
 
     loadAllCameras();
     refreshTimer = setInterval(refreshSnapshots, 10000);
