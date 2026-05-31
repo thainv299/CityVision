@@ -51,8 +51,8 @@
             </button>
         </div>
 
-        <form id="camera-form" style="display: flex; flex-direction: column; gap: 24px;">
-            <input type="hidden" id="camera_id" name="camera_id">
+        <form id="camera-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; align-items: start;">
+            <input type="hidden" id="camera_id" name="camera_id" style="grid-column: 1 / -1; display: none;">
 
             <!-- Nhóm 1: Thông tin cơ bản -->
             <div class="form-group" style="display: grid; gap: 16px; padding: 16px; background: var(--bg-dim); border-radius: 12px; border: 1px solid var(--border);">
@@ -238,7 +238,7 @@
                 </details>
             </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 6px;">
+            <div style="grid-column: 1 / -1; display: flex; gap: 10px; margin-top: 6px;">
                 <button type="submit" class="button primary" style="flex: 2;">Lưu Cấu hình</button>
                 <button type="button" class="button secondary" id="camera-form-reset" style="flex: 1;">Đặt lại</button>
             </div>

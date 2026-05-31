@@ -116,77 +116,82 @@
 
 <!-- Add/Edit Modal overlay -->
 <div class="ds-modal-overlay" id="user-modal" style="display: none;">
-    <div class="ds-modal">
+    <div class="ds-modal" style="max-width: 800px; width: 90%;">
         <div class="ds-modal-header">
             <h3 id="user-form-title">Tạo Người dùng Mới</h3>
             <button type="button" class="ds-modal-close" id="user-modal-close">&times;</button>
         </div>
         <div class="ds-modal-body">
-            <form id="user-form" style="display: grid; gap: 16px;">
-                <input type="hidden" id="user_id" name="user_id">
+            <form id="user-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 24px; align-items: start;">
+                <input type="hidden" id="user_id" name="user_id" style="grid-column: 1 / -1; display: none;">
 
-                <label class="field">
-                    <span>Tên đăng nhập</span>
-                    <input type="text" id="username" name="username" placeholder="VD: nguyenvan_a" required>
-                </label>
+                <!-- Cột trái: Thông tin người dùng -->
+                <div style="display: flex; flex-direction: column; gap: 16px; background: var(--bg-dim); padding: 16px; border-radius: 12px; border: 1px solid var(--border);">
+                    <p style="margin: 0 0 4px 0; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; color: var(--brand-main); letter-spacing: 0.5px;">1. Thông tin cơ bản</p>
+                    
+                    <label class="field" style="margin: 0;">
+                        <span>Tên đăng nhập</span>
+                        <input type="text" id="username" name="username" placeholder="VD: nguyenvan_a" required>
+                    </label>
 
-                <label class="field">
-                    <span>Họ và Tên</span>
-                    <input type="text" id="full_name" name="full_name" placeholder="VD: Nguyễn Văn A" required>
-                </label>
+                    <label class="field" style="margin: 0;">
+                        <span>Họ và Tên</span>
+                        <input type="text" id="full_name" name="full_name" placeholder="VD: Nguyễn Văn A" required>
+                    </label>
 
-                <label class="field">
-                    <span>Mật khẩu</span>
-                    <input type="password" id="password" name="password" placeholder="Nhập để thay đổi...">
-                </label>
+                    <label class="field" style="margin: 0;">
+                        <span>Mật khẩu</span>
+                        <input type="password" id="password" name="password" placeholder="Nhập để thay đổi...">
+                    </label>
 
-                <label class="field">
-                    <span>Vai trò Hệ thống</span>
-                    <select id="role" name="role">
-                        <option value="admin">Quản trị viên (Admin)</option>
-                        <option value="operator">Vận hành viên (Operator)</option>
-                    </select>
-                </label>
+                    <label class="field" style="margin: 0;">
+                        <span>Vai trò Hệ thống</span>
+                        <select id="role" name="role">
+                            <option value="admin">Quản trị viên (Admin)</option>
+                            <option value="operator">Vận hành viên (Operator)</option>
+                        </select>
+                    </label>
 
-                <label class="toggle-field" style="margin-top: 10px;">
-                    <input type="checkbox" id="is_active" name="is_active" checked>
-                    <span>Kích hoạt tài khoản người dùng</span>
-                </label>
+                    <label class="toggle-field" style="margin-top: 8px;">
+                        <input type="checkbox" id="is_active" name="is_active" checked>
+                        <span>Kích hoạt tài khoản người dùng</span>
+                    </label>
+                </div>
 
-                <div id="camera-access-section" style="margin-top: 16px; display: none;">
-                    <h4 style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">Quyền truy cập Camera (chỉ cho Operator)</h4>
-                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                        <button type="button" class="button secondary xs" id="btn-select-all-cams">Chọn tất cả</button>
-                        <button type="button" class="button secondary xs" id="btn-deselect-all-cams">Bỏ chọn tất cả</button>
+                <!-- Cột phải: Quyền Camera -->
+                <div id="camera-access-section" style="display: none; flex-direction: column; gap: 12px; background: var(--bg-panel); padding: 16px; border-radius: 12px; border: 1px solid var(--border); height: 100%;">
+                    <p style="margin: 0; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; color: var(--brand-main); letter-spacing: 0.5px;">2. Quyền truy cập Camera</p>
+                    
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" class="button secondary xs" id="btn-select-all-cams" style="flex: 1;">Chọn tất cả</button>
+                        <button type="button" class="button secondary xs" id="btn-deselect-all-cams" style="flex: 1;">Bỏ chọn tất cả</button>
                     </div>
-                    <div class="camera-access-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 12px; background: var(--bg-panel);">
+                    
+                    <div class="camera-access-list" style="flex: 1; max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #fff;">
                         {% if all_cameras %}
                             {% for cam in all_cameras %}
-                            <div style="margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px dashed var(--border); padding-bottom: 8px;">
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <label class="toggle-field" style="margin: 0; padding: 0;">
-                                        <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb">
-                                        <span style="font-weight: 500;">{{ cam.name }}</span>
-                                    </label>
-                                    <select class="camera-permission-select" id="perm-select-{{ cam.id }}" data-cam-id="{{ cam.id }}" disabled style="padding: 4px 8px; font-size: 12px; height: auto; border-radius: 4px;">
-                                        <option value="0">Chỉ xem</option>
-                                        <option value="1">Toàn quyền</option>
-                                    </select>
-                                </div>
-                                <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}" title="Trạng thái hoạt động của Camera">
+                            <div style="display: grid; grid-template-columns: 20px 1fr 90px 60px; align-items: center; gap: 10px; margin-bottom: 8px; border-bottom: 1px dashed var(--border); padding-bottom: 8px;">
+                                <input type="checkbox" name="camera_access[]" value="{{ cam.id }}" class="camera-access-cb" style="margin: 0; cursor: pointer;">
+                                <span style="font-weight: 600; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ cam.name }}">{{ cam.name }}</span>
+                                <select class="camera-permission-select" id="perm-select-{{ cam.id }}" data-cam-id="{{ cam.id }}" disabled style="padding: 4px; font-size: 0.75rem; border-radius: 4px; height: auto;">
+                                    <option value="0">Chỉ xem</option>
+                                    <option value="1">Toàn quyền</option>
+                                </select>
+                                <span class="small {% if cam.is_active %}success{% else %}muted{% endif %}" title="Trạng thái" style="text-align: right; font-weight: 600;">
                                     {{ 'Đang bật' if cam.is_active else 'Đang tắt' }}
                                 </span>
                             </div>
                             {% endfor %}
                         {% else %}
-                            <div class="small muted">Chưa có camera nào trong hệ thống.</div>
+                            <div class="small muted center">Chưa có camera nào trong hệ thống.</div>
                         {% endif %}
                     </div>
                 </div>
 
-                <div style="display: flex; gap: 10px; margin-top: 24px; justify-content: flex-end;">
-                    <button type="button" class="button secondary" id="user-form-reset">Hủy bỏ</button>
-                    <button type="submit" class="button primary" id="user-form-submit">Lưu Thông tin</button>
+                <!-- Nút hành động -->
+                <div style="grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px;">
+                    <button type="button" class="button secondary" id="user-form-reset" style="padding: 8px 24px;">Hủy bỏ</button>
+                    <button type="submit" class="button primary" id="user-form-submit" style="padding: 8px 24px;">Lưu Thông tin</button>
                 </div>
             </form>
         </div>
