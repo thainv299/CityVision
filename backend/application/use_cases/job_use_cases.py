@@ -9,12 +9,15 @@ from infrastructure.file_system.local_storage import LocalStorage
 from database.sqlite_db import log_detected_license_plate
 
 
+def _make_thread_daemon():
+    threading.current_thread().daemon = True
+
 class JobUseCases:
     def __init__(self, detection_service: DetectionInterface, file_storage: LocalStorage):
         self.detection_service = detection_service
         self.file_storage = file_storage
         
-        self.executor = ThreadPoolExecutor(max_workers=20)
+        self.executor = ThreadPoolExecutor(max_workers=20, initializer=_make_thread_daemon)
         self.job_lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
         self.pause_events: Dict[str, threading.Event] = {}
