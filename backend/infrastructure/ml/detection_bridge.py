@@ -1308,7 +1308,6 @@ def process_video(
             log_vehicle_count(camera_id, unique_passed_count)
         if parking_manager and parking_manager.violation_records:
             try:
-                from database.sqlite_db import update_violation_end_time
                 print(f"[DetectionBridge] Đang dọn dẹp {len(parking_manager.violation_records)} vi phạm chưa kết thúc...")
                 for tid, v_id in list(parking_manager.violation_records.items()):
                     print(f"[DetectionBridge] Cập nhật thời gian kết thúc cho vi phạm {v_id}")

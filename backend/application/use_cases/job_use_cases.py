@@ -245,7 +245,16 @@ class JobUseCases:
                     "latest_status": summary.get("latest_status"),
                 },
             )
-            # Cleanup pause event
+        except RuntimeError as exc:
+            self.set_job(
+                job_id,
+                status="aborted",
+                message="Đã dừng quá trình phân tích bởi người dùng.",
+                error=str(exc),
+                summary=None,
+                output_filename=None,
+                finished_at=time.time(),
+            )
             with self.job_lock:
                 self.pause_events.pop(job_id, None)
         except Exception as exc:

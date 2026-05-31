@@ -404,17 +404,19 @@ async def api_create_test_job(
         
         # LOGIC MỚI: Tối ưu hóa Job
         # 1. Nếu camera đang KÍCH HOẠT (is_active=True), ưu tiên dùng Job nền có sẵn
-        if camera.is_active:
+        if camera.is_active and not (upload_id or (video_file and video_file.filename)):
             bg_job_id = f"background_{camera.id}"
             existing_bg = container.job_use_cases.get_job(bg_job_id)
             if existing_bg and existing_bg.status in {"queued", "running"}:
                 job = existing_bg
-                print(f"[API] Phát hiện camera {camera.id} đang chạy nền. Chuyển hướng xem stream sang job: {bg_job_id}")
+                # Cưỡng bức tạo khung hình xem thử tức thì khi người dùng nhấp xem camera đang chạy ngầm
+                container.job_use_cases.request_single_preview(bg_job_id)
+                print(f"[API] Phát hiện camera {camera.id} đang chạy nền thực tế. Chuyển hướng xem stream sang job nền: {bg_job_id}")
             else:
-                # Nếu camera active nhưng job nền bị chết/chưa chạy, khởi tạo job với save_to_db=True
+                # Nếu camera active nhưng job nền bị chết/chưa chạy, khởi tạo chính job nền đó với save_to_db=True
                 test_settings["save_to_db"] = True
                 job = container.job_use_cases.submit_job(
-                    job_id=job_id,
+                    job_id=bg_job_id,  #Phải dùng đúng bg_job_id chứ không dùng job_id ngẫu nhiên tạm thời!
                     input_stream=input_stream,
                     input_path=input_path,
                     input_ext=input_ext,
@@ -463,6 +465,11 @@ def api_pause_test_job(job_id: str, user=Depends(login_required)):
 
 @monitoring_router.post("/api/test-jobs/{job_id}/stop")
 def api_stop_test_job(job_id: str, user=Depends(login_required)):
+    if job_id.startswith("background_"):
+        # Đối với job chạy nền, chỉ ngắt luồng xem của frontend chứ không thực hiện stop job nền quan trọng
+        print(f"[API] Từ chối dừng job nền {job_id} từ yêu cầu frontend xem camera.")
+        return {"ok": True, "message": "Giữ kết nối job nền thành công."}
+        
     success = container.job_use_cases.stop_job(job_id)
     if not success:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể dừng job này (có thể đã kết thúc hoặc không tồn tại)."})
