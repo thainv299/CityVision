@@ -26,6 +26,8 @@ class ParkingManager:
         self.cooldown_seconds = 30.0
         self.camera_id = 0
         self.violation_callback = None
+        self.violation_end_callback = None
+        self.violation_records = {} # track_id -> violation_id
         self.telegram_enabled = True
         self.save_violation_frames = True
         self.io_worker = None  # AsyncIOWorker (inject từ bên ngoài)
@@ -267,13 +269,15 @@ class ParkingManager:
             try:
                 # Đường dẫn ảnh tương đối để web có thể hiển thị
                 db_image_path = os.path.join(save_dir, "combined_alert.jpg").replace("\\", "/")
-                self.violation_callback(
+                violation_id = self.violation_callback(
                     camera_id=self.camera_id,
                     license_plate=plate_folder,
                     violation_time=meta['start_time'],
                     duration=int(self.stop_seconds),
                     frame_path=db_image_path
                 )
+                if violation_id:
+                    self.violation_records[track_id] = violation_id
             except Exception as e:
                 print(f"[ParkingManager] Lỗi gọi callback DB: {e}")
 
@@ -314,6 +318,10 @@ class ParkingManager:
         # 1. Dọn dẹp Ghost Tracks hết hạn (> 10s)
         expired_ghosts = [gid for gid, ginfo in self.ghost_tracks.items() if current_time - ginfo['lost_time'] > 10.0]
         for gid in expired_ghosts:
+            if gid in self.violation_records:
+                if self.violation_end_callback:
+                    self.violation_end_callback(self.violation_records[gid])
+                del self.violation_records[gid]
             del self.ghost_tracks[gid]
 
         # 2. Phát hiện xe bị mất dấu (> 1s) và đẩy vào Ghost Tracks
@@ -352,6 +360,8 @@ class ParkingManager:
                 if best_match in self.active_recordings:
                     self.active_recordings[track_id] = self.active_recordings.pop(best_match)
                     self.active_recordings[track_id]['track_id'] = track_id
+                if best_match in self.violation_records:
+                    self.violation_records[track_id] = self.violation_records.pop(best_match)
         # Cập nhật vị trí và dấu thời gian hiện tại
         self.last_seen[track_id] = {'cx': cx, 'cy': cy, 'last_time': current_time}
 
@@ -418,12 +428,16 @@ class ParkingManager:
                     cv2.rectangle(frame, (0, 0), (w, banner_h), (0, 0, 0), -1)
                     cv2.putText(frame, "VI PHAM: DO XE SAI QUY DINH!", (int(20 * (w/1280)), int(55 * (h/720))), cv2.FONT_HERSHEY_SIMPLEX, 1.1 * (w/1280), (0, 0, 255), f_thick + 1)
                     
-            elif state == RECORDING_DONE:
+            elif state == 3: # RECORDING_DONE
                 box_color = (0, 0, 255)
                 state_str = "RECORDED"
             else:
                 box_color = None
                 state_str = "MOVING"
+                if just_changed and track_id in self.violation_records:
+                    if self.violation_end_callback:
+                        self.violation_end_callback(self.violation_records[track_id])
+                    del self.violation_records[track_id]
                 
             display_label = f"ID:{track_id} {label} {state_str}"
             return display_label, box_color

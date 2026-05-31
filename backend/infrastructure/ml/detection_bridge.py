@@ -34,6 +34,7 @@ from database.sqlite_db import (
     log_congestion,
     update_congestion_end_time,
     log_parking_violation,
+    update_violation_end_time,
     log_vehicle_count,
     log_detected_license_plate
 )
@@ -756,6 +757,7 @@ def process_video(
     parking_manager.move_thr_px = move_threshold_px
     parking_manager.camera_id = camera_id
     parking_manager.violation_callback = log_parking_violation if save_to_db else None
+    parking_manager.violation_end_callback = update_violation_end_time if save_to_db else None
     parking_manager.save_to_db = save_to_db
     parking_manager.io_worker = io_worker
     parking_manager.setup_detection(fps)

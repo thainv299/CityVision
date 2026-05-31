@@ -48,8 +48,15 @@ class ViolationLogic:
         state_just_changed = False
 
         if current_state == RECORDING_DONE:
-            # Trạng thái kết thúc cho chuỗi xử lý của chiếc xe này
-            return (RECORDING_DONE, False)
+            if avg_speed >= self.move_thr_px:
+                car_data["grace_count"] += 1
+                if car_data["grace_count"] > 10:
+                    next_state = MOVING
+                    state_just_changed = True
+            else:
+                car_data["grace_count"] = 0
+            # Vẫn duy trì RECORDING_DONE cho đến khi thực sự di chuyển
+            pass
 
         elif current_state == MOVING:
             if avg_speed < self.move_thr_px:
@@ -63,11 +70,11 @@ class ViolationLogic:
             
             if avg_speed >= self.move_thr_px:
                 car_data["grace_count"] += 1
-                if car_data["grace_count"] > 10: # Vượt quá 10 frame ân hạn (xe đã thực sự di chuyển)
+                if car_data["grace_count"] > 10: # Vượt quá 10 frame (xe đã thực sự di chuyển)
                     next_state = MOVING
                     state_just_changed = True
             else:
-                car_data["grace_count"] = 0 # Đặt lại ân hạn nếu xe đi chậm lại
+                car_data["grace_count"] = 0 # Đặt lại nếu xe đi chậm lại
                 
             if next_state == WAITING and frames_waited >= self.stop_frames:
                 next_state = VIOLATION

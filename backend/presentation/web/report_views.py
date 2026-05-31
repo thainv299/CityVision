@@ -86,10 +86,10 @@ def fetch_report_data(report_type: str, start_date: str, end_date: str, camera_i
             
     elif report_type == "parking":
         query = """
-            SELECT p.thoi_gian_vi_pham as 'Thời gian', c.ten_camera as 'Camera', 
+            SELECT p.thoi_gian_vi_pham as 'Bắt đầu', IFNULL(p.thoi_gian_ket_thuc, 'Đang diễn ra') as 'Kết thúc',
+                   c.ten_camera as 'Camera', 
                    IFNULL(c.mo_ta, '') as 'Địa điểm',
                    IFNULL(p.bien_so, 'Không xác định') as 'Biển số', 
-                   p.thoi_gian_do_giay as 'Thời gian đỗ (giây)', 
                    CASE WHEN p.da_giai_quyet = 1 THEN 'Đã xử lý' ELSE 'Chưa xử lý' END as 'Trạng thái',
                    p.duong_dan_anh as 'Ảnh'
             FROM vi_pham_do_xe p 
@@ -156,12 +156,7 @@ def fetch_report_data(report_type: str, start_date: str, end_date: str, camera_i
         total_row["Số lượng xe"] = total_xe
         formatted_data.append(total_row)
         
-    elif report_type == "parking":
-        for row in rows:
-            d = dict(row)
-            if d.get("Thời gian"):
-                d["Thời gian"] = format_vietnamese_datetime(d["Thời gian"], include_time=True)
-            formatted_data.append(d)
+
     else:
         if "Bắt đầu" in columns:
             idx = columns.index("Bắt đầu")
@@ -327,8 +322,6 @@ def create_pdf(columns, data, report_title, report_type, exporter_name, date_ran
                 pdf.set_font("Roboto", "", 11)
                 pdf.set_x(10)
                 pdf.multi_cell(w=190, h=7, txt=f"Thời gian: {vi.get('Thời gian', 'N/A')}")
-                pdf.set_x(10)
-                pdf.multi_cell(w=190, h=7, txt=f"Thời gian đỗ: {vi.get('Thời gian đỗ (giây)', 0)} giây")
                 pdf.set_x(10)
                 pdf.multi_cell(w=190, h=7, txt=f"Trạng thái: {vi.get('Trạng thái', 'N/A')}")
                 

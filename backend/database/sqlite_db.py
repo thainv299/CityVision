@@ -184,6 +184,7 @@ def init_db() -> None:
                 bien_so TEXT,
                 thoi_gian_vi_pham TEXT NOT NULL,
                 thoi_gian_do_giay INTEGER NOT NULL DEFAULT 0,
+                thoi_gian_ket_thuc TEXT,
                 duong_dan_anh TEXT,
                 da_giai_quyet INTEGER NOT NULL DEFAULT 0,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -283,7 +284,17 @@ def init_db() -> None:
                 # Xóa bảng cũ
                 connection.execute("DROP TABLE quyen_truy_cap_camera")
         except Exception as e:
-            logger.error(f"Lỗi khi di chuyển dữ liệu quyền: {e}")
+            logger.warning(f"Lỗi khi di chuyển dữ liệu: {e}")
+
+        # Thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe nếu chưa có
+        try:
+            connection.execute("SELECT thoi_gian_ket_thuc FROM vi_pham_do_xe LIMIT 1")
+        except sqlite3.OperationalError:
+            try:
+                connection.execute("ALTER TABLE vi_pham_do_xe ADD COLUMN thoi_gian_ket_thuc TEXT")
+                logger.info("Đã thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe")
+            except Exception as e:
+                logger.error(f"Lỗi khi thêm cột thoi_gian_ket_thuc: {e}")
 
         camera_columns = {
             row["name"]
@@ -358,7 +369,7 @@ def get_illegal_parking_violations(limit: int = 30, offset: int = 0, filter_type
     """Lấy danh sách xe đỗ sai có phân trang và bộ lọc"""
     query = """
         SELECT pv.id, pv.id_camera as camera_id, pv.bien_so as license_plate, pv.thoi_gian_vi_pham as violation_time,
-               pv.thoi_gian_do_giay as duration_seconds, pv.duong_dan_anh as frame_path, pv.da_giai_quyet as is_resolved,
+               pv.thoi_gian_ket_thuc as end_time, pv.duong_dan_anh as frame_path, pv.da_giai_quyet as is_resolved,
                pv.ngay_tao as created_at, c.ten_camera as camera_name
         FROM vi_pham_do_xe pv
         LEFT JOIN camera c ON pv.id_camera = c.id
@@ -757,7 +768,7 @@ def log_vehicle_count(camera_id: int, vehicle_type: str, count: int = 1) -> None
         connection.commit()
 
 
-def log_parking_violation(camera_id: int, license_plate: str = None, violation_time: str = None, duration: int = 0, frame_path: str = None) -> None:
+def log_parking_violation(camera_id: int, license_plate: str = None, violation_time: str = None, duration: int = 0, frame_path: str = None) -> int:
     """Ghi lại vi phạm đỗ xe"""
     from datetime import datetime
     if violation_time is None:
@@ -803,6 +814,25 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
         )
         notif_row = dict(cursor_notif.fetchone())
         broadcast_notification(notif_row)
+        
+        return violation_id
+
+def update_violation_end_time(violation_id: int, end_time: str = None) -> None:
+    """Cập nhật thời gian kết thúc dừng đỗ cho một vi phạm"""
+    from datetime import datetime
+    if end_time is None:
+        end_time = datetime.now().isoformat()
+        
+    with connect() as connection:
+        connection.execute(
+            """
+            UPDATE vi_pham_do_xe 
+            SET thoi_gian_ket_thuc = ?
+            WHERE id = ?
+            """,
+            (end_time, violation_id)
+        )
+        connection.commit()
 
 
 def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong_dan_anh: str = None) -> int:
