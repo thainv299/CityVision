@@ -2277,6 +2277,10 @@ input:checked + .slider:before {
     min-height: unset;
     height: auto;
 }
+.multiview-grid.layout-1x1 .mv-slot.loading,
+.multiview-grid.layout-1x1 .mv-slot.error {
+    min-height: 400px;
+}
 
 .mv-slot:hover {
     border-color: rgba(59, 130, 246, 0.4);
