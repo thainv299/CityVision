@@ -124,7 +124,7 @@ class ImageSearchService:
 
         return model
 
-    def get_embedding(self, image_source) -> np.ndarray:
+    def get_embedding(self, image_source, bbox=None) -> np.ndarray:
         """
         Trích xuất embedding vector 2048D từ một ảnh.
         
@@ -133,6 +133,7 @@ class ImageSearchService:
                 - str/Path: đường dẫn file ảnh
                 - bytes: nội dung file ảnh (từ upload)
                 - PIL.Image: ảnh đã load
+            bbox: Optional, toạ độ [x1, y1, x2, y2] để crop phần phương tiện trước khi nhúng.
         
         Returns:
             numpy array shape (2048,), đã normalize L2
@@ -148,6 +149,17 @@ class ImageSearchService:
         else:
             # Giả sử là PIL Image
             img = image_source.convert("RGB")
+
+        if bbox is not None and len(bbox) == 4:
+            try:
+                x1, y1, x2, y2 = bbox
+                w, h = img.size
+                x1, y1 = max(0, int(x1)), max(0, int(y1))
+                x2, y2 = min(w, int(x2)), min(h, int(y2))
+                if x2 > x1 and y2 > y1:
+                    img = img.crop((x1, y1, x2, y2))
+            except Exception as e:
+                print(f"[ImageSearch] Lỗi crop ảnh: {e}")
 
         # Áp dụng transform
         tensor = transform(img).unsqueeze(0).to(self.device)  # (1, 3, 224, 224)
@@ -170,7 +182,26 @@ class ImageSearchService:
 
         if key not in self._embedding_cache:
             try:
-                emb = self.get_embedding(file_path)
+                bbox = None
+                # Thử tìm file JSON chứa metadata để lấy toạ độ crop
+                # 1. Trường hợp ALPR (plates)
+                meta_json_path = file_path.parent / f"{file_path.stem}_meta.json"
+                if meta_json_path.exists():
+                    import json
+                    with open(meta_json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        bbox = data.get('bbox')
+                
+                # 2. Trường hợp Đỗ xe sai quy định (parking)
+                elif file_path.name == "combined_alert.jpg":
+                    evidence_json_path = file_path.parent / "evidence.json"
+                    if evidence_json_path.exists():
+                        import json
+                        with open(evidence_json_path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            bbox = data.get('bbox')
+                            
+                emb = self.get_embedding(file_path, bbox=bbox)
                 self._embedding_cache[key] = emb
             except Exception as e:
                 print(f"[ImageSearch] Lỗi tính embedding {file_path.name}: {e}")
@@ -198,12 +229,18 @@ class ImageSearchService:
         count = 0
         t0 = time.time()
 
-        for file_path in self.logs_dir.rglob("*"):
-            if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        for target_dir in ["plates"]:
+            full_target_dir = self.logs_dir / target_dir
+            if not full_target_dir.exists():
                 continue
-            emb = self._get_or_compute_embedding(file_path)
-            if emb is not None:
-                count += 1
+                
+            for file_path in full_target_dir.rglob("*"):
+                if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+                    continue
+                    
+                emb = self._get_or_compute_embedding(file_path)
+                if emb is not None:
+                    count += 1
 
         elapsed = time.time() - t0
         print(f"[ImageSearch] Indexed {count} images in {elapsed:.2f}s")
@@ -248,9 +285,9 @@ class ImageSearchService:
 
         # Xác định thư mục cần tìm
         if search_dirs:
-            # Map 'congestion' to 'traffic' folder if needed
             mapped_dirs = []
             for d in search_dirs:
+                # Map thư mục 'congestion' sang 'traffic' nếu cần thiết
                 if d == "congestion": mapped_dirs.append("traffic")
                 else: mapped_dirs.append(d)
             scan_roots = [self.logs_dir / d for d in mapped_dirs]

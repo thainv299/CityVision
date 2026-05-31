@@ -60,7 +60,7 @@ class OCRManager:
                 self.queue.task_done()
 
     def cleanup_memory(self, current_time, frame_count):
-        """Dọn dẹp rác bộ nhớ (Memory Leak Prevention)"""
+        """Dọn dẹp rác bộ nhớ (Ngăn chặn Memory Leak)"""
         for tid in list(self.last_seen_plate.keys()):
             if current_time - self.last_seen_plate[tid] > 5.0: # Không thấy trong 5 giây thì xóa
                 self.plate_history.pop(tid, None)
@@ -118,10 +118,12 @@ class OCRManager:
         # Lọc biển số: Chỉ xử lý OCR nếu tâm biển số nằm trong ô tô/bus/truck
         is_valid_plate = False
         matched_v_id = -1
+        vehicle_bbox = None
         for vx1, vy1, vx2, vy2, v_id in valid_vehicles:
             if vx1 <= cx <= vx2 and vy1 <= cy <= vy2:
                 is_valid_plate = True
                 matched_v_id = v_id
+                vehicle_bbox = [vx1, vy1, vx2, vy2]
                 break
         
         if not is_valid_plate:
@@ -171,7 +173,7 @@ class OCRManager:
                     if matched_v_id != -1:
                         self.vehicle_plates[matched_v_id] = best
                     if self.alpr_logger:
-                        self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2], v_track_id=matched_v_id)
+                        self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2], v_track_id=matched_v_id, vehicle_bbox=vehicle_bbox)
                 else:
                     display_text = f"[?] {best} ({count}/{self.VOTE_THRESHOLD})"
             else:
