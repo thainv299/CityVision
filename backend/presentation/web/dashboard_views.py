@@ -246,4 +246,21 @@ def api_delete_backup(backup_id: str, user=Depends(login_required)):
         shutil.rmtree(target_dir)
         return {"ok": True, "message": "Đã xoá bản sao lưu"}
     except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
+
+@dashboard_router.post("/api/system/restart")
+def api_restart_system(user=Depends(login_required)):
+    if not user.is_admin():
+        raise HTTPException(status_code=403, detail="Forbidden")
+    
+    try:
+        def delayed_shutdown():
+            print("[System] Đang khởi động lại hệ thống theo yêu cầu của admin...")
+            time.sleep(1.5)
+            os._exit(0)
+            
+        threading.Thread(target=delayed_shutdown, daemon=True).start()
+        
+        return {"ok": True, "message": "Hệ thống đang khởi động lại..."}
+    except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "message": str(e)})
