@@ -233,8 +233,8 @@ function displayViolations(violations) {
                         <th style="text-align: center; width: 50px;">STT</th>
                         <th>Camera</th>
                         <th>Biển Số</th>
-                        <th style="text-align: center;">Thời gian vi phạm</th>
-                        <th style="text-align: center;">Thời gian đỗ (giây)</th>
+                        <th style="text-align: center;">Thời gian bắt đầu</th>
+                        <th style="text-align: center;">Thời gian kết thúc</th>
                         <th style="text-align: center;">Bằng Chứng (Ảnh)</th>
                         <th style="text-align: center;">Video Ghi Hình</th>
                         <th style="text-align: center;">Trạng thái</th>
@@ -257,7 +257,7 @@ function displayViolations(violations) {
                                 ${window.portalApi.formatVietnameseDateTime(v.violation_time)}
                             </td>
                             <td style="text-align: center;">
-                                <span class="pill warning">${v.duration_seconds || 0}s</span>
+                                ${v.end_time ? window.portalApi.formatVietnameseDateTime(v.end_time) : '<span class="pill warning">Đang đỗ...</span>'}
                             </td>
                             <td style="text-align: center;">
                                 ${framePath ? `
