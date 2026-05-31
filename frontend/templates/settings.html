@@ -119,8 +119,9 @@
 
     <div class="ds-chart-card"
         style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224;">
-            <i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu lịch sử
+        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu lịch sử</span>
+            <button onclick="restartSystem()" id="restart-system-btn" style="background: #F59E0B; border: none; padding: 8px 16px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; transition: all 0.2s;"><i class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code</button>
         </h3>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
@@ -490,6 +491,87 @@
             }
         } catch (e) {
             alert('Lỗi: ' + e.message);
+        }
+    }
+
+    async function restartSystem() {
+        if (!confirm('Bạn có chắc chắn muốn khởi động lại (Restart) hệ thống để cập nhật code mới không? Toàn bộ camera sẽ bị gián đoạn trong khoảng 5-10 giây.')) {
+            return;
+        }
+
+        const btn = document.getElementById('restart-system-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 5px;"></i>Đang khởi động lại...';
+        }
+
+        try {
+            const res = await fetch(`/api/system/restart`, { method: 'POST' });
+            const data = await res.json();
+            if (data.ok) {
+                // Sử dụng cùng cơ chế polling như restore
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.85);color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;';
+                overlay.innerHTML = `
+                    <i class="fas fa-sync-alt fa-spin" style="font-size: 48px; margin-bottom: 20px; color: #F59E0B;"></i>
+                    <h2 style="margin-bottom: 10px;">Đang cập nhật hệ thống...</h2>
+                    <p id="restart-status-text" style="color: #CBD5E1;">Đang chờ máy chủ khởi động lại... (<span id="restart-elapsed">0</span>s)</p>
+                `;
+                document.body.appendChild(overlay);
+
+                let elapsed = 0;
+                let serverWentDown = false;
+                const maxWait = 120;
+                const pollInterval = setInterval(async () => {
+                    elapsed++;
+                    const elapsedEl = document.getElementById('restart-elapsed');
+                    if (elapsedEl) elapsedEl.textContent = elapsed;
+
+                    if (elapsed >= maxWait) {
+                        clearInterval(pollInterval);
+                        document.getElementById('restart-status-text').innerHTML = 
+                            '<span style="color: #F87171;">Máy chủ không phản hồi sau ' + maxWait + 's. Vui lòng kiểm tra thủ công.</span>';
+                        return;
+                    }
+
+                    if (elapsed < 2) return;
+
+                    try {
+                        const ping = await fetch('/api/system/backups', { 
+                            method: 'GET',
+                            signal: AbortSignal.timeout(2000)
+                        });
+                        if (ping.ok && serverWentDown) {
+                            clearInterval(pollInterval);
+                            document.getElementById('restart-status-text').innerHTML = 
+                                '<span style="color: #34D399;">Máy chủ đã sẵn sàng! Đang tải lại trang...</span>';
+                            setTimeout(() => window.location.reload(), 500);
+                        }
+                    } catch (_) {
+                        serverWentDown = true;
+                        document.getElementById('restart-status-text').innerHTML = 
+                            'Máy chủ đã tắt. Đang chờ khởi động lại... (<span id="restart-elapsed">' + elapsed + '</span>s)';
+                    }
+
+                    if (elapsed >= 15 && !serverWentDown) {
+                        clearInterval(pollInterval);
+                        document.getElementById('restart-status-text').innerHTML = 
+                            '<span style="color: #FBBF24;">Lệnh khởi động lại đã được gửi. Vui lòng tắt server (Ctrl+C) rồi chạy lại bằng tay.</span>';
+                    }
+                }, 1000);
+            } else {
+                alert('Lỗi: ' + data.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code';
+                }
+            }
+        } catch (e) {
+            alert('Lỗi kết nối: ' + e.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code';
+            }
         }
     }
 </script>
