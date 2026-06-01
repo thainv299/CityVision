@@ -186,7 +186,7 @@
     async function fetchSuggestions(q) {
         loader.style.display = 'block';
         try {
-            const data = await portalApi.get(`/api/search/suggestions?q=${encodeURIComponent(q)}`);
+            const data = await portalApi.get(`/api/vehicles/suggestions?q=${encodeURIComponent(q)}`);
             renderSuggestions(data.suggestions);
         } catch (error) {
             console.error('Lỗi lấy gợi ý:', error);
