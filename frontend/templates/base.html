@@ -35,13 +35,23 @@
         .profile-dropdown a:hover {
             background-color: var(--surface) !important;
         }
+
         .profile-dropdown button:hover {
             background-color: rgba(239, 68, 68, 0.05) !important;
         }
+
         @keyframes dropdown-fade-in {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
+
         .profile-dropdown {
             animation: dropdown-fade-in 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
         }
@@ -103,12 +113,14 @@
                         <div style="display: flex; gap: 16px; margin-top: 8px;">
                             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                                 <input type="radio" name="format" value="pdf" checked>
-                                <img src="{{ url_for('static', filename='img/pdf.png') }}" style="width: 24px; height: 24px;">
+                                <img src="{{ url_for('static', filename='img/pdf.png') }}"
+                                    style="width: 24px; height: 24px;">
                                 <span style="color: #ef4444; font-weight: 600;">PDF</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                                 <input type="radio" name="format" value="excel">
-                                <img src="{{ url_for('static', filename='img/excel-file.png') }}" style="width: 24px; height: 24px;">
+                                <img src="{{ url_for('static', filename='img/excel-file.png') }}"
+                                    style="width: 24px; height: 24px;">
                                 <span style="color: #10b981; font-weight: 600;">Excel</span>
                             </label>
                         </div>
@@ -117,7 +129,8 @@
             </div>
             <div style="padding: 0 24px 24px; display: flex; justify-content: flex-end; gap: 12px;">
                 <button type="button" class="button secondary" id="cancel-export-btn">Hủy</button>
-                <button type="button" class="button primary" id="confirm-export-btn" style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" class="button primary" id="confirm-export-btn"
+                    style="display: flex; align-items: center; gap: 8px;">
                     <i class="fas fa-download"></i> Tải xuống
                 </button>
             </div>
@@ -329,7 +342,8 @@
 
                 <div class="header-right">
                     <!-- Nút bật/tắt âm thanh cảnh báo -->
-                    <div class="icon-btn" id="audio-toggle-btn" title="Bật/Tắt âm thanh cảnh báo" style="margin-right: 8px;">
+                    <div class="icon-btn" id="audio-toggle-btn" title="Bật/Tắt âm thanh cảnh báo"
+                        style="margin-right: 8px;">
                         <i id="audio-icon" class="fas fa-volume-up" style="font-size: 18px; color: #3B82F6;"></i>
                     </div>
                     <div class="icon-btn" id="bell-icon">
@@ -620,31 +634,41 @@
                     </div>
 
                     <div class="profile-menu-container" style="position: relative;">
-                        <div class="header-profile" id="profile-trigger" style="display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 8px; transition: background 0.2s; cursor: pointer;">
+                        <div class="header-profile" id="profile-trigger"
+                            style="display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 8px; transition: background 0.2s; cursor: pointer;">
                             <div class="header-avatar"
                                 style="background-image: url('https://ui-avatars.com/api/?name={{ current_user.full_name | urlencode }}&background=e0e7ff&color=3b82f6')">
                             </div>
                             <div class="header-profile-text">
-                                <strong id="header-user-fullname">{{ current_user.full_name or 'Quản trị viên' }}</strong>
+                                <strong id="header-user-fullname">{{ current_user.full_name or 'Quản trị viên'
+                                    }}</strong>
                                 <span>{{ 'Admin System' if current_user.role == 'admin' else 'Operator' }}</span>
                             </div>
-                            <i class="fas fa-chevron-down" id="profile-chevron" style="font-size: 0.75rem; color: var(--text-subtle); margin-left: 4px; transition: transform 0.2s;"></i>
+                            <i class="fas fa-chevron-down" id="profile-chevron"
+                                style="font-size: 0.75rem; color: var(--text-subtle); margin-left: 4px; transition: transform 0.2s;"></i>
                         </div>
 
                         <!-- Dropdown Menu -->
-                        <div class="profile-dropdown" id="profile-dropdown" style="display: none; position: absolute; top: 100%; right: 0; margin-top: 8px; width: 220px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 1000; padding: 8px 0; overflow: hidden;">
-                            <a href="#" id="open-profile-btn" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
-                                <i class="fas fa-user-circle" style="color: var(--brand-blue); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                        <div class="profile-dropdown" id="profile-dropdown"
+                            style="display: none; position: absolute; top: 100%; right: 0; margin-top: 8px; width: 220px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 1000; padding: 8px 0; overflow: hidden;">
+                            <a href="#" id="open-profile-btn"
+                                style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
+                                <i class="fas fa-user-circle"
+                                    style="color: var(--brand-blue); font-size: 1.1rem; width: 18px; text-align: center;"></i>
                                 <span>Thông tin hồ sơ</span>
                             </a>
-                            <a href="#" id="open-password-btn" style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
-                                <i class="fas fa-key" style="color: var(--warning); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                            <a href="#" id="open-password-btn"
+                                style="display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--text-primary); transition: background 0.2s;">
+                                <i class="fas fa-key"
+                                    style="color: var(--warning); font-size: 1.1rem; width: 18px; text-align: center;"></i>
                                 <span>Đổi mật khẩu</span>
                             </a>
                             <div style="border-top: 1px solid var(--border); margin: 6px 0;"></div>
                             <form method="post" action="{{ url_for('auth.logout') }}" style="width: 100%; margin: 0;">
-                                <button type="submit" style="width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--danger); background: none; border: none; cursor: pointer; text-align: left; transition: background 0.2s;">
-                                    <i class="fas fa-sign-out-alt" style="color: var(--danger); font-size: 1.1rem; width: 18px; text-align: center;"></i>
+                                <button type="submit"
+                                    style="width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 16px; font-size: 0.9rem; color: var(--danger); background: none; border: none; cursor: pointer; text-align: left; transition: background 0.2s;">
+                                    <i class="fas fa-sign-out-alt"
+                                        style="color: var(--danger); font-size: 1.1rem; width: 18px; text-align: center;"></i>
                                     <span>Đăng xuất</span>
                                 </button>
                             </form>
@@ -656,23 +680,26 @@
             <div class="page-content">
                 {{ page_content | safe }}
             </div>
-            
+
             <!-- Modal Hồ sơ cá nhân -->
             <div id="user-profile-modal" class="ds-modal-overlay" style="display: none;">
                 <div class="ds-modal">
                     <div class="ds-modal-header">
-                        <h3 style="margin: 0;"><i class="fas fa-user-circle" style="color: var(--brand-blue); margin-right: 8px;"></i>Hồ sơ cá nhân</h3>
+                        <h3 style="margin: 0;"><i class="fas fa-user-circle"
+                                style="color: var(--brand-blue); margin-right: 8px;"></i>Hồ sơ cá nhân</h3>
                         <button type="button" class="ds-modal-close" id="close-profile-modal">&times;</button>
                     </div>
                     <div class="ds-modal-body">
                         <form id="user-profile-form">
                             <div class="field">
                                 <span>Tên đăng nhập</span>
-                                <input type="text" id="profile-username" readonly style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
+                                <input type="text" id="profile-username" readonly
+                                    style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
                             </div>
                             <div class="field">
                                 <span>Quyền hạn</span>
-                                <input type="text" id="profile-role" readonly style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
+                                <input type="text" id="profile-role" readonly
+                                    style="background-color: #f8fafc; color: #64748b; cursor: not-allowed;">
                             </div>
                             <div class="field">
                                 <span>Họ và tên</span>
@@ -691,7 +718,8 @@
             <div id="change-password-modal" class="ds-modal-overlay" style="display: none;">
                 <div class="ds-modal">
                     <div class="ds-modal-header">
-                        <h3 style="margin: 0;"><i class="fas fa-key" style="color: var(--warning); margin-right: 8px;"></i>Đổi mật khẩu</h3>
+                        <h3 style="margin: 0;"><i class="fas fa-key"
+                                style="color: var(--warning); margin-right: 8px;"></i>Đổi mật khẩu</h3>
                         <button type="button" class="ds-modal-close" id="close-password-modal">&times;</button>
                     </div>
                     <div class="ds-modal-body">
@@ -751,7 +779,7 @@
             };
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.2"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.3"></script>
     <script>
         // Logic xem trước ảnh toàn cục (Smart Zoom & Pan)
         (function () {
