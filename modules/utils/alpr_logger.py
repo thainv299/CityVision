@@ -87,7 +87,7 @@ class ALPRLogger:
             img_pil = Image.fromarray(cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(img_pil)
             
-            font_size = int(200 * (w / 1280))
+            font_size = int(32 * (w / 1280))
             try:
                 # Arial hỗ trợ Unicode tốt trên Windows
                 font = ImageFont.truetype("arial.ttf", font_size)
@@ -99,7 +99,7 @@ class ALPRLogger:
         except Exception as e:
             print(f"[ALPR Logger] Lỗi vẽ font tiếng Việt: {e}")
             cv2.putText(evidence_frame, "No Plate", (x1, max(30, y1 - 10)), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 3 * (w/1280), (0, 0, 255), f_thick + 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5 * (w/1280), (0, 0, 255), f_thick + 1)
         
         # Đường dẫn web (dùng dấu gạch chéo)
         web_path = img_path.replace(os.sep, "/")
@@ -107,9 +107,9 @@ class ALPRLogger:
         csv_row = [time_str, current_frame, plate_text, web_path]
         
         # Lưu dữ liệu JSON
-        json_path = os.path.join(date_dir, f"{img_name}_meta.json")
+        json_path = os.path.join(date_dir, f"{safe_text}_{timestamp}_{current_frame}_meta.json")
         meta = {
-            "plate": plate_text,
+            "plate": "No plate detected" if plate_text == "Không phát hiện biển số xe" else plate_text,
             "timestamp": time_str,
             "bbox": vehicle_bbox if vehicle_bbox else plate_coords
         }

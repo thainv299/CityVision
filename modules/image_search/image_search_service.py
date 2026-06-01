@@ -186,6 +186,10 @@ class ImageSearchService:
                 # Thử tìm file JSON chứa metadata để lấy toạ độ crop
                 # 1. Trường hợp ALPR (plates)
                 meta_json_path = file_path.parent / f"{file_path.stem}_meta.json"
+                if not meta_json_path.exists():
+                    # Fallback hỗ trợ tên file cũ chứa cả đuôi mở rộng dạng .jpg_meta.json
+                    meta_json_path = file_path.parent / f"{file_path.name}_meta.json"
+                
                 if meta_json_path.exists():
                     import json
                     with open(meta_json_path, 'r', encoding='utf-8') as f:
