@@ -221,11 +221,17 @@
     function formatVietnameseDateTime(dateString) {
         if (!dateString) return 'N/A';
         try {
-            // Chuẩn hóa định dạng thời gian từ SQLite (UTC) để trình duyệt chuyển sang giờ địa phương (+07:00) đúng đắn
+            // SQLite và Python lưu thời gian theo giờ local (datetime.now()), 
+            // nên không thêm chữ 'Z' để tránh trình duyệt tự động cộng thêm 7 tiếng.
             let formattedStr = dateString;
             if (typeof dateString === 'string') {
-                if (dateString.includes(' ') && !dateString.includes('T') && !dateString.endsWith('Z') && !dateString.includes('+')) {
-                    formattedStr = dateString.replace(' ', 'T') + 'Z';
+                // Loại bỏ đuôi 'Z' hoặc '+00:00' nếu có để giữ nguyên giờ local gốc của server
+                if (formattedStr.endsWith('Z')) {
+                    formattedStr = formattedStr.slice(0, -1);
+                }
+                // Thay thế khoảng trắng ' ' bằng 'T' để API Date() của trình duyệt hoạt động đồng nhất
+                if (formattedStr.includes(' ') && !formattedStr.includes('T')) {
+                    formattedStr = formattedStr.replace(' ', 'T');
                 }
             }
             const date = new Date(formattedStr);
