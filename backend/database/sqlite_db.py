@@ -663,6 +663,14 @@ def mark_notification_as_read(notif_type: str, record_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def mark_all_notifications_as_read() -> bool:
+    """Đánh dấu tất cả thông báo là đã đọc trong bảng thong_bao tập trung"""
+    with connect() as connection:
+        connection.execute("UPDATE thong_bao SET da_doc = 1 WHERE da_doc = 0")
+        connection.commit()
+        return True
+
+
 def get_total_vehicle_count(start_date: str = None, end_date: str = None, camera_ids: list = None) -> int:
     """Lấy tổng số xe đi qua trực tiếp từ bảng lịch sử (loại bỏ person và license_plate)"""
     query = "SELECT COUNT(*) as total FROM lich_su_phuong_tien WHERE loai_xe NOT IN ('person', 'license_plate')"

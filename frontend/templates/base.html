@@ -352,7 +352,7 @@
                             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
-                        <span class="icon-badge">3</span>
+                        <span class="icon-badge" style="display: none;">0</span>
 
                         <div id="notif-dropdown"
                             style="display: none; position: absolute; top: 45px; right: 0; width: 280px; background: white; border-radius: 12px; box-shadow: var(--shadow-float); border: 1px solid var(--border); z-index: 9999; padding: 10px 0;">
@@ -365,11 +365,9 @@
                                 <div style="padding: 20px; text-align: center; color: #94A3B8; font-size: 13px;">Đang
                                     tải thông báo...</div>
                             </div>
-                            <div
-                                style="padding: 10px 15px 0; text-align: center; font-size: 11px; color: #4379EE; font-weight: 600; cursor: pointer;">
-                                <a href="{{ url_for('vehicles.vehicles_page') }}"
-                                    style="font-size: 11px; color: #4379EE; font-weight: 600; text-decoration: none;">Xem
-                                    tất cả nhật ký</a>
+                            <div id="mark-all-read-btn"
+                                style="padding: 10px 15px 0; text-align: center; font-size: 11px; color: #4379EE; font-weight: 600; cursor: pointer; border-top: 1px solid var(--border); margin-top: 5px;">
+                                Đánh dấu tất cả là đã xem
                             </div>
                         </div>
                     </div>
@@ -779,7 +777,7 @@
             };
         })();
     </script>
-    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.3"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}?v=3.4"></script>
     <script>
         // Logic xem trước ảnh toàn cục (Smart Zoom & Pan)
         (function () {

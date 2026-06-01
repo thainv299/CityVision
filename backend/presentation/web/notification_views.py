@@ -34,6 +34,12 @@ def api_mark_notification_read(
         return {"ok": True}
     return JSONResponse(status_code=400, content={"ok": False, "error": "Không thể đánh dấu thông báo này"})
 
+@notification_router.post("/api/notifications/read-all")
+def api_mark_all_notifications_read(user=Depends(login_required)):
+    """Đánh dấu tất cả thông báo là đã đọc"""
+    db.mark_all_notifications_as_read()
+    return {"ok": True}
+
 
 from fastapi.responses import StreamingResponse
 import asyncio

@@ -729,7 +729,7 @@ def process_video(
                 "source_total_frames": total_frames,
                 "progress_percent": 0.0,
                 "elapsed_seconds": 0.0,
-                "latest_status": "Đang tải model YOLO...",
+                "latest_status": "Đang tải model...",
             }
         )
 

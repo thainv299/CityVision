@@ -414,7 +414,7 @@ function showNotificationToast(n) {
 
             // Điều hướng đến trang chi tiết
             let urlPrefix = n.type === 'violation' ? '/violations?id=' : '/congestion?id=';
-            window.location.href = urlPrefix + n.id;
+            window.location.href = urlPrefix + (n.id_ban_ghi || n.id);
         } catch (err) {
             console.error("Lỗi xử lý click thông báo toast:", err);
         }
@@ -512,7 +512,7 @@ function updateNotificationUI(count, notifications) {
         item.onclick = async function () {
             try {
                 await window.portalApi.post('/api/notifications/' + n.type + '/' + n.id + '/read', {});
-                window.location.href = urlPrefix + n.id;
+                window.location.href = urlPrefix + (n.id_ban_ghi || n.id);
             } catch (e) {
                 console.error("Lỗi đọc thông báo", e);
             }
@@ -583,6 +583,20 @@ document.addEventListener('DOMContentLoaded', function () {
         setupNotificationSSE();
         // Giữ fallback polling ở mức 15s làm kênh dự phòng dự phòng an toàn
         notificationPollingInterval = setInterval(fetchNotifications, 15000);
+
+        // Đăng ký sự kiện nút đánh dấu tất cả đã xem
+        const markAllReadBtn = document.getElementById('mark-all-read-btn');
+        if (markAllReadBtn) {
+            markAllReadBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                    await window.portalApi.post('/api/notifications/read-all', {});
+                    fetchNotifications();
+                } catch (err) {
+                    console.error("Lỗi đánh dấu tất cả đã xem:", err);
+                }
+            });
+        }
     }
 
     // Tự động định dạng các thẻ hiển thị thời gian
