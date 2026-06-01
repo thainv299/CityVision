@@ -108,56 +108,27 @@ class TrafficAlertManager:
         # if speech_text:
         #     self._speak_alert(speech_text)
 
-        import sqlite3
-        from datetime import datetime
-        from backend.core.config import DATABASE_PATH 
-        
         try:
-            conn = sqlite3.connect(DATABASE_PATH) 
-            cursor = conn.cursor()
-            
-            cursor.execute(
-                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
-                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-            conn.commit()
-            conn.close()
+            from backend.database.sqlite_db import log_congestion
+            # Mặc định sử dụng camera_id là 1 (hoặc lấy từ cấu hình nếu có)
+            log_congestion(camera_id=1, level=level, duong_dan_anh=img_path)
         except Exception as e:
-            print("Lỗi lưu database AI:", e)
+            print("Lỗi lưu database AI (Tắc nghẽn):", e)
 
         # 4. Gửi thông báo sang Telegram
         send_alert_with_button(img_path, caption, level)
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):
-        messages = {
-            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
-            2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
-            3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
-        }
-        detail = messages.get(level, f"Mức độ {level}")
-        
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
-                ("Congestion", detail, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-            conn.commit()
-            conn.close()
+            from backend.database.sqlite_db import log_congestion
+            log_congestion(camera_id=1, level=level, duong_dan_anh=img_path)
         except Exception as e:
             print("Lỗi lưu tắc nghẽn:", e)
 
     def save_parking(self, plate_number, img_path):
         try:
-            conn = sqlite3.connect(DATABASE_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO violations (type, license_plate, camera_id, image_path, time) VALUES (?, ?, ?, ?, ?)",
-                ("Parking", plate_number, "Camera 01", img_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            )
-            conn.commit()
-            conn.close()
+            from backend.database.sqlite_db import log_parking_violation
+            log_parking_violation(camera_id=1, license_plate=plate_number, frame_path=img_path)
         except Exception as e:
             print("Lỗi lưu dừng đỗ:", e)
     
