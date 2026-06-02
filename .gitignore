@@ -137,3 +137,4 @@ cloudflared.exe
 *.ttf
 deploy/*
 */md
+bin/*
