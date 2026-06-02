@@ -80,7 +80,7 @@ class VideoStream:
     def __init__(self, path, force_single_thread: bool = False):
         self.path = str(path)
         self.stopped = False
-        self.queue = queue.Queue(maxsize=32)
+        self.queue = queue.Queue(maxsize=5)
         self._is_opened = False
         # FIX #2: Chỉ dùng single-thread khi cần (H.265), H.264 dùng auto-thread
         self._force_single_thread = force_single_thread
@@ -222,11 +222,11 @@ class VideoStream:
             else:
                 if is_url:
                     try:
-                        self.queue.get_nowait()
-                        self.queue.put(frame)
+                        self.queue.get_nowait()# Loại bỏ ngay frame cũ nhất đang nằm ở đầu hàng đợi
+                        self.queue.put(frame)# Đẩy frame mới nhất vừa nhận vào cuối hàng đợi
                     except Exception: pass
                 else:
-                    self.queue.put(frame)
+                    self.queue.put(frame)# Đợi cho đến khi AI xử lý xong và giải phóng vị trí trong hàng đợi
                     
         if self._cap:
             self._cap.release()
@@ -686,6 +686,7 @@ def process_video(
 
     # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
     capture = VideoStream(input_video_path, force_single_thread=is_hevc).start()
+    is_live = not isinstance(input_video_path, Path)
     frame_width = capture.width
     frame_height = capture.height
     fps = capture.fps
@@ -1295,7 +1296,9 @@ def process_video(
             elapsed = time.time() - frame_start_time
             accumulated_process_time += elapsed
             
-            if elapsed < ideal_frame_time:
+            # Chỉ áp dụng hãm tốc độ (Throttle) cho file video cục bộ.
+            # Đối với camera/live stream (is_live = True), xử lý nhanh nhất có thể.
+            if not is_live and elapsed < ideal_frame_time:
                 time.sleep(ideal_frame_time - elapsed)
 
     finally:
