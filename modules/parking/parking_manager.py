@@ -42,6 +42,8 @@ class ParkingManager:
         self.waiting_vehicles = {}
         self.ghost_tracks = {}
         self.last_seen = {}
+        self.track_id_map = {}
+
 
     def init_ui(self):
         self.frame_no_park = tk.LabelFrame(self.root, text="3. Quản lý Vùng Cấm Đỗ", font=("Arial", 11, "bold"))
@@ -103,8 +105,10 @@ class ParkingManager:
         self.waiting_vehicles = {}
         self.ghost_tracks = {}
         self.last_seen = {}
+        self.track_id_map = {}
         # Dict nhận cập nhật biển số async từ OCR: {track_id: plate_str}
         self._pending_plate_updates: dict = {}
+
 
     def update_plate(self, track_id: int, plate: str):
         """
@@ -114,11 +118,12 @@ class ParkingManager:
         """
         if not plate:
             return
-        if track_id in self.active_recordings:
-            self.active_recordings[track_id]['plate'] = plate
+        mapped_id = self.track_id_map.get(track_id, track_id)
+        if mapped_id in self.active_recordings:
+            self.active_recordings[mapped_id]['plate'] = plate
         else:
             # Lưu tạm, update_buffer sẽ áp dụng khi recording bắt đầu
-            self._pending_plate_updates[track_id] = plate
+            self._pending_plate_updates[mapped_id] = plate
 
     def update_buffer(self, frame_copy):
         if self.frame_buffer is not None:
@@ -315,6 +320,9 @@ class ParkingManager:
 
         current_time = time.time()
 
+        # Resolution mapping cho Re-ID
+        mapped_id = self.track_id_map.get(track_id, track_id)
+
         # 1. Dọn dẹp Ghost Tracks hết hạn (> 10s)
         expired_ghosts = [gid for gid, ginfo in self.ghost_tracks.items() if current_time - ginfo['lost_time'] > 10.0]
         for gid in expired_ghosts:
@@ -323,6 +331,10 @@ class ParkingManager:
                     self.violation_end_callback(self.violation_records[gid])
                 del self.violation_records[gid]
             del self.ghost_tracks[gid]
+            # Dọn dẹp bản đồ ánh xạ của ID cũ này
+            keys_to_del = [k for k, v in self.track_id_map.items() if v == gid]
+            for k in keys_to_del:
+                del self.track_id_map[k]
 
         # 2. Phát hiện xe bị mất dấu (> 1s) và đẩy vào Ghost Tracks
         lost_ids = [lid for lid, linfo in self.last_seen.items() if current_time - linfo['last_time'] > 1.0]
@@ -339,7 +351,7 @@ class ParkingManager:
             del self.last_seen[lid]
 
         # 3. Thuật toán Spatial Re-ID (Sáp nhập Track vỡ nếu xuất hiện ID mới tại cùng vị trí)
-        if track_id not in self.last_seen:
+        if track_id not in self.last_seen and track_id not in self.track_id_map:
             best_match = None
             min_dist = float('inf')
             max_dist_px = max(60.0, self.move_thr_px * 2) # Khoảng cách tối đa cho phép nối ghép
@@ -351,26 +363,25 @@ class ParkingManager:
                     best_match = gid
             
             if best_match is not None:
-                # Nối ghép thành công! Khôi phục trí nhớ cho xe
+                # Nối ghép thành công! Khôi phục trí nhớ cho xe bằng cách ánh xạ ID mới về ID cũ
+                self.track_id_map[track_id] = best_match
+                mapped_id = best_match
+                
                 ginfo = self.ghost_tracks.pop(best_match)
                 if 'logic_state' in ginfo:
-                    self.logic.states[track_id] = ginfo['logic_state']
+                    self.logic.states[best_match] = ginfo['logic_state']
                 if 'waiting_data' in ginfo:
-                    self.waiting_vehicles[track_id] = ginfo['waiting_data']
-                if best_match in self.active_recordings:
-                    self.active_recordings[track_id] = self.active_recordings.pop(best_match)
-                    self.active_recordings[track_id]['track_id'] = track_id
-                if best_match in self.violation_records:
-                    self.violation_records[track_id] = self.violation_records.pop(best_match)
-        # Cập nhật vị trí và dấu thời gian hiện tại
-        self.last_seen[track_id] = {'cx': cx, 'cy': cy, 'last_time': current_time}
+                    self.waiting_vehicles[best_match] = ginfo['waiting_data']
+
+        # Cập nhật vị trí và dấu thời gian hiện tại dưới ID thực (mapped_id)
+        self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time}
 
         in_no_park = False
         if self.no_park_polygon is not None:
             in_no_park = cv2.pointPolygonTest(self.no_park_polygon, (cx, cy), False) >= 0
 
         if in_no_park:
-            state, just_changed = self.logic.update(track_id, (cx, cy), frame_count)
+            state, just_changed = self.logic.update(mapped_id, (cx, cy), frame_count)
             
             if state == WAITING:
                 box_color = (0, 165, 255) # Orange
@@ -381,22 +392,22 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t0, (x1, y1), (x2, y2), box_color, f_thick + 1)
-                        txt = f"{label.upper()} {track_id} - BAT DAU DO"
+                        txt = f"{label.upper()} {mapped_id} - BAT DAU DO"
                         (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
                         ty = max(th + 5, y1 - 5)
                         cv2.rectangle(img_t0, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
                         cv2.putText(img_t0, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
                         
-                    self.waiting_vehicles[track_id] = {'img_t0': img_t0, 'start_time': datetime.datetime.now()}
+                    self.waiting_vehicles[mapped_id] = {'img_t0': img_t0, 'start_time': datetime.datetime.now()}
                     if self.telegram_enabled and self.save_to_db:
-                        caption = f"⚠️ CẢNH BÁO: Xe ID {track_id} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                        caption = f"⚠️ CẢNH BÁO: Xe ID {mapped_id} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
                         threading.Thread(target=self._send_warning_thread, args=(img_t0, caption), daemon=True).start()
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
                 state_str = "VIOLATION"
                 if just_changed:
-                    waiting_data = self.waiting_vehicles.get(track_id, {})
+                    waiting_data = self.waiting_vehicles.get(mapped_id, {})
                     img_t0 = waiting_data.get('img_t0', clean_frame.copy())
                     start_time = waiting_data.get('start_time', datetime.datetime.now())
                     
@@ -405,13 +416,13 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t1, (x1, y1), (x2, y2), box_color, f_thick + 2)
-                        txt = f"{label.upper()} {track_id} - VI PHAM!"
+                        txt = f"{label.upper()} {mapped_id} - VI PHAM!"
                         (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, f_thick + 1)
                         ty = max(th + 5, y1 - 5)
                         cv2.rectangle(img_t1, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
                         cv2.putText(img_t1, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, (255, 255, 255), f_thick + 1)
                         
-                    self.active_recordings[track_id] = {
+                    self.active_recordings[mapped_id] = {
                         'frames': list(self.frame_buffer),
                         'frames_needed': int(10 * self.fps),
                         'img_t0': img_t0,
@@ -419,7 +430,7 @@ class ParkingManager:
                         'plate': license_plate,  # Lưu biển số thực tế hoặc None - sẽ cập nhật khi OCR xác nhận
                         'start_time': start_time,
                         'label': label,
-                        'track_id': track_id,  # Lưu track_id gốc làm dự phòng (fallback)
+                        'track_id': mapped_id,  # Lưu track_id gốc làm dự phòng (fallback)
                         'bbox': bbox
                     }
                     
@@ -434,14 +445,18 @@ class ParkingManager:
             else:
                 box_color = None
                 state_str = "MOVING"
-                if just_changed and track_id in self.violation_records:
+                if just_changed and mapped_id in self.violation_records:
                     if self.violation_end_callback:
-                        self.violation_end_callback(self.violation_records[track_id])
-                    del self.violation_records[track_id]
+                        self.violation_end_callback(self.violation_records[mapped_id])
+                    del self.violation_records[mapped_id]
                 
-            display_label = f"ID:{track_id} {label} {state_str}"
+            display_label = f"ID:{mapped_id} {label} {state_str}"
             return display_label, box_color
+        else:
+            if mapped_id != track_id:
+                return f"ID:{mapped_id} {label}", None
         return None, None
+
 
     def draw_polygon_overlay(self, frame, f_thick=2):
         """Vẽ vùng cấm đỗ màu đỏ lên frame"""
