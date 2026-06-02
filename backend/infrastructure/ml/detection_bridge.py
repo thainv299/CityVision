@@ -751,6 +751,8 @@ def process_video(
 
     traffic_alert_manager = TrafficAlertManager()
     traffic_alert_manager.io_worker = io_worker
+    traffic_alert_manager.save_to_db = save_to_db
+    traffic_alert_manager.camera_id = camera_id
 
     parking_manager = ParkingManager(None, None)
     parking_manager.no_park_polygon = _to_polygon(no_parking_points)
