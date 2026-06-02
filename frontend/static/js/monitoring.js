@@ -2,6 +2,103 @@
 // CityVision AI — Multi-view Monitoring Controller
 // ═══════════════════════════════════════════════════════════════
 
+async function startWebRTCPlayer(videoElement, cameraId) {
+    const streamPath = `live_camera_${cameraId}`;
+    const hostname = window.location.hostname || "localhost";
+    const url = `http://${hostname}:8889/${streamPath}/whep`;
+
+    console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url);
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    const remoteStream = new MediaStream();
+    videoElement.srcObject = remoteStream;
+
+    pc.ontrack = (event) => {
+        console.log("[WebRTC] Đã nhận được track hình ảnh:", event.track);
+        if (event.track) {
+            remoteStream.addTrack(event.track);
+            videoElement.play().catch(err => {
+                console.warn("[WebRTC] Playback failed or was blocked by browser autoplay policy:", err);
+            });
+        }
+    };
+
+    pc.addTransceiver("video", { direction: "recvonly" });
+
+    // Tạo Promise đợi kết nối ICE thành công thực tế để đảm bảo không bị đen màn hình
+    return new Promise(async (resolve, reject) => {
+        let isSettled = false;
+
+        const cleanup = () => {
+            pc.oniceconnectionstatechange = null;
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.log("[WebRTC] ICE Connection State:", pc.iceConnectionState);
+            if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+                if (!isSettled) {
+                    isSettled = true;
+                    cleanup();
+                    resolve(pc);
+                }
+            } else if (pc.iceConnectionState === "failed") {
+                if (!isSettled) {
+                    isSettled = true;
+                    cleanup();
+                    pc.close();
+                    reject(new Error("Kết nối ICE WebRTC thất bại (mDNS/UDP bị chặn)"));
+                }
+            }
+        };
+
+        // Giới hạn thời gian kết nối tối đa 2 giây (Timeout cho mạng local/localhost cực nhanh)
+        const timeoutId = setTimeout(() => {
+            if (!isSettled) {
+                isSettled = true;
+                cleanup();
+                pc.close();
+                reject(new Error("Timeout kết nối ICE WebRTC (2s)"));
+            }
+        }, 2000);
+
+        try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/sdp"
+                },
+                body: offer.sdp
+            });
+
+            if (!response.ok) {
+                throw new Error(`WHEP endpoint returned error: ${response.status}`);
+            }
+
+            const answerSdp = await response.text();
+            await pc.setRemoteDescription(new RTCSessionDescription({
+                type: "answer",
+                sdp: answerSdp
+            }));
+
+            console.log("[WebRTC] SDP Offer/Answer thành công, đang đợi bắt tay ICE...");
+        } catch (e) {
+            clearTimeout(timeoutId);
+            if (!isSettled) {
+                isSettled = true;
+                cleanup();
+                pc.close();
+                reject(e);
+            }
+        }
+    });
+}
+
+
 function initMonitoringForm() {
     // ── DOM ELEMENTS ────────────────────────────────────────
     const feedback = document.getElementById("test-job-feedback");
@@ -64,77 +161,149 @@ function initMonitoringForm() {
 
         // Ensure slots array matches count
         while (slots.length < count) {
-            slots.push({ index: slots.length, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty' });
+            slots.push({ index: slots.length, cameraId: null, camera: null, jobId: null, pollingHandle: null, streamUrl: null, state: 'empty', domElement: null });
         }
 
         // Build HTML for each slot
-        multiviewGrid.innerHTML = '';
+        const activeDomElements = [];
+
         for (let i = 0; i < count; i++) {
             const slot = slots[i];
-            const slotEl = document.createElement('div');
-            slotEl.className = `mv-slot ${slot.state}`;
-            slotEl.dataset.slotIndex = i;
+            let slotEl = slot.domElement;
+            let stateChanged = false;
 
-            if (slot.state === 'empty') {
-                slotEl.innerHTML = `
-                    <div class="mv-slot-empty">
-                        <div class="mv-plus-icon">+</div>
-                        <span>Chọn camera</span>
-                    </div>
-                `;
-                slotEl.addEventListener('click', () => openCameraPicker(i));
-            } else if (slot.state === 'loading') {
-                slotEl.innerHTML = `
-                    <div class="mv-slot-loader">
-                        <div class="mv-spinner"></div>
-                        <p>Đang kết nối...</p>
-                    </div>
-                    <div class="mv-slot-status">
-                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
-                    </div>
-                `;
-            } else if (slot.state === 'streaming') {
-                slotEl.innerHTML = `
-                    <img class="mv-stream-img" src="${slot.streamUrl}" alt="${slot.camera ? slot.camera.name : 'Stream'}">
-                    <div class="mv-slot-overlay">
-                        <div class="mv-slot-cam-name">
-                            <span class="mv-live-dot"></span>
-                            ${slot.camera ? slot.camera.name : 'Camera'}
-                        </div>
-                        <div class="mv-slot-actions">
-                            <button type="button" class="mv-slot-btn close-btn" data-action="close" data-slot="${i}" title="Đóng">✕</button>
-                        </div>
-                    </div>
-                    <div class="mv-slot-status">
-                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
-                        <span class="mv-slot-badge live">LIVE</span>
-                    </div>
-                `;
-                // Click-to-close and action buttons
-                const closeBtn = slotEl.querySelector('[data-action="close"]');
-                if (closeBtn) {
-                    closeBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        removeSlot(i);
-                    });
-                }
-            } else if (slot.state === 'error') {
-                slotEl.innerHTML = `
-                    <div class="mv-slot-loader" style="background: rgba(239,68,68,0.1);">
-                        <p style="color: #f87171;">⚠ Lỗi kết nối</p>
-                    </div>
-                    <div class="mv-slot-status">
-                        <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
-                    </div>
-                `;
-                slotEl.addEventListener('click', () => {
-                    removeSlot(i);
-                    openCameraPicker(i);
-                });
+            if (!slotEl) {
+                slotEl = document.createElement('div');
+                slot.domElement = slotEl;
+                stateChanged = true;
             }
 
-            multiviewGrid.appendChild(slotEl);
+            // Check if class state has changed
+            const expectedClass = `mv-slot ${slot.state}`;
+            if (slotEl.className !== expectedClass) {
+                slotEl.className = expectedClass;
+                stateChanged = true;
+            }
+            slotEl.dataset.slotIndex = i;
+
+            if (stateChanged) {
+                if (slot.state === 'empty') {
+                    slotEl.innerHTML = `
+                        <div class="mv-slot-empty">
+                            <div class="mv-plus-icon">+</div>
+                            <span>Chọn camera</span>
+                        </div>
+                    `;
+                    // Clone node to remove old click event listeners cleanly
+                    const newSlotEl = slotEl.cloneNode(true);
+                    if (slotEl.parentNode) {
+                        slotEl.parentNode.replaceChild(newSlotEl, slotEl);
+                    }
+                    slotEl = newSlotEl;
+                    slot.domElement = slotEl;
+                    slotEl.addEventListener('click', () => openCameraPicker(i));
+                } else if (slot.state === 'loading') {
+                    slotEl.innerHTML = `
+                        <div class="mv-slot-loader">
+                            <div class="mv-spinner"></div>
+                            <p>Đang kết nối...</p>
+                        </div>
+                        <div class="mv-slot-status">
+                            <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                        </div>
+                    `;
+                } else if (slot.state === 'streaming') {
+                    slotEl.innerHTML = `
+                        <video class="mv-stream-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>
+                        <img class="mv-stream-img" data-src="${slot.streamUrl}" alt="${slot.camera ? slot.camera.name : 'Stream'}" style="display: none; width: 100%; height: 100%; object-fit: contain;">
+                        <div class="mv-slot-overlay">
+                            <div class="mv-slot-cam-name">
+                                <span class="mv-live-dot"></span>
+                                ${slot.camera ? slot.camera.name : 'Camera'}
+                            </div>
+                            <div class="mv-slot-actions">
+                                <button type="button" class="mv-slot-btn close-btn" data-action="close" data-slot="${i}" title="Đóng">✕</button>
+                            </div>
+                        </div>
+                        <div class="mv-slot-status">
+                            <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                            <span class="mv-slot-badge live" style="background: #2563EB;">WebRTC</span>
+                        </div>
+                    `;
+
+                    const videoEl = slotEl.querySelector('video');
+                    const imgEl = slotEl.querySelector('img');
+                    const badgeEl = slotEl.querySelector('.mv-slot-badge');
+
+                    // Try WebRTC with retries to give MediaMTX time to ingest the new stream
+                    let retryCount = 0;
+                    const maxRetries = 4;
+                    const attemptWebRTC = () => {
+                        startWebRTCPlayer(videoEl, slot.cameraId).then(pc => {
+                            slot.rtcPeerConnection = pc;
+                            if (badgeEl) {
+                                badgeEl.textContent = 'WebRTC';
+                                badgeEl.style.background = '#2563EB';
+                            }
+                        }).catch(err => {
+                            const isIceError = err.message && (err.message.includes("ICE") || err.message.includes("Timeout"));
+                            
+                            if (!isIceError && retryCount < maxRetries) {
+                                retryCount++;
+                                console.log(`[WebRTC] Luồng chưa sẵn sàng, đang thử lại (Lần ${retryCount}/${maxRetries})...`);
+                                setTimeout(attemptWebRTC, 1500); // Thử lại sau 1.5s
+                            } else {
+                                console.log(`[WebRTC] Gặp lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
+                                if (videoEl) videoEl.style.display = 'none';
+                                if (imgEl) {
+                                    imgEl.src = imgEl.dataset.src; // Nạp luồng MJPEG thực tế khi thực sự có nhu cầu fallback
+                                    imgEl.style.display = 'block';
+                                }
+                                if (badgeEl) {
+                                    badgeEl.textContent = 'MJPEG';
+                                    badgeEl.style.background = '#EF4444';
+                                }
+                            }
+                        });
+                    };
+                    attemptWebRTC();
+
+                    // Click-to-close and action buttons
+                    const closeBtn = slotEl.querySelector('[data-action="close"]');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            removeSlot(i);
+                        });
+                    }
+                } else if (slot.state === 'error') {
+                    slotEl.innerHTML = `
+                        <div class="mv-slot-loader" style="background: rgba(239,68,68,0.1);">
+                            <p style="color: #f87171;">⚠ Lỗi kết nối</p>
+                        </div>
+                        <div class="mv-slot-status">
+                            <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
+                        </div>
+                    `;
+                    const newSlotEl = slotEl.cloneNode(true);
+                    if (slotEl.parentNode) {
+                        slotEl.parentNode.replaceChild(newSlotEl, slotEl);
+                    }
+                    slotEl = newSlotEl;
+                    slot.domElement = slotEl;
+                    slotEl.addEventListener('click', () => {
+                        removeSlot(i);
+                        openCameraPicker(i);
+                    });
+                }
+            }
+
+            activeDomElements.push(slotEl);
         }
+
+        // Clean re-append and sort nodes in grid without resetting existing player states
+        multiviewGrid.innerHTML = '';
+        activeDomElements.forEach(el => multiviewGrid.appendChild(el));
 
         // Show/hide single-view info panel (only in 1x1)
         if (singleViewInfo) {
@@ -198,8 +367,8 @@ function initMonitoringForm() {
             const job = data.job;
             slot.jobId = job.id;
 
-            // Start polling
-            slot.pollingHandle = setInterval(() => pollSlotJob(index), 3000);
+            // Start polling (tần suất 1s/lần thay vì 3s/lần để hiển thị luồng tức thì)
+            slot.pollingHandle = setInterval(() => pollSlotJob(index), 1000);
             pollSlotJob(index);
 
             // In 1x1 mode, update the info panel
@@ -235,7 +404,10 @@ function initMonitoringForm() {
             const data = await window.portalApi.get(`/api/test-jobs/${slot.jobId}`);
             const job = data.job;
 
-            if (job.stream_url && slot.state !== 'streaming') {
+            // Chỉ hiển thị 'streaming' khi luồng thực tế đã bắt đầu xử lý ảnh và đẩy RTSP thành công lên MediaMTX
+            const isProcessing = job.progress && (job.progress.phase === 'running_detection' || job.progress.processed_frames > 0);
+
+            if (job.stream_url && isProcessing && slot.state !== 'streaming') {
                 slot.streamUrl = job.stream_url;
                 slot.state = 'streaming';
                 renderSlots();
@@ -268,6 +440,16 @@ function initMonitoringForm() {
     async function stopSlotJob(slotIndex) {
         const slot = slots[slotIndex];
         if (!slot) return;
+
+        if (slot.rtcPeerConnection) {
+            try {
+                slot.rtcPeerConnection.close();
+                console.log("[WebRTC] Đã giải phóng kết nối cho slot:", slotIndex);
+            } catch (e) {
+                console.error("[WebRTC] Lỗi đóng kết nối:", e);
+            }
+            slot.rtcPeerConnection = null;
+        }
 
         if (slot.pollingHandle) {
             clearInterval(slot.pollingHandle);

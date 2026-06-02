@@ -2384,7 +2384,6 @@ input:checked + .slider:before {
     margin: 0 auto;
 }
 
-/* Slot overlay (camera name + controls) */
 .mv-slot-overlay {
     position: absolute;
     top: 0;
@@ -2395,15 +2394,14 @@ input:checked + .slider:before {
     justify-content: space-between;
     align-items: flex-start;
     z-index: 5;
-    background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 100%);
-    opacity: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 100%);
+    opacity: 0.85;
     transition: opacity 0.25s ease;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .mv-slot.streaming:hover .mv-slot-overlay {
     opacity: 1;
-    pointer-events: auto;
 }
 
 .mv-slot-cam-name {

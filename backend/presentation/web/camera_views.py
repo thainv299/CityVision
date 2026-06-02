@@ -206,6 +206,17 @@ async def api_camera_snapshot(camera_id: int, raw: bool = False, user=Depends(lo
                 media_type="image/jpeg"
             )
 
+    # TỐI ƯU HÓA: Nếu có Job đang chạy (nền hoặc tạm thời), trả về ảnh mới nhất trực tiếp từ RAM cực nhanh
+    if not raw:
+        with container.job_use_cases.job_lock:
+            active_job = None
+            for j in container.job_use_cases.jobs.values():
+                if j.camera_id == camera_id and j.status == "running" and j.latest_frame:
+                    active_job = j
+                    break
+        if active_job:
+            return StreamingResponse(io.BytesIO(active_job.latest_frame), media_type="image/jpeg")
+
     source = camera.stream_source
     capture_source = normalize_capture_source(source)
     

@@ -27,6 +27,10 @@ class TrafficAlertManager:
         # AsyncIOWorker (inject từ bên ngoài, nếu None sẽ fallback gọi đồng bộ)
         self.io_worker = None
         
+        # Quyền lưu DB và camera ID
+        self.save_to_db = True
+        self.camera_id = 1
+        
         # Đảm bảo thư mục lưu log tồn tại
         os.makedirs("logs", exist_ok=True)
 
@@ -108,10 +112,12 @@ class TrafficAlertManager:
         # if speech_text:
         #     self._speak_alert(speech_text)
 
+        if not self.save_to_db:
+            return
+
         try:
             from backend.database.sqlite_db import log_congestion
-            # Mặc định sử dụng camera_id là 1 (hoặc lấy từ cấu hình nếu có)
-            log_congestion(camera_id=1, level=level, duong_dan_anh=img_path)
+            log_congestion(camera_id=self.camera_id, level=level, duong_dan_anh=img_path)
         except Exception as e:
             print("Lỗi lưu database AI (Tắc nghẽn):", e)
 
@@ -119,16 +125,20 @@ class TrafficAlertManager:
         send_alert_with_button(img_path, caption, level)
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):
+        if not self.save_to_db:
+            return
         try:
             from backend.database.sqlite_db import log_congestion
-            log_congestion(camera_id=1, level=level, duong_dan_anh=img_path)
+            log_congestion(camera_id=self.camera_id, level=level, duong_dan_anh=img_path)
         except Exception as e:
             print("Lỗi lưu tắc nghẽn:", e)
 
     def save_parking(self, plate_number, img_path):
+        if not self.save_to_db:
+            return
         try:
             from backend.database.sqlite_db import log_parking_violation
-            log_parking_violation(camera_id=1, license_plate=plate_number, frame_path=img_path)
+            log_parking_violation(camera_id=self.camera_id, license_plate=plate_number, frame_path=img_path)
         except Exception as e:
             print("Lỗi lưu dừng đỗ:", e)
     

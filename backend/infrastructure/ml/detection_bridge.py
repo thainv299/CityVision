@@ -751,6 +751,8 @@ def process_video(
 
     traffic_alert_manager = TrafficAlertManager()
     traffic_alert_manager.io_worker = io_worker
+    traffic_alert_manager.save_to_db = save_to_db
+    traffic_alert_manager.camera_id = camera_id
 
     parking_manager = ParkingManager(None, None)
     parking_manager.no_park_polygon = _to_polygon(no_parking_points)
@@ -834,8 +836,90 @@ def process_video(
         ocr_manager.save_to_db = save_to_db
         ocr_manager.start_worker()
 
-    # FIX #4: Tính drawing params 1 lần trước vòng lặp — kết quả không đổi theo frame
+    # Khởi chạy FFmpeg RTSP push process
+    import subprocess
+    rtsp_proc = None
+    try:
+        rtsp_target = f"rtsp://localhost:8554/live_camera_{camera_id}"
+        # Tự động dò tìm bộ mã hóa phần cứng tốt nhất dựa trên nền tảng (Windows & Jetson)
+        encoder = "libx264"  # Mặc định dự phòng CPU
+        try:
+            res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=2)
+            # 1. Ưu tiên NVIDIA NVENC
+            if "h264_nvenc" in res.stdout:
+                encoder = "h264_nvenc"
+                print(f"[RTSP Push - Camera {camera_id}] Phát hiện GPU NVENC. Tự động offload sang GPU nén video!")
+            # 2. Ưu tiên thứ hai: Jetson V4L2 Hardware Encoder (Hỗ trợ gốc trên các dòng Jetson)
+            elif "h264_v4l2m2m" in res.stdout:
+                encoder = "h264_v4l2m2m"
+                print(f"[RTSP Push - Camera {camera_id}] Phát hiện Jetson V4L2 Hardware Encoder. Sử dụng phần cứng Jetson!")
+            else:
+                print(f"[RTSP Push - Camera {camera_id}] Không tìm thấy bộ mã hóa phần cứng. Sử dụng CPU (libx264)...")
+        except Exception:
+            pass
+
+        ffmpeg_push_cmd = [
+            "ffmpeg", "-y",
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "-s", f"{draw_w}x{draw_h}",
+            "-r", f"{int(fps) if fps > 0 else 25}",
+            "-i", "-",
+        ]
+        
+        # Tính toán GOP tương đương 1 giây để tạo Keyframe/I-Frame liên tục mỗi giây
+        gop_size = str(int(fps) if fps > 0 else 25)
+
+        if encoder == "h264_nvenc":
+            ffmpeg_push_cmd.extend([
+                "-vf", "format=yuv420p",
+                "-c:v", "h264_nvenc",
+                "-preset", "fast",           
+                "-g", gop_size,              # Tạo Keyframe mỗi 1 giây
+                "-forced-idr", "1"           # Ép buộc tạo IDR frame cho WebRTC nhận diện ngay
+            ])
+        elif encoder == "h264_v4l2m2m":
+            ffmpeg_push_cmd.extend([
+                "-vf", "format=yuv420p",
+                "-c:v", "h264_v4l2m2m",
+                "-g", gop_size,              # Tạo Keyframe mỗi 1 giây trên Jetson
+                "-num_output_buffers", "16", # Tối ưu hóa bộ đệm phần cứng cho Jetson
+            ])
+        else:
+            ffmpeg_push_cmd.extend([
+                "-vf", "format=yuv420p",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-tune", "zerolatency",
+                "-g", gop_size               # Tạo Keyframe mỗi 1 giây cho CPU libx264
+            ])
+            
+        ffmpeg_push_cmd.extend([
+            "-f", "rtsp",
+            "-rtsp_transport", "tcp",
+            rtsp_target
+        ])
+        
+        # Ẩn console window trên Windows
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+        rtsp_proc = subprocess.Popen(
+            ffmpeg_push_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo
+        )
+        print(f"[RTSP Push] Đã kích hoạt luồng đẩy RTSP lên: {rtsp_target}")
+    except Exception as e:
+        print(f"[RTSP Push] Lỗi khởi động FFmpeg push: {e}")
+
+    # FIX #4: Tính drawing params 1 lần trước vòng lặp
     f_scale, f_thick, f_offset = _get_drawing_params(draw_w)
+    last_progress_time = 0.0
 
     try:
         while capture.isOpened():
@@ -1163,18 +1247,31 @@ def process_video(
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
-            # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame để tối ưu độ mượt stream MJPEG)
-            if progress_callback is not None:
-                if preview_queue.empty():
-                    preview_queue.put(frame)
+            # Đẩy frame đã vẽ vào luồng RTSP
+            if rtsp_proc and rtsp_proc.stdin:
+                try:
+                    rtsp_proc.stdin.write(frame.tobytes())
+                except Exception:
+                    pass
 
-                response = progress_callback({
-                    "phase": "running_detection",
-                    "latest_status": latest_status,
-                    "preview_jpeg": preview_state["last_jpeg"],
-                    "timestamp": time.time(),
-                    "processed_frames": frame_index
-                })
+            response = None
+            # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame/hoặc throttle tùy số lượng viewer để tránh nghẽn Queue IPC)
+            if progress_callback is not None:
+                now_t = time.time()
+                should_send_progress = (preview_state["viewer_count"] > 0) or (now_t - last_progress_time >= 0.5) or (frame_index == 1)
+                
+                if should_send_progress:
+                    last_progress_time = now_t
+                    if preview_queue.empty():
+                        preview_queue.put(frame)
+
+                    response = progress_callback({
+                        "phase": "running_detection",
+                        "latest_status": latest_status,
+                        "preview_jpeg": preview_state["last_jpeg"],
+                        "timestamp": now_t,
+                        "processed_frames": frame_index
+                    })
                 
                 # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
                 if response and "viewer_count" in response:
@@ -1203,26 +1300,40 @@ def process_video(
                 if response and "new_settings" in response:
                     new_s = response["new_settings"]
                     
-                    # Cập nhật nóng các thông số kỹ thuật AI
+                    # Cập nhật nóng các thông số kỹ thuật AI (Chỉ ghi nhận và in log khi có sự thay đổi thực sự)
                     if "confidence" in new_s:
-                        confidence_threshold = float(new_s["confidence"])
-                        print(f"[Dynamic Settings] Confidence threshold updated to: {confidence_threshold}")
+                        val = float(new_s["confidence"])
+                        if val != confidence_threshold:
+                            confidence_threshold = val
+                            print(f"[Dynamic Settings] Confidence threshold updated to: {confidence_threshold}")
                     
                     if "frame_skip" in new_s:
-                        process_stride = max(1, int(new_s["frame_skip"]))
-                        print(f"[Dynamic Settings] Process stride (frame_skip) updated to: {process_stride}")
+                        val = max(1, int(new_s["frame_skip"]))
+                        if val != process_stride:
+                            process_stride = val
+                            print(f"[Dynamic Settings] Process stride (frame_skip) updated to: {process_stride}")
                         
                     if "congestion_threshold" in new_s:
-                        congestion_threshold = float(new_s["congestion_threshold"])
-                        if traffic_monitor is not None:
-                            traffic_monitor.congestion_threshold = congestion_threshold
-                        print(f"[Dynamic Settings] Congestion threshold updated to: {congestion_threshold}%")
+                        val = float(new_s["congestion_threshold"])
+                        if val != congestion_threshold:
+                            congestion_threshold = val
+                            if traffic_monitor is not None:
+                                traffic_monitor.congestion_threshold = congestion_threshold
+                            print(f"[Dynamic Settings] Congestion threshold updated to: {congestion_threshold}%")
                         
                     if "parking_violation_time" in new_s:
-                        stop_seconds = float(new_s["parking_violation_time"])
-                        if parking_manager is not None:
-                            parking_manager.stop_seconds = stop_seconds
-                        print(f"[Dynamic Settings] Parking violation time (stop_seconds) updated to: {stop_seconds}s")
+                        val = float(new_s["parking_violation_time"])
+                        if val != stop_seconds:
+                            stop_seconds = val
+                            if parking_manager is not None:
+                                parking_manager.stop_seconds = stop_seconds
+                            print(f"[Dynamic Settings] Parking violation time (stop_seconds) updated to: {stop_seconds}s")
+                    
+                    if "is_admin" in new_s:
+                        val = bool(new_s["is_admin"])
+                        if settings.get("is_admin") != val:
+                            settings["is_admin"] = val
+                            print(f"[Dynamic Settings] Vai trò người xem (is_admin) updated to: {settings['is_admin']}")
 
                     # Bật tắt xử lý AI
                     if "enable_ai" in new_s:
@@ -1302,6 +1413,15 @@ def process_video(
                 time.sleep(ideal_frame_time - elapsed)
 
     finally:
+        # Đóng tiến trình RTSP push
+        if rtsp_proc:
+            try:
+                rtsp_proc.stdin.close()
+                rtsp_proc.terminate()
+                rtsp_proc.wait(timeout=1)
+            except Exception:
+                pass
+
         preview_state["stop"] = True
         capture.release()
         if enable_license_plate and ocr_manager is not None:

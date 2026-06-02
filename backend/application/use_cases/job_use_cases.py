@@ -1,22 +1,244 @@
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 from typing import Any, Dict, Optional
 
 from application.interfaces.detection_interface import DetectionInterface
 from domain.entities.job import Job
 from infrastructure.file_system.local_storage import LocalStorage
-from database.sqlite_db import log_detected_license_plate
+
+
+def _child_process_run(
+    job_id: str,
+    input_stream_bytes: Optional[bytes],
+    input_path: Optional[str],
+    input_ext: str,
+    detection_settings: Dict[str, Any],
+    progress_queue: multiprocessing.Queue,
+    pause_event_shared: Any,
+    shared_jobs_state: Any
+) -> None:
+    """Hàm chạy hoàn toàn độc lập trong Tiến trình con (Bypass GIL, CUDA-safe)."""
+    import io
+    import sys
+    from pathlib import Path
+
+    # Đảm bảo import đúng cấu hình và các Service của Backend trong tiến trình con
+    PROJECT_ROOT = Path(__file__).resolve().parents[3]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    
+    # Thiết lập PYTHONPATH bên trong backend/
+    BACKEND_DIR = PROJECT_ROOT / "backend"
+    if str(BACKEND_DIR) not in sys.path:
+        sys.path.insert(0, str(BACKEND_DIR))
+
+    from infrastructure.ml.detection_bridge import YoloDetectionService
+    from database.sqlite_db import log_detected_license_plate
+
+    detection_service = YoloDetectionService()
+    input_stream = io.BytesIO(input_stream_bytes) if input_stream_bytes else None
+
+    current_quality = None
+
+    def handle_progress(progress: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        nonlocal current_quality
+        
+        # Gửi tiến độ qua Queue về Parent Process
+        progress_payload = dict(progress)
+        
+        # Luôn gửi preview_jpeg để hỗ trợ fallback mượt mà và hiển thị trạng thái tức thì
+        try:
+            progress_queue.put({
+                "job_id": job_id,
+                "type": "progress",
+                "data": progress_payload
+            })
+        except Exception as e:
+            print(f"[Child Process {job_id}] Lỗi gửi queue: {e}")
+
+        # Đọc các cập nhật/lệnh điều khiển từ Parent qua Shared Dict (Chỉ đọc, KHÔNG ghi để tránh race condition)
+        actions = {}
+        try:
+            state = shared_jobs_state.get(job_id)
+            if state:
+                req_q = state.get("requested_quality")
+                req_settings = state.get("requested_settings")
+                req_force_preview = state.get("requested_force_preview")
+                viewer_count = state.get("viewer_count", 0)
+
+                # Chỉ gửi chất lượng mới nếu nó khác với chất lượng hiện tại
+                if req_q and req_q != current_quality:
+                    actions["new_quality"] = req_q
+                    current_quality = req_q
+                    
+                if req_settings:
+                    actions["new_settings"] = req_settings
+                if req_force_preview:
+                    actions["force_preview"] = True
+
+                actions["viewer_count"] = viewer_count
+        except Exception as e:
+            print(f"[Child Process {job_id}] Lỗi đọc shared state: {e}")
+
+        return actions if actions else None
+
+    try:
+        summary = detection_service.process_video(
+            input_stream=input_stream,
+            input_path=input_path,
+            input_ext=input_ext,
+            settings=detection_settings,
+            progress_callback=handle_progress,
+            pause_event=pause_event_shared
+        )
+
+        # Lưu danh sách biển số phát hiện được vào DB
+        detected_plates = summary.get("detected_plates", {})
+        for plate_text, plate_data in detected_plates.items():
+            try:
+                log_detected_license_plate(
+                    license_plate=plate_text,
+                    detection_count=plate_data.get("count", 1),
+                    avg_confidence=plate_data.get("avg_confidence", 0.0),
+                    image_paths=plate_data.get("image_path"),
+                )
+            except Exception as db_err:
+                print(f"[Child Process {job_id}] Lỗi ghi DB biển số: {db_err}")
+
+        # Gửi thông báo hoàn thành về Parent
+        progress_queue.put({
+            "job_id": job_id,
+            "type": "status",
+            "status": "completed",
+            "message": "Đã hoàn thành xử lý video.",
+            "summary": summary
+        })
+
+    except Exception as exc:
+        print(f"[Child Process {job_id}] Phát sinh lỗi: {exc}")
+        progress_queue.put({
+            "job_id": job_id,
+            "type": "status",
+            "status": "failed",
+            "message": f"Xử lý thất bại: {exc}",
+            "error": str(exc)
+        })
 
 
 class JobUseCases:
     def __init__(self, detection_service: DetectionInterface, file_storage: LocalStorage):
         self.detection_service = detection_service
         self.file_storage = file_storage
-        
+
         self.job_lock = threading.Lock()
         self.jobs: Dict[str, Job] = {}
-        self.pause_events: Dict[str, threading.Event] = {}
+
+        # Khởi tạo ngữ cảnh Multiprocessing an toàn cho cả Windows và Ubuntu
+        self.mp_ctx = multiprocessing.get_context("spawn")
+        self.progress_queue = self.mp_ctx.Queue()
+        self.processes: Dict[str, multiprocessing.Process] = {}
+
+        # Manager dùng để chia sẻ Event và Dict trạng thái giữa các tiến trình con
+        self.mp_manager = self.mp_ctx.Manager()
+        self.pause_events: Dict[str, Any] = {}
+        self.shared_jobs_state = self.mp_manager.dict()
+
+        # Luồng lắng nghe Queue tiến độ nền trong Tiến trình cha
+        self.listener_thread = threading.Thread(target=self._queue_listener, daemon=True)
+        self.listener_thread.start()
+
+    def _queue_listener(self):
+        """Luồng đón dữ liệu tiến độ từ các tiến trình con để cập nhật vào RAM tiến trình chính FastAPI."""
+        import queue
+        while True:
+            try:
+                msg = self.progress_queue.get(timeout=1.0)
+                if not msg:
+                    continue
+
+                job_id = msg.get("job_id")
+                msg_type = msg.get("type")
+
+                with self.job_lock:
+                    job = self.jobs.get(job_id)
+                    if not job:
+                        continue
+                    
+                    # Nếu Job đã kết thúc (aborted, completed, failed), bỏ qua các gói tiến độ cũ còn sót lại trong Queue
+                    if job.status in {"completed", "failed", "aborted"}:
+                        continue
+
+                    if msg_type == "progress":
+                        data = msg.get("data")
+                        preview_jpeg = data.pop("preview_jpeg", None)
+                        if preview_jpeg:
+                            job.latest_frame = preview_jpeg
+                        
+                        # Đồng bộ tiến trình
+                        job.progress = data
+                        if job.started_at is None:
+                            job.started_at = time.time()
+                            
+                        # Đảm bảo cập nhật message trạng thái về UI
+                        phase = data.get("phase")
+                        processed_frames = data.get("processed_frames")
+                        if phase == "loading_model":
+                            job.message = "Đang tải model YOLO..."
+                        elif phase == "finalizing_output":
+                            job.message = "Đang hoàn tất video kết quả..."
+                        elif processed_frames is not None:
+                            job.message = "Hệ thống đang hoạt động..."
+                        else:
+                            job.message = "Đang xử lý video..."
+
+                    elif msg_type == "status":
+                        status = msg.get("status")
+                        job.status = status
+                        job.message = msg.get("message")
+                        job.error = msg.get("error")
+                        job.summary = msg.get("summary")
+                        job.finished_at = time.time()
+
+                        # Thu hồi tài nguyên tiến trình con khi kết thúc
+                        if status in {"completed", "failed", "aborted"}:
+                            self._cleanup_process(job_id)
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                # Tránh in lỗi lung tung khi server tắt
+                pass
+
+    def _cleanup_process(self, job_id: str):
+        """Thu hồi tài nguyên của một tiến trình con"""
+        p = self.processes.pop(job_id, None)
+        if p:
+            # Dừng bằng thư viện Python trước
+            try:
+                p.kill()
+                p.terminate()
+                p.join(timeout=1)
+            except Exception:
+                pass
+            
+            # Sử dụng lệnh hệ thống để cưỡng chế dừng toàn bộ nhánh tiến trình (Process Tree) bao gồm cả FFmpeg
+            if p.pid:
+                import platform
+                import subprocess
+                try:
+                    if platform.system().lower() == "windows":
+                        subprocess.run(["taskkill", "/f", "/t", "/pid", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    else:
+                        subprocess.run(["kill", "-9", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+                    
+        self.pause_events.pop(job_id, None)
+        try:
+            self.shared_jobs_state.pop(job_id, None)
+        except Exception:
+            pass
 
     def set_job(self, job_id: str, **updates: Any) -> Job:
         with self.job_lock:
@@ -34,7 +256,6 @@ class JobUseCases:
             to_stop = []
             target_id_str = str(camera_id)
             for job_id, job in self.jobs.items():
-                # So sánh string để tránh lệch kiểu dữ liệu int/str
                 if str(job.camera_id) == target_id_str and job.status in {"queued", "running"}:
                     to_stop.append(job_id)
             
@@ -42,9 +263,10 @@ class JobUseCases:
                 job = self.jobs[jid]
                 job.status = "aborted"
                 job.message = "Hệ thống đã dừng tác vụ AI cho camera này."
-                if jid in self.pause_events:
-                    self.pause_events[jid].clear()
-                print(f"[System] Đã dừng job {jid} cho camera {camera_id} thành công.")
+                
+                # Kích hoạt dừng tiến trình vật lý
+                self._cleanup_process(jid)
+                print(f"[System] Đã dừng tiến trình AI {jid} cho camera {camera_id} thành công.")
 
     def get_job(self, job_id: str) -> Optional[Job]:
         with self.job_lock:
@@ -56,11 +278,18 @@ class JobUseCases:
             job = self.jobs.get(job_id)
             if not job:
                 return False
-            # Lưu chất lượng vào progress để Bridge có thể đọc được
             if not job.progress:
                 job.progress = {}
             job.progress["requested_quality"] = quality
-            return True
+
+            # Cập nhật shared state
+            try:
+                state = dict(self.shared_jobs_state.get(job_id) or {})
+                state["requested_quality"] = quality
+                self.shared_jobs_state[job_id] = state
+                return True
+            except Exception:
+                return False
 
     def update_camera_job_settings(self, camera_id: int, settings: Dict[str, Any]):
         """Cập nhật cấu hình tính năng AI cho job của camera đang chạy"""
@@ -69,12 +298,22 @@ class JobUseCases:
                 if str(job.camera_id) == str(camera_id) and job.status in {"queued", "running"}:
                     if not job.progress:
                         job.progress = {}
-                    # Lưu tất cả các cài đặt (bao gồm cấu hình AI và cấu hình hiển thị) vào progress
                     req_s = job.progress.get("requested_settings") or {}
                     for k, v in settings.items():
                         req_s[k] = v
                     job.progress["requested_settings"] = req_s
-                    print(f"[System] Đã cập nhật cấu hình cho job {job_id} trong RAM")
+
+                    # Gửi cập nhật sang Shared Dict để child process đọc
+                    try:
+                        state = dict(self.shared_jobs_state.get(job_id) or {})
+                        req_s_shared = state.get("requested_settings") or {}
+                        for k, v in settings.items():
+                            req_s_shared[k] = v
+                        state["requested_settings"] = req_s_shared
+                        self.shared_jobs_state[job_id] = state
+                        print(f"[System] Đã cập nhật cấu hình cho tiến trình con {job_id}")
+                    except Exception as e:
+                        print(f"[System] Lỗi đồng bộ cấu hình tiến trình con: {e}")
 
     def get_queue_position(self, job_id: str) -> Optional[int]:
         with self.job_lock:
@@ -95,9 +334,11 @@ class JobUseCases:
             if job and job.status == "running":
                 job.is_paused = True
                 job.message = "Đang tạm dừng quá trình phân tích..."
+                
+                # Tạo event tạm dừng đồng bộ qua Manager
                 if job_id not in self.pause_events:
-                    self.pause_events[job_id] = threading.Event()
-                self.pause_events[job_id].set() # Signal pause
+                    self.pause_events[job_id] = self.mp_manager.Event()
+                self.pause_events[job_id].set()
                 return True
         return False
 
@@ -107,9 +348,7 @@ class JobUseCases:
             if job and job.status in {"queued", "running"}:
                 job.status = "aborted"
                 job.message = "Đã dừng quá trình phân tích bởi người dùng."
-                # Xóa sự kiện tạm dừng nếu có để tránh thread bị kẹt khi ngủ
-                if job_id in self.pause_events:
-                    self.pause_events[job_id].clear() 
+                self._cleanup_process(job_id)
                 return True
         return False
 
@@ -120,189 +359,21 @@ class JobUseCases:
                 job.is_paused = False
                 job.message = "Đang tiếp tục phân tích..."
                 if job_id in self.pause_events:
-                    self.pause_events[job_id].clear() # Signal resume
+                    self.pause_events[job_id].clear()
                 return True
         return False
-
-    def run_detection_job(
-        self,
-        job_id: str,
-        input_stream: Any,
-        input_path: Optional[str],
-        input_ext: str,
-        detection_settings: Dict[str, Any],
-        delete_after_job: bool = False
-    ) -> None:
-        def handle_progress(progress: Dict[str, Any]) -> None:
-            # Lấy job một lần duy nhất với lock
-            with self.job_lock:
-                job = self.jobs.get(job_id)
-                if not job:
-                    return None
-                if job.status == "aborted":
-                    raise RuntimeError("Job da bi huy boi luong stream.")
-                
-                req_q = job.progress.get("requested_quality") if job.progress else None
-                req_settings = job.progress.get("requested_settings") if job.progress else None
-                req_force_preview = job.progress.pop("requested_force_preview", False) if job.progress else False
-                req_viewer_count = job.viewer_count
-
-            progress_payload = dict(progress)
-            preview_jpeg = progress_payload.pop("preview_jpeg", None)
-            if preview_jpeg:
-                job.latest_frame = preview_jpeg  # Gán atomic không cần lock
-
-            phase = progress.get("phase")
-            processed_frames = progress.get("processed_frames")
-
-            if phase == "loading_model":
-                message = "Đang tải model YOLO..."
-            elif phase == "finalizing_output":
-                message = "Đang hoàn tất video kết quả..."
-            elif processed_frames is not None:
-                message = "Hệ thống đang hoạt động..."
-            else:
-                message = "Đang xử lý video..."
-
-            # Cập nhật thông số trực tiếp không cần acquire lock liên tục (atomic / GIL-safe)
-            job.status = "running"
-            job.message = message
-            job.error = None
-            if job.started_at is None:
-                job.started_at = time.time()
-            job.progress = progress_payload
-            
-            # Trả về lệnh đổi chất lượng hoặc đổi cài đặt cho Bridge nếu có
-            actions = {}
-            if req_q or req_settings or req_force_preview:
-                with self.job_lock:
-                    if req_q and job.progress:
-                        job.progress.pop("requested_quality", None)
-                    if req_settings and job.progress:
-                        job.progress.pop("requested_settings", None)
-                if req_q:
-                    actions["new_quality"] = req_q
-                if req_settings:
-                    actions["new_settings"] = req_settings
-                if req_force_preview:
-                    actions["force_preview"] = True
-            
-            actions["viewer_count"] = req_viewer_count
-
-            return actions if actions else None
-
-        self.set_job(
-            job_id,
-            status="running",
-            message="Đang khởi tạo job detect...",
-            error=None,
-            started_at=time.time(),
-            progress={
-                "phase": "starting",
-                "processed_frames": 0,
-                "source_total_frames": None,
-                "progress_percent": 0.0,
-                "elapsed_seconds": 0.0,
-                "latest_status": "Đang khởi tạo job detect...",
-            },
-        )
-
-        try:
-            summary = self.detection_service.process_video(
-                input_stream=input_stream,
-                input_path=input_path,
-                input_ext=input_ext,
-                settings=detection_settings,
-                progress_callback=handle_progress,
-                pause_event=self.pause_events.get(job_id)
-            )
-            
-            # Lưu biển số được phát hiện vào database
-            detected_plates = summary.get("detected_plates", {})
-            for plate_text, plate_data in detected_plates.items():
-                log_detected_license_plate(
-                    license_plate=plate_text,
-                    detection_count=plate_data.get("count", 1),
-                    avg_confidence=plate_data.get("avg_confidence", 0.0),
-                    image_paths=plate_data.get("image_path"),
-                )
-            
-            self.set_job(
-                job_id,
-                status="completed",
-                message="Đã hoàn thành xử lý video.",
-                error=None,
-                summary=summary,
-                output_filename=None,
-                finished_at=time.time(),
-                progress={
-                    "phase": "completed",
-                    "processed_frames": summary.get("processed_frames"),
-                    "source_total_frames": summary.get("source_total_frames"),
-                    "progress_percent": 100.0,
-                    "elapsed_seconds": summary.get("processing_seconds"),
-                    "latest_status": summary.get("latest_status"),
-                },
-            )
-        except RuntimeError as exc:
-            self.set_job(
-                job_id,
-                status="aborted",
-                message="Đã dừng quá trình phân tích bởi người dùng.",
-                error=str(exc),
-                summary=None,
-                output_filename=None,
-                finished_at=time.time(),
-            )
-            with self.job_lock:
-                self.pause_events.pop(job_id, None)
-        except Exception as exc:
-            # Kiểm tra xem có phải lỗi thiếu file model YOLO không
-            is_model_missing = isinstance(exc, FileNotFoundError) and "mô hình YOLO" in str(exc)
-            
-            error_msg = str(exc)
-            if is_model_missing:
-                error_msg = f"LỖI HỆ THỐNG: {error_msg}. Camera này đã bị tự động tắt hoạt động để bảo vệ hệ thống."
-                
-                # Tự động tắt kích hoạt camera trong database
-                camera_id = settings.get("camera_id")
-                if camera_id:
-                    try:
-                        from database import camera_repo
-                        from domain.entities.camera import Camera
-                        deactivated_camera = Camera(id=int(camera_id), is_active=False)
-                        camera_repo.update(deactivated_camera)
-                        print(f"[System] TỰ ĐỘNG TẮT HOẠT ĐỘNG camera ID {camera_id} thành công do thiếu file mô hình!")
-                    except Exception as db_exc:
-                        print(f"[System] Không thể tự động tắt kích hoạt camera {camera_id}: {db_exc}")
-
-            self.set_job(
-                job_id,
-                status="failed",
-                message="Xử lý video thất bại." if not is_model_missing else "Lỗi hệ thống: Thiếu mô hình YOLO.",
-                error=error_msg,
-                summary=None,
-                output_filename=None,
-                finished_at=time.time(),
-            )
-            # Cleanup pause event
-            with self.job_lock:
-                self.pause_events.pop(job_id, None)
-        finally:
-            if delete_after_job and input_path:
-                import os
-                try:
-                    os.remove(input_path)
-                except Exception:
-                    pass
 
     def submit_job(self, job_id: str, input_stream: Any, input_path: Optional[str], input_ext: str, settings: Dict[str, Any], delete_after_job: bool = False) -> Job:
         submitted_at = time.time()
         camera_id = settings.get("camera_id")
+
+        # Đọc dữ liệu BytesIO từ tiến trình chính trước khi chuyển giao (vì BytesIO không thể pickled truyền sang process khác)
+        input_stream_bytes = input_stream.getvalue() if input_stream else None
+
         job = self.set_job(
             job_id,
-            status="queued",
-            message="Đã nhận yêu cầu. Job sẽ được xử lý theo hàng đợi.",
+            status="running",
+            message="Đang khởi tạo tiến trình AI độc lập...",
             error=None,
             output_filename=None,
             summary=None,
@@ -315,23 +386,43 @@ class JobUseCases:
                 "source_total_frames": None,
                 "progress_percent": 0.0,
                 "elapsed_seconds": 0.0,
-                "latest_status": "Đang chờ đến lượt xử lý...",
+                "latest_status": "Đang khởi tạo tiến trình AI...",
             },
         )
 
-        thread = threading.Thread(
-            target=self.run_detection_job,
+        # Tạo Event pause đồng bộ
+        if job_id not in self.pause_events:
+            self.pause_events[job_id] = self.mp_manager.Event()
+
+        # Đăng ký thông tin ban đầu vào Shared Dict
+        try:
+            self.shared_jobs_state[job_id] = {
+                "requested_quality": None,
+                "requested_settings": None,
+                "requested_force_preview": False,
+                "viewer_count": 0
+            }
+        except Exception as e:
+            print(f"[System] Lỗi khởi tạo shared state: {e}")
+
+        # Khởi chạy Tiến trình con (Process) thay vì Thread
+        process = self.mp_ctx.Process(
+            target=_child_process_run,
             args=(
                 job_id,
-                input_stream,
+                input_stream_bytes,
                 input_path,
                 input_ext,
                 settings,
-                delete_after_job
+                self.progress_queue,
+                self.pause_events[job_id],
+                self.shared_jobs_state
             ),
             daemon=True
         )
-        thread.start()
+        self.processes[job_id] = process
+        process.start()
+
         return job
 
     def request_single_preview(self, job_id: str):
@@ -342,8 +433,15 @@ class JobUseCases:
                     job.progress = {}
                 job.progress["requested_force_preview"] = True
 
+                # Đánh dấu cờ trong Shared Dict
+                try:
+                    state = dict(self.shared_jobs_state.get(job_id) or {})
+                    state["requested_force_preview"] = True
+                    self.shared_jobs_state[job_id] = state
+                except Exception:
+                    pass
+
     def stream_job_frames(self, job_id: str):
-        import asyncio
         with self.job_lock:
             job = self.jobs.get(job_id)
         if not job:
@@ -351,10 +449,16 @@ class JobUseCases:
 
         with self.job_lock:
             job.viewer_count += 1
+            # Cập nhật số người xem vào Shared Dict
+            try:
+                state = dict(self.shared_jobs_state.get(job_id) or {})
+                state["viewer_count"] = job.viewer_count
+                self.shared_jobs_state[job_id] = state
+            except Exception:
+                pass
 
         try:
             while True:
-                # Đọc trực tiếp trạng thái mà không cần lock liên tục (atomic & GIL-safe)
                 if job.status in ("completed", "failed", "aborted"):
                     break
                 
@@ -362,14 +466,25 @@ class JobUseCases:
                 if frame_bytes:
                     yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
                 
-                time.sleep(0.03)  # Điều tiết tốc độ khung hình stream MJPEG để tránh quá tải CPU
+                time.sleep(0.03)  # Tránh nghẽn băng thông
         finally:
             with self.job_lock:
                 if job.status in ("queued", "running"):
                     job.viewer_count = max(0, job.viewer_count - 1)
+                    
+                    # Đồng bộ lại số người xem về Shared Dict
+                    try:
+                        state = dict(self.shared_jobs_state.get(job_id) or {})
+                        state["viewer_count"] = job.viewer_count
+                        self.shared_jobs_state[job_id] = state
+                    except Exception:
+                        pass
+
                     if not job_id.startswith("background_") and job.viewer_count == 0:
                         job.status = "aborted"
                         job.message = "Stream bị ngắt kết nối."
+                        self._cleanup_process(job_id)
+
     def start_active_cameras(self, camera_use_cases: Any):
         """Khởi động tất cả các camera đang hoạt động (is_active=True)"""
         try:
@@ -377,7 +492,6 @@ class JobUseCases:
             for cam in active_cameras:
                 if cam.is_active:
                     job_id = f"background_{cam.id}"
-                    # Kiểm tra xem job đã chạy chưa
                     existing_job = self.get_job(job_id)
                     if existing_job and existing_job.status in {"queued", "running"}:
                         continue
@@ -405,12 +519,11 @@ class JobUseCases:
                         "save_to_db": True
                     }
                     
-                    # Submit job
                     self.submit_job(
                         job_id=job_id,
                         input_stream=None,
                         input_path=cam.stream_source,
-                        input_ext=".mp4", # Giả định mặc định hoặc lấy từ path
+                        input_ext=".mp4",
                         settings=settings
                     )
         except Exception as e:
@@ -420,9 +533,9 @@ class JobUseCases:
         """Dừng tất cả các job đang chạy hoặc đang chờ"""
         print("[System] Đang dừng tất cả các task xử lý camera...")
         with self.job_lock:
+            for job_id in list(self.processes.keys()):
+                self._cleanup_process(job_id)
             for job_id, job in self.jobs.items():
                 if job.status in {"queued", "running"}:
                     job.status = "aborted"
                     job.message = "Đã dừng task do server tắt."
-                    if job_id in self.pause_events:
-                        self.pause_events[job_id].clear()

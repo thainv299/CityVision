@@ -130,6 +130,13 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup_event():
+        # Khởi động dịch vụ MediaMTX
+        try:
+            from backend.core.mediamtx_manager import mediamtx
+            mediamtx.start()
+        except Exception as e:
+            print(f"[MediaMTX] Không khởi động được dịch vụ: {e}")
+
         # 0. Dọn dẹp CSDL định kỳ
         from backend.database.sqlite_db import cleanup_old_data
         try:
@@ -145,6 +152,13 @@ def create_app() -> FastAPI:
     async def shutdown_event():
         # Dừng tất cả các task khi tắt server
         container.job_use_cases.stop_all_jobs()
+
+        # Dừng dịch vụ MediaMTX
+        try:
+            from backend.core.mediamtx_manager import mediamtx
+            mediamtx.stop()
+        except Exception as e:
+            print(f"[MediaMTX] Lỗi dừng dịch vụ: {e}")
 
     return app
 

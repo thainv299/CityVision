@@ -417,7 +417,10 @@ async def api_create_test_job(
                 job = existing_bg
                 # Cưỡng bức tạo khung hình xem thử tức thì khi người dùng nhấp xem camera đang chạy ngầm
                 container.job_use_cases.request_single_preview(bg_job_id)
-                print(f"[API] Phát hiện camera {camera.id} đang chạy nền thực tế. Chuyển hướng xem stream sang job nền: {bg_job_id}")
+                # Cập nhật động vai trò admin cho job đang chạy
+                is_admin = test_settings.get("is_admin", False)
+                container.job_use_cases.update_camera_job_settings(camera.id, {"is_admin": is_admin})
+                print(f"[API] Phát hiện camera {camera.id} đang chạy nền thực tế. Chuyển hướng xem stream sang job nền: {bg_job_id} (is_admin={is_admin})")
             else:
                 # Nếu camera active nhưng job nền bị chết/chưa chạy, khởi tạo chính job nền đó với save_to_db=True
                 test_settings["save_to_db"] = True
