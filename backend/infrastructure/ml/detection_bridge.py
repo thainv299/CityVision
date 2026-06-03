@@ -842,51 +842,95 @@ def process_video(
     # Khởi chạy FFmpeg RTSP push process
     import subprocess
     rtsp_proc = None
+    rtsp_target = f"rtsp://localhost:8554/live_camera_{camera_id}"
+    
+    # Phát hiện encoder tối ưu
+    encoder = "libx264"
     try:
-        rtsp_target = f"rtsp://localhost:8554/live_camera_{camera_id}"
-        # Tự động dò tìm bộ mã hóa phần cứng tốt nhất dựa trên nền tảng (Windows & Jetson)
-        encoder = "libx264"  # Mặc định dự phòng CPU
-        try:
-            res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=2)
-            # 1. Ưu tiên NVIDIA NVENC
-            if "h264_nvenc" in res.stdout:
-                encoder = "h264_nvenc"
-                print(f"[RTSP Push - Camera {camera_id}] Phát hiện GPU NVENC. Tự động offload sang GPU nén video!")
-            # 2. Ưu tiên thứ hai: Jetson V4L2 Hardware Encoder (Hỗ trợ gốc trên các dòng Jetson)
-            elif "h264_v4l2m2m" in res.stdout:
-                encoder = "h264_v4l2m2m"
-                print(f"[RTSP Push - Camera {camera_id}] Phát hiện Jetson V4L2 Hardware Encoder. Sử dụng phần cứng Jetson!")
-            else:
-                print(f"[RTSP Push - Camera {camera_id}] Không tìm thấy bộ mã hóa phần cứng. Sử dụng CPU (libx264)...")
-        except Exception:
-            pass
+        res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=2)
+        if "h264_nvenc" in res.stdout:
+            encoder = "h264_nvenc"
+            print(f"[RTSP Push - Camera {camera_id}] Phát hiện GPU NVENC. Tự động offload sang GPU nén video!")
+        elif "h264_v4l2m2m" in res.stdout:
+            encoder = "h264_v4l2m2m"
+            print(f"[RTSP Push - Camera {camera_id}] Phát hiện Jetson V4L2 Hardware Encoder. Sử dụng phần cứng Jetson!")
+        else:
+            print(f"[RTSP Push - Camera {camera_id}] Không tìm thấy bộ mã hóa phần cứng. Sử dụng CPU (libx264)...")
+    except Exception:
+        pass
 
+    # Kích thước push mặc định
+    push_w, push_h = draw_w, draw_h
+    push_bitrate = "3.5M"
+    push_crf = "20"
+    
+    # Lấy chất lượng ban đầu nếu có yêu cầu từ settings
+    initial_q = settings.get("requested_quality")
+    if initial_q:
+        if initial_q == "low":
+            push_w, push_h, push_bitrate, push_crf = 854, 480, "800K", "28"
+        elif initial_q == "medium":
+            push_w, push_h, push_bitrate, push_crf = 1280, 720, "1.8M", "23"
+        elif initial_q == "high":
+            push_w, push_h, push_bitrate, push_crf = 1920, 1080, "3.5M", "20"
+        elif initial_q == "ultra":
+            push_w, push_h, push_bitrate, push_crf = 1920, 1080, "6M", "16"
+
+    # Đảm bảo chia hết cho 2
+    push_w = push_w + (push_w % 2)
+    push_h = push_h + (push_h % 2)
+
+    def start_rtsp_push(w, h, bitrate, crf):
+        nonlocal rtsp_proc
+        if rtsp_proc:
+            try:
+                rtsp_proc.stdin.close()
+                rtsp_proc.terminate()
+                rtsp_proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    rtsp_proc.kill()
+                except Exception:
+                    pass
+        
         ffmpeg_push_cmd = [
             "ffmpeg", "-y",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
-            "-s", f"{draw_w}x{draw_h}",
+            "-s", f"{w}x{h}",
             "-r", f"{int(fps) if fps > 0 else 25}",
             "-i", "-",
         ]
         
-        # Tính toán GOP tương đương 1 giây để tạo Keyframe/I-Frame liên tục mỗi giây
         gop_size = str(int(fps) if fps > 0 else 25)
+        
+        if 'M' in bitrate:
+            val = float(bitrate.replace('M',''))
+            max_r = f"{val*1.5:.1f}M"
+            buf_s = f"{val*2:.1f}M"
+        else:
+            val = float(bitrate.replace('K',''))
+            max_r = f"{int(val*1.5)}K"
+            buf_s = f"{int(val*2)}K"
 
         if encoder == "h264_nvenc":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_nvenc",
                 "-preset", "fast",           
-                "-g", gop_size,              # Tạo Keyframe mỗi 1 giây
-                "-forced-idr", "1"           # Ép buộc tạo IDR frame cho WebRTC nhận diện ngay
+                "-b:v", bitrate,
+                "-maxrate", max_r,
+                "-bufsize", buf_s,
+                "-g", gop_size,
+                "-forced-idr", "1"
             ])
         elif encoder == "h264_v4l2m2m":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_v4l2m2m",
-                "-g", gop_size,              # Tạo Keyframe mỗi 1 giây trên Jetson
-                "-num_output_buffers", "16", # Tối ưu hóa bộ đệm phần cứng cho Jetson
+                "-b:v", bitrate,
+                "-g", gop_size,
+                "-num_output_buffers", "16",
             ])
         else:
             ffmpeg_push_cmd.extend([
@@ -894,7 +938,11 @@ def process_video(
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "zerolatency",
-                "-g", gop_size               # Tạo Keyframe mỗi 1 giây cho CPU libx264
+                "-crf", crf,
+                "-b:v", bitrate,
+                "-maxrate", max_r,
+                "-bufsize", buf_s,
+                "-g", gop_size
             ])
             
         ffmpeg_push_cmd.extend([
@@ -903,22 +951,24 @@ def process_video(
             rtsp_target
         ])
         
-        # Ẩn console window trên Windows
         startupinfo = None
         if os.name == "nt":
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             
-        rtsp_proc = subprocess.Popen(
-            ffmpeg_push_cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            startupinfo=startupinfo
-        )
-        print(f"[RTSP Push] Đã kích hoạt luồng đẩy RTSP lên: {rtsp_target}")
-    except Exception as e:
-        print(f"[RTSP Push] Lỗi khởi động FFmpeg push: {e}")
+        try:
+            rtsp_proc = subprocess.Popen(
+                ffmpeg_push_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                startupinfo=startupinfo
+            )
+            print(f"[RTSP Push] Khởi động đẩy RTSP: {w}x{h} @ {bitrate} (CRF={crf})")
+        except Exception as e:
+            print(f"[RTSP Push] Lỗi khởi động FFmpeg push: {e}")
+
+    start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
 
     # FIX #4: Tính drawing params 1 lần trước vòng lặp
     f_scale, f_thick, f_offset = _get_drawing_params(draw_w)
@@ -1263,7 +1313,11 @@ def process_video(
             # Đẩy frame đã vẽ vào luồng RTSP
             if rtsp_proc and rtsp_proc.stdin:
                 try:
-                    rtsp_proc.stdin.write(frame.tobytes())
+                    if frame.shape[1] != push_w or frame.shape[0] != push_h:
+                        push_frame = cv2.resize(frame, (push_w, push_h))
+                    else:
+                        push_frame = frame
+                    rtsp_proc.stdin.write(push_frame.tobytes())
                 except Exception:
                     pass
 
@@ -1298,15 +1352,31 @@ def process_video(
                     if q == "low":
                         preview_state["pw"], preview_state["ph"] = 854, 480
                         preview_state["q"] = 40
+                        push_w, push_h = 854, 480
+                        push_bitrate = "800K"
+                        push_crf = "28"
                     elif q == "medium":
                         preview_state["pw"], preview_state["ph"] = 1280, 720
                         preview_state["q"] = 70
+                        push_w, push_h = 1280, 720
+                        push_bitrate = "1.8M"
+                        push_crf = "23"
                     elif q == "high":
                         preview_state["pw"], preview_state["ph"] = 1920, 1080
                         preview_state["q"] = 85
+                        push_w, push_h = 1920, 1080
+                        push_bitrate = "3.5M"
+                        push_crf = "20"
                     elif q == "ultra":
                         preview_state["pw"], preview_state["ph"] = 1920, 1080
                         preview_state["q"] = 98
+                        push_w, push_h = 1920, 1080
+                        push_bitrate = "6M"
+                        push_crf = "16"
+                    
+                    push_w = push_w + (push_w % 2)
+                    push_h = push_h + (push_h % 2)
+                    start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
                     print(f"[AI] Đã đổi chất lượng sang: {q} ({preview_state['pw']}x{preview_state['ph']}, quality={preview_state['q']})")
                 
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)

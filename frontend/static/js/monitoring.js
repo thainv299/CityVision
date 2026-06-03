@@ -247,7 +247,7 @@ function initMonitoringForm() {
                             }
                         }).catch(err => {
                             const isIceError = err.message && (err.message.includes("ICE") || err.message.includes("Timeout"));
-                            
+
                             if (!isIceError && retryCount < maxRetries) {
                                 retryCount++;
                                 console.log(`[WebRTC] Luồng chưa sẵn sàng, đang thử lại (Lần ${retryCount}/${maxRetries})...`);
@@ -769,19 +769,48 @@ function initMonitoringForm() {
                 btn.classList.add("active");
                 btn.style.background = "#2563EB";
                 btn.style.color = "#fff";
-                
+
                 const quality = btn.dataset.quality;
                 const activeSlots = getActiveSlots();
                 for (const slot of activeSlots) {
                     if (slot.jobId) {
                         try {
                             await window.portalApi.post(`/api/test-jobs/${slot.jobId}/quality`, { quality });
+
+                            // Kết nối lại WebRTC nếu đang phát bằng WebRTC để nhận luồng độ phân giải mới
+                            const videoEl = slot.domElement ? slot.domElement.querySelector('video') : null;
+                            if (videoEl && slot.rtcPeerConnection) {
+                                console.log(`[Quality] Đang kết nối lại WebRTC cho camera ${slot.cameraId} với độ phân giải: ${quality}`);
+                                try {
+                                    slot.rtcPeerConnection.close();
+                                } catch (err) { }
+                                slot.rtcPeerConnection = null;
+
+                                // Đợi 1 giây để FFmpeg khởi động lại và đẩy luồng mới lên MediaMTX ổn định
+                                setTimeout(() => {
+                                    startWebRTCPlayer(videoEl, slot.cameraId).then(pc => {
+                                        slot.rtcPeerConnection = pc;
+                                    }).catch(err => {
+                                        console.error("[Quality] Lỗi kết nối lại WebRTC sau khi đổi chất lượng:", err);
+                                    });
+                                }, 1000);
+                            }
+
+                            // Làm mới luồng ảnh nếu đang dùng MJPEG fallback
+                            const imgEl = slot.domElement ? slot.domElement.querySelector('.mv-stream-img') : null;
+                            if (imgEl && imgEl.style.display !== 'none') {
+                                const oldSrc = imgEl.src;
+                                imgEl.src = '';
+                                setTimeout(() => {
+                                    imgEl.src = oldSrc;
+                                }, 300);
+                            }
                         } catch (e) {
                             console.error("Lỗi cập nhật phân giải:", e);
                         }
                     }
                 }
-                
+
                 if (window.portalApi.showToast) {
                     window.portalApi.showToast(`Đã đổi chất lượng hiển thị sang ${btn.textContent.trim()}`, "success");
                 }
@@ -820,7 +849,7 @@ function initMonitoringForm() {
                             }
                         }
                     }
-                    
+
                     if (window.portalApi.showToast) {
                         const status = el.checked ? "Bật" : "Tắt";
                         const labelText = el.parentElement.textContent.trim();
