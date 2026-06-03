@@ -10,7 +10,7 @@ from modules.utils.interactive_telegram_bot import send_alert_with_button
 class TrafficAlertManager:
     def __init__(self):
         # Cấu hình thời gian đếm ngược tĩnh (giây)
-        self.DEBOUNCE_SECONDS = 1.5
+        self.DEBOUNCE_SECONDS = 2
         self.TRUE_CLEAR_SECONDS = 5.0 # Số giây đường TRỐNG LIÊN TỤC để được coi là hết kẹt xe hoàn toàn
         self.INTERVAL_UNACK = {1: 300, 2: 60, 3: 30}
         self.SNOOZE_ACK = {1: 900, 2: 600, 3: 300}
@@ -112,16 +112,15 @@ class TrafficAlertManager:
         # if speech_text:
         #     self._speak_alert(speech_text)
 
-        if not self.save_to_db:
-            return
-
+        # 4. Gửi thông báo sang Telegram nếu camera đang hoạt động (enable)
         try:
-            from backend.database.sqlite_db import log_congestion
-            log_congestion(camera_id=self.camera_id, level=level, duong_dan_anh=img_path)
+            from backend.database.sqlite_db import is_camera_enabled
+            if not is_camera_enabled(self.camera_id):
+                print(f"[TrafficAlertManager] Camera {self.camera_id} đang tắt/không hoạt động. Không gửi cảnh báo Telegram.")
+                return
         except Exception as e:
-            print("Lỗi lưu database AI (Tắc nghẽn):", e)
+            print(f"[TrafficAlertManager] Lỗi kiểm tra trạng thái hoạt động của camera: {e}")
 
-        # 4. Gửi thông báo sang Telegram
         send_alert_with_button(img_path, caption, level)
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):
