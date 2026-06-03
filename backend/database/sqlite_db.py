@@ -185,6 +185,7 @@ def init_db() -> None:
                 thoi_gian_vi_pham TEXT NOT NULL,
                 thoi_gian_do_giay INTEGER NOT NULL DEFAULT 0,
                 thoi_gian_ket_thuc TEXT,
+                thoi_gian_cap_nhat_cuoi TEXT,
                 duong_dan_anh TEXT,
                 da_giai_quyet INTEGER NOT NULL DEFAULT 0,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -198,6 +199,7 @@ def init_db() -> None:
                 thoi_gian_bat_dau TEXT NOT NULL,
                 thoi_gian_ket_thuc TEXT,
                 thoi_gian_keo_dai_giay INTEGER DEFAULT 0,
+                thoi_gian_cap_nhat_cuoi TEXT,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (id_camera) REFERENCES camera(id)
             );
@@ -295,6 +297,25 @@ def init_db() -> None:
                 print("[Database] Đã thêm cột thoi_gian_ket_thuc vào bảng vi_pham_do_xe")
             except Exception as e:
                 print(f"[Database] Lỗi khi thêm cột thoi_gian_ket_thuc: {e}")
+
+        # Thêm cột thoi_gian_cap_nhat_cuoi vào bảng vi_pham_do_xe nếu chưa có
+        try:
+            connection.execute("SELECT thoi_gian_cap_nhat_cuoi FROM vi_pham_do_xe LIMIT 1")
+        except sqlite3.OperationalError:
+            try:
+                connection.execute("ALTER TABLE vi_pham_do_xe ADD COLUMN thoi_gian_cap_nhat_cuoi TEXT")
+                print("[Database] Đã thêm cột thoi_gian_cap_nhat_cuoi vào bảng vi_pham_do_xe")
+            except Exception as e:
+                print(f"[Database] Lỗi khi thêm cột thoi_gian_cap_nhat_cuoi cho vi_pham_do_xe: {e}")
+
+        # Thêm cột thoi_gian_cap_nhat_cuoi vào bảng nhat_ky_un_tac nếu chưa có
+        try:
+            connection.execute("SELECT thoi_gian_cap_nhat_cuoi FROM nhat_ky_un_tac LIMIT 1")
+        except sqlite3.OperationalError:
+            try:
+                connection.execute("ALTER TABLE nhat_ky_un_tac ADD COLUMN thoi_gian_cap_nhat_cuoi TEXT")
+            except Exception as e:
+                print(f"[Database] Lỗi khi thêm cột thoi_gian_cap_nhat_cuoi cho nhat_ky_un_tac: {e}")
 
         camera_columns = {
             row["name"]
@@ -789,10 +810,10 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
     with connect() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO vi_pham_do_xe (id_camera, bien_so, thoi_gian_vi_pham, thoi_gian_do_giay, duong_dan_anh)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO vi_pham_do_xe (id_camera, bien_so, thoi_gian_vi_pham, thoi_gian_do_giay, duong_dan_anh, thoi_gian_cap_nhat_cuoi)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (camera_id, license_plate, violation_time, duration, frame_path)
+            (camera_id, license_plate, violation_time, duration, frame_path, violation_time)
         )
         violation_id = cursor.lastrowid
         
@@ -852,10 +873,10 @@ def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong
     with connect() as connection:
         cursor = connection.execute(
             """
-            INSERT INTO nhat_ky_un_tac (id_camera, muc_do_un_tac, thoi_gian_bat_dau, duong_dan_anh)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO nhat_ky_un_tac (id_camera, muc_do_un_tac, thoi_gian_bat_dau, duong_dan_anh, thoi_gian_cap_nhat_cuoi)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (camera_id, level, start_time, duong_dan_anh)
+            (camera_id, level, start_time, duong_dan_anh, start_time)
         )
         congestion_id = cursor.lastrowid
         
@@ -916,6 +937,144 @@ def update_congestion_end_time(congestion_id: int, end_time: str = None) -> None
                 (end_time, duration_seconds, congestion_id)
             )
             connection.commit()
+
+
+def update_congestion_heartbeat(congestion_id: int) -> None:
+    """Cập nhật nhịp đập heartbeat (thời gian cập nhật cuối) cho sự kiện ùn tắc"""
+    from datetime import datetime
+    now_str = datetime.now().isoformat()
+    with connect() as connection:
+        connection.execute(
+            "UPDATE nhat_ky_un_tac SET thoi_gian_cap_nhat_cuoi = ? WHERE id = ?",
+            (now_str, congestion_id)
+        )
+        connection.commit()
+
+
+def update_violation_heartbeat(violation_id: int) -> None:
+    """Cập nhật nhịp đập heartbeat (thời gian cập nhật cuối) cho vi phạm đỗ xe"""
+    from datetime import datetime
+    now_str = datetime.now().isoformat()
+    with connect() as connection:
+        connection.execute(
+            "UPDATE vi_pham_do_xe SET thoi_gian_cap_nhat_cuoi = ? WHERE id = ?",
+            (now_str, violation_id)
+        )
+        connection.commit()
+
+
+def close_dangling_records_for_camera(camera_id: int) -> None:
+    """Đóng tất cả các sự kiện ùn tắc và vi phạm đỗ xe chưa kết thúc của camera này khi camera bị dừng"""
+    from datetime import datetime
+    end_time = datetime.now().isoformat()
+    
+    with connect() as connection:
+        # 1. Cập nhật ùn tắc giao thông (cần tính thời gian kéo dài dựa trên thoi_gian_cap_nhat_cuoi)
+        rows = connection.execute(
+            "SELECT id, thoi_gian_bat_dau, thoi_gian_cap_nhat_cuoi FROM nhat_ky_un_tac WHERE id_camera = ? AND thoi_gian_ket_thuc IS NULL",
+            (camera_id,)
+        ).fetchall()
+        for row in rows:
+            congestion_id = row["id"]
+            start_time = row["thoi_gian_bat_dau"]
+            cap_nhat_cuoi = row["thoi_gian_cap_nhat_cuoi"] or start_time
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                end_dt = datetime.fromisoformat(cap_nhat_cuoi)
+                duration = int((end_dt - start_dt).total_seconds())
+            except Exception:
+                duration = 0
+            
+            connection.execute(
+                """
+                UPDATE nhat_ky_un_tac 
+                SET thoi_gian_ket_thuc = ?, thoi_gian_keo_dai_giay = ? 
+                WHERE id = ?
+                """,
+                (cap_nhat_cuoi, duration, congestion_id)
+            )
+            
+        # 2. Cập nhật vi phạm đỗ xe (cần set thoi_gian_ket_thuc = thoi_gian_cap_nhat_cuoi)
+        rows = connection.execute(
+            "SELECT id, thoi_gian_vi_pham, thoi_gian_cap_nhat_cuoi FROM vi_pham_do_xe WHERE id_camera = ? AND thoi_gian_ket_thuc IS NULL",
+            (camera_id,)
+        ).fetchall()
+        for row in rows:
+            violation_id = row["id"]
+            start_time = row["thoi_gian_vi_pham"]
+            cap_nhat_cuoi = row["thoi_gian_cap_nhat_cuoi"] or start_time
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                end_dt = datetime.fromisoformat(cap_nhat_cuoi)
+                duration_do = int((end_dt - start_dt).total_seconds())
+            except Exception:
+                duration_do = 0
+                
+            connection.execute(
+                """
+                UPDATE vi_pham_do_xe 
+                SET thoi_gian_ket_thuc = ?, thoi_gian_do_giay = ?
+                WHERE id = ?
+                """,
+                (cap_nhat_cuoi, duration_do, violation_id)
+            )
+        connection.commit()
+
+
+def close_all_dangling_records() -> None:
+    """Đóng tất cả các sự kiện ùn tắc và vi phạm đỗ xe chưa kết thúc trên toàn hệ thống (dùng khi startup)"""
+    from datetime import datetime
+    end_time = datetime.now().isoformat()
+    
+    with connect() as connection:
+        # 1. Cập nhật ùn tắc giao thông (cần tính thời gian kéo dài dựa trên thoi_gian_cap_nhat_cuoi)
+        rows = connection.execute(
+            "SELECT id, thoi_gian_bat_dau, thoi_gian_cap_nhat_cuoi FROM nhat_ky_un_tac WHERE thoi_gian_ket_thuc IS NULL"
+        ).fetchall()
+        for row in rows:
+            congestion_id = row["id"]
+            start_time = row["thoi_gian_bat_dau"]
+            cap_nhat_cuoi = row["thoi_gian_cap_nhat_cuoi"] or start_time
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                end_dt = datetime.fromisoformat(cap_nhat_cuoi)
+                duration = int((end_dt - start_dt).total_seconds())
+            except Exception:
+                duration = 0
+            
+            connection.execute(
+                """
+                UPDATE nhat_ky_un_tac 
+                SET thoi_gian_ket_thuc = ?, thoi_gian_keo_dai_giay = ? 
+                WHERE id = ?
+                """,
+                (cap_nhat_cuoi, duration, congestion_id)
+            )
+            
+        # 2. Cập nhật vi phạm đỗ xe (cần set thoi_gian_ket_thuc = thoi_gian_cap_nhat_cuoi)
+        rows = connection.execute(
+            "SELECT id, thoi_gian_vi_pham, thoi_gian_cap_nhat_cuoi FROM vi_pham_do_xe WHERE thoi_gian_ket_thuc IS NULL"
+        ).fetchall()
+        for row in rows:
+            violation_id = row["id"]
+            start_time = row["thoi_gian_vi_pham"]
+            cap_nhat_cuoi = row["thoi_gian_cap_nhat_cuoi"] or start_time
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+                end_dt = datetime.fromisoformat(cap_nhat_cuoi)
+                duration_do = int((end_dt - start_dt).total_seconds())
+            except Exception:
+                duration_do = 0
+                
+            connection.execute(
+                """
+                UPDATE vi_pham_do_xe 
+                SET thoi_gian_ket_thuc = ?, thoi_gian_do_giay = ?
+                WHERE id = ?
+                """,
+                (cap_nhat_cuoi, duration_do, violation_id)
+            )
+        connection.commit()
 
 
 def log_passed_vehicle(camera_id: int, bien_so_xe: str, loai_xe: str, thoi_gian_di_qua: str = None, duong_dan_anh: str = None) -> None:
@@ -1290,3 +1449,19 @@ def revoke_camera_access(user_id: int, camera_id: int) -> None:
             (user_id, camera_id)
         )
         connection.commit()
+
+
+def is_camera_enabled(camera_id: int) -> bool:
+    """Kiểm tra xem camera có hoạt động hay không (trang_thai_hoat_dong = 1)"""
+    try:
+        with connect() as connection:
+            row = connection.execute(
+                "SELECT trang_thai_hoat_dong FROM camera WHERE id = ?",
+                (camera_id,)
+            ).fetchone()
+            if row:
+                return bool(row["trang_thai_hoat_dong"])
+    except Exception as e:
+        print(f"[Database] Lỗi kiểm tra trạng thái camera: {e}")
+    return False
+

@@ -252,12 +252,19 @@ class JobUseCases:
 
     def stop_camera_jobs(self, camera_id: int):
         """Dừng tất cả các job (nền hoặc test) liên quan đến camera_id này"""
+        try:
+            from database.sqlite_db import close_dangling_records_for_camera
+            close_dangling_records_for_camera(camera_id)
+        except Exception as e:
+            print(f"[System] Lỗi khi đóng bản ghi dang dở của camera {camera_id}: {e}")
+
         with self.job_lock:
             to_stop = []
             target_id_str = str(camera_id)
             for job_id, job in self.jobs.items():
                 if str(job.camera_id) == target_id_str and job.status in {"queued", "running"}:
                     to_stop.append(job_id)
+
             
             for jid in to_stop:
                 job = self.jobs[jid]
@@ -348,9 +355,19 @@ class JobUseCases:
             if job and job.status in {"queued", "running"}:
                 job.status = "aborted"
                 job.message = "Đã dừng quá trình phân tích bởi người dùng."
+                
+                # Đóng các bản ghi dang dở của camera tương ứng
+                if job.camera_id:
+                    try:
+                        from database.sqlite_db import close_dangling_records_for_camera
+                        close_dangling_records_for_camera(int(job.camera_id))
+                    except Exception as e:
+                        print(f"[System] Lỗi khi đóng bản ghi dang dở cho job {job_id}: {e}")
+
                 self._cleanup_process(job_id)
                 return True
         return False
+
 
     def resume_job(self, job_id: str) -> bool:
         with self.job_lock:
@@ -532,6 +549,12 @@ class JobUseCases:
     def stop_all_jobs(self):
         """Dừng tất cả các job đang chạy hoặc đang chờ"""
         print("[System] Đang dừng tất cả các task xử lý camera...")
+        try:
+            from database.sqlite_db import close_all_dangling_records
+            close_all_dangling_records()
+        except Exception as e:
+            print(f"[System] Lỗi khi đóng tất cả bản ghi dang dở khi tắt server: {e}")
+
         with self.job_lock:
             for job_id in list(self.processes.keys()):
                 self._cleanup_process(job_id)
@@ -539,3 +562,4 @@ class JobUseCases:
                 if job.status in {"queued", "running"}:
                     job.status = "aborted"
                     job.message = "Đã dừng task do server tắt."
+
