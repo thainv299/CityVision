@@ -52,11 +52,9 @@ Hỗ trợ cả **Desktop GUI (Tkinter)** và **Web Portal (FastAPI)** với mô
 ## 📈 Kết Quả Huấn Luyện (YOLO Training Metrics)
 Mô hình YOLO được huấn luyện kỹ lưỡng qua nhiều epoch với các chỉ số chất lượng thực tế vô cùng ấn tượng:
 
-### Biểu đồ suy hao và độ chính xác (Loss Curves & Performance Metrics)
-![Chỉ số Huấn luyện 1](assets/train_result1.png)
-![Chỉ số Huấn luyện 2](assets/train_result2.png)
-![Chỉ số Huấn luyện 3](assets/train_result3.png)
-
+### Biểu đồ Precision Confident và Recall Confident
+![Chỉ số Huấn luyện 1](assets/boxP_curve.png)
+![Chỉ số Huấn luyện 2](assets/BoxR_curve.png)
 ### Đánh giá chất lượng nhận diện (Precision-Recall & Confusion Matrix)
 - **Ma trận nhầm lẫn chuẩn hóa (Confusion Matrix Normalized):** Giúp kiểm soát độ chính xác phân loại giữa các lớp xe và biển số, tránh nhầm lẫn giữa nền (background) và vật thể.
 - **Đường cong F1-Score / PR Curve:** Thể hiện độ tin cậy cân bằng tối ưu giữa Precision (độ chuẩn xác) và Recall (độ thu hồi) ở mọi ngưỡng tin cậy.
