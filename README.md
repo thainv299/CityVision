@@ -112,16 +112,6 @@ werkzeug
 jinja2
 ```
 
-### 3. Cấu hình môi trường (`.env`)
-Tạo tệp `.env` tại thư mục gốc của dự án:
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
-CROWD_PORTAL_SECRET=your_super_secret_session_key
-USE_GSTREAMER=1
-USE_PADDLE_ONNX=1
-```
-
 ---
 
 ## 📁 Cấu Trúc Thư Mục Dự Án
