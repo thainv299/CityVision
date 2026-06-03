@@ -268,10 +268,7 @@ model.export(
 
 | Cấu hình phần cứng | FPS Đạt Được | Độ trễ luồng stream |
 |---|---|---|
-| YOLO .pt (Chạy CPU Core i5 / libx264) | 5 - 8 FPS | ~3.5 giây |
-| YOLO .pt (Chạy GPU GTX 3060) | 12 - 15 FPS | ~1.5 giây |
 | YOLO .engine (Lượng tử hóa TRT FP16) | 18 - 22 FPS | ~1.1 giây |
-| **TRT FP16 + WebRTC GOP Optimizations** | **25 - 30 FPS** | **<0.8 giây (Tức thì)** |
 
 ---
 
