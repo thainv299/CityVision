@@ -36,7 +36,9 @@ from database.sqlite_db import (
     log_parking_violation,
     update_violation_end_time,
     log_vehicle_count,
-    log_detected_license_plate
+    log_detected_license_plate,
+    update_congestion_heartbeat,
+    update_violation_heartbeat
 )
 from collections import deque
 
@@ -751,7 +753,7 @@ def process_video(
 
     traffic_alert_manager = TrafficAlertManager()
     traffic_alert_manager.io_worker = io_worker
-    traffic_alert_manager.save_to_db = save_to_db
+    traffic_alert_manager.save_to_db = False # Tắt tự ghi DB để tránh ghi đúp (tiến trình chính sẽ quản lý và lưu)
     traffic_alert_manager.camera_id = camera_id
 
     parking_manager = ParkingManager(None, None)
@@ -794,6 +796,7 @@ def process_video(
     fps_frame_count = 0
     current_fps = 0.0
     accumulated_process_time = 0.0
+    last_heartbeat_time = started_at
 
     # Luồng nền nén ảnh JPEG
     preview_queue = queue.Queue(maxsize=1)
@@ -1167,6 +1170,16 @@ def process_video(
                                 alpr_logger.log_vehicle_without_plate(frame_index, best_f, best_box)
                         
                         del pending_alpr_tracks[tid]
+
+            # Gửi heartbeat định kỳ (mỗi 10 giây)
+            if current_time - last_heartbeat_time >= 10.0:
+                last_heartbeat_time = current_time
+                if last_congestion_record_id and save_to_db:
+                    io_worker.enqueue_db_write(update_congestion_heartbeat, args=(last_congestion_record_id,))
+                
+                if enable_illegal_parking and parking_manager and parking_manager.violation_records:
+                    for tid, v_id in list(parking_manager.violation_records.items()):
+                        io_worker.enqueue_db_write(update_violation_heartbeat, args=(v_id,))
 
             # Cập nhật Traffic Monitor
             if enable_congestion and traffic_monitor is not None:

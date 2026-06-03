@@ -9,14 +9,8 @@ from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-# ---------------------------------------------------------------------------
-# Path setup
-# app.py nằm ở d:\UrbanM_AI\UrbanM_AI\ (project root)
-# Các module nội bộ (core, database, presentation) nằm bên trong backend/
-# → Thêm backend/ vào đầu sys.path để import không cần prefix "backend."
-# ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent          # d:\UrbanM_AI\UrbanM_AI\
-BACKEND_DIR = PROJECT_ROOT / "backend"                  # d:\UrbanM_AI\UrbanM_AI\backend\
+PROJECT_ROOT = Path(__file__).resolve().parent         
+BACKEND_DIR = PROJECT_ROOT / "backend"                  
 
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -137,7 +131,15 @@ def create_app() -> FastAPI:
         except Exception as e:
             print(f"[MediaMTX] Không khởi động được dịch vụ: {e}")
 
-        # 0. Dọn dẹp CSDL định kỳ
+        # Đóng toàn bộ các sự kiện ùn tắc / vi phạm đỗ xe chưa kết thúc từ lần chạy trước (đề phòng sập nguồn)
+        from backend.database.sqlite_db import close_all_dangling_records
+        try:
+            close_all_dangling_records()
+            print("[Database] Đã đóng toàn bộ các sự kiện ùn tắc và vi phạm chưa kết thúc từ phiên trước.")
+        except Exception as e:
+            print(f"[Database] Lỗi khi dọn dẹp các sự kiện chưa kết thúc từ phiên trước: {e}")
+
+        # Dọn dẹp CSDL định kỳ
         from backend.database.sqlite_db import cleanup_old_data
         try:
             cleanup_old_data(days_to_keep=30)
