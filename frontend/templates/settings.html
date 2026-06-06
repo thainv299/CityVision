@@ -263,8 +263,8 @@
                 // Parking violation time
                 document.getElementById('setting-parking-violation-time').value = s.parking_violation_time;
 
-                // Log retention
-                document.getElementById('setting-log-retention').value = s.log_retention;
+                // Log retention (Chuyển thành cấu hình hệ thống, không nạp theo camera)
+                // document.getElementById('setting-log-retention').value = s.log_retention;
 
                 statusInfo.innerHTML = `<span style="color: #166534;"><i class="fas fa-check-circle" style="margin-right: 4px;"></i> Đã nạp cấu hình</span>`;
                 statusInfo.style.backgroundColor = '#F0FDF4';
@@ -306,14 +306,27 @@
         feedback.textContent = '';
 
         try {
+            // 1. Lưu cấu hình camera
             const response = await fetch(`/api/cameras/${cameraId}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
+            // 2. Lưu cấu hình hệ thống (Log retention)
+            const systemPayload = {
+                log_retention: document.getElementById('setting-log-retention').value
+            };
+            const sysResponse = await fetch('/api/system/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(systemPayload)
+            });
+
             const result = await response.json();
-            if (response.ok && result.ok) {
+            const sysResult = await sysResponse.json();
+
+            if (response.ok && result.ok && sysResponse.ok && sysResult.ok) {
                 feedback.style.color = '#166534';
                 feedback.innerHTML = '<i class="fas fa-check" style="margin-right: 4px;"></i> Cấu hình đã được áp dụng động thành công';
 
@@ -335,9 +348,22 @@
         }
     }
 
+    async function loadSystemSettings() {
+        try {
+            const response = await fetch('/api/system/settings');
+            const result = await response.json();
+            if (result.ok && result.settings) {
+                document.getElementById('setting-log-retention').value = result.settings.log_retention;
+            }
+        } catch (error) {
+            console.error('Không thể tải cấu hình hệ thống:', error);
+        }
+    }
+
     // Gọi load camera ngay khi tải trang
     document.addEventListener("DOMContentLoaded", () => {
         onCameraChange();
+        loadSystemSettings();
         loadBackups();
     });
 

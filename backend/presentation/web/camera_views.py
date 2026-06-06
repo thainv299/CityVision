@@ -397,3 +397,25 @@ def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Dep
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
+
+@camera_router.get("/api/system/settings")
+def api_get_system_settings(user=Depends(login_required)):
+    from database.sqlite_db import get_system_setting
+    try:
+        log_retention = get_system_setting("log_retention", "30_days")
+        return {"ok": True, "settings": {"log_retention": log_retention}}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+
+
+@camera_router.put("/api/system/settings")
+def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_required)):
+    from database.sqlite_db import update_system_setting
+    try:
+        log_retention = payload.get("log_retention")
+        if log_retention:
+            update_system_setting("log_retention", log_retention)
+        return {"ok": True, "message": "Đã cập nhật cấu hình hệ thống thành công."}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+

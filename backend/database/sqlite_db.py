@@ -44,6 +44,15 @@ def cleanup_old_data(days_to_keep: int = 90) -> None:
                     paths = r["duong_dan_anh"].split(',')
                     for p in paths:
                         files_to_delete.append(p.strip())
+
+            # 4. Thu thập đường dẫn ảnh phương tiện di chuyển qua
+            try:
+                rows = connection.execute("SELECT duong_dan_anh FROM lich_su_phuong_tien WHERE thoi_gian_di_qua < ?", (cutoff_datetime,)).fetchall()
+                for r in rows:
+                    if r["duong_dan_anh"]:
+                        files_to_delete.append(r["duong_dan_anh"])
+            except Exception as e:
+                pass
             
             # --- THỰC HIỆN XÓA TRONG DATABASE ---
             
@@ -256,6 +265,11 @@ def init_db() -> None:
                 FOREIGN KEY (id_nguoidung) REFERENCES nguoi_dung(id) ON DELETE CASCADE,
                 FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS cai_dat_he_thong (
+                khoa TEXT PRIMARY KEY,
+                gia_tri TEXT NOT NULL
+            );
             
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_thoi_gian ON lich_su_phuong_tien(thoi_gian_di_qua);
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_camera_thoi_gian ON lich_su_phuong_tien(id_camera, thoi_gian_di_qua);
@@ -379,6 +393,13 @@ def init_db() -> None:
                 "admin",
                 1,
             ),
+        )
+
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO cai_dat_he_thong (khoa, gia_tri)
+            VALUES ('log_retention', '30_days')
+            """
         )
         connection.commit()
 
@@ -1247,6 +1268,34 @@ def update_camera_settings(camera_id: int, settings: dict) -> None:
                 int(settings.get("parking_violation_time", 30)),
                 settings.get("log_retention", "30_days")
             )
+        )
+        connection.commit()
+
+
+def get_system_setting(key: str, default: str = "") -> str:
+    """Lấy cấu hình hệ thống từ bảng cai_dat_he_thong"""
+    try:
+        with connect() as connection:
+            row = connection.execute(
+                "SELECT gia_tri FROM cai_dat_he_thong WHERE khoa = ?",
+                (key,)
+            ).fetchone()
+            if row:
+                return row["gia_tri"]
+    except Exception as e:
+        print(f"[Database] Lỗi khi lấy cấu hình hệ thống {key}: {e}")
+    return default
+
+
+def update_system_setting(key: str, value: str) -> None:
+    """Cập nhật hoặc thêm mới cấu hình hệ thống"""
+    with connect() as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO cai_dat_he_thong (khoa, gia_tri)
+            VALUES (?, ?)
+            """,
+            (key, str(value))
         )
         connection.commit()
 
