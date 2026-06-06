@@ -148,6 +148,11 @@ class ParkingManager:
             # 3. Kiểm tra lọc trùng lặp theo biển số (trong 45 giây gần nhất)
             if current_plate and not current_plate.startswith("ID_"):
                 now = time.time()
+                # Dọn dẹp entries cũ hơn 5 phút để tránh memory leak
+                stale_plates = [p for p, t in self._last_notified_plates.items() if now - t > 300]
+                for p in stale_plates:
+                    del self._last_notified_plates[p]
+
                 last_time = self._last_notified_plates.get(current_plate, 0)
                 if now - last_time < 45.0:
                     print(f"[ParkingManager] Bỏ qua gửi cảnh báo trùng lặp Telegram cho biển số {current_plate} (debounce).")
