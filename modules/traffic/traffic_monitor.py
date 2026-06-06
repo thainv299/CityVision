@@ -122,16 +122,17 @@ class TrafficMonitor:
         # 3. ĐÁNH GIÁ MỨC ĐỘ (RAW)
         is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR) or (self.vehicle_count + self.people_count >= 25)
 
-        if not is_high_count and occupancy_percent < self.congestion_threshold:
+        if not is_high_count:
             traffic_level = 0
-        elif is_high_count and occupancy_percent < self.congestion_threshold:
-            traffic_level = 1
-        elif occupancy_percent >= self.congestion_threshold and avg_speed > CONG_SPEED_THR:
-            traffic_level = 2
-        elif occupancy_percent >= self.congestion_threshold and avg_speed <= CONG_SPEED_THR:
-            traffic_level = 3
         else:
-            traffic_level = 0
+            # Nếu đã đạt mức 1 (Đông đúc), xét tiếp diện tích lấp đầy để lên mức 2 hoặc 3
+            if occupancy_percent < self.congestion_threshold:
+                traffic_level = 1
+            else:
+                if avg_speed > CONG_SPEED_THR:
+                    traffic_level = 2
+                else:
+                    traffic_level = 3
             
         status_text, status_color = self.get_status_for_level(traffic_level, avg_speed)
         return avg_speed, status_text, status_color, traffic_level
