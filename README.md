@@ -52,11 +52,9 @@ Hỗ trợ cả **Desktop GUI (Tkinter)** và **Web Portal (FastAPI)** với mô
 ## 📈 Kết Quả Huấn Luyện (YOLO Training Metrics)
 Mô hình YOLO được huấn luyện kỹ lưỡng qua nhiều epoch với các chỉ số chất lượng thực tế vô cùng ấn tượng:
 
-### Biểu đồ suy hao và độ chính xác (Loss Curves & Performance Metrics)
-![Chỉ số Huấn luyện 1](assets/train_result1.png)
-![Chỉ số Huấn luyện 2](assets/train_result2.png)
-![Chỉ số Huấn luyện 3](assets/train_result3.png)
-
+### Biểu đồ Precision Confident và Recall Confident
+![Chỉ số Huấn luyện 1](assets/boxP_curve.png)
+![Chỉ số Huấn luyện 2](assets/BoxR_curve.png)
 ### Đánh giá chất lượng nhận diện (Precision-Recall & Confusion Matrix)
 - **Ma trận nhầm lẫn chuẩn hóa (Confusion Matrix Normalized):** Giúp kiểm soát độ chính xác phân loại giữa các lớp xe và biển số, tránh nhầm lẫn giữa nền (background) và vật thể.
 - **Đường cong F1-Score / PR Curve:** Thể hiện độ tin cậy cân bằng tối ưu giữa Precision (độ chuẩn xác) và Recall (độ thu hồi) ở mọi ngưỡng tin cậy.
@@ -112,16 +110,6 @@ aiofiles
 python-multipart
 werkzeug
 jinja2
-```
-
-### 3. Cấu hình môi trường (`.env`)
-Tạo tệp `.env` tại thư mục gốc của dự án:
-```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
-CROWD_PORTAL_SECRET=your_super_secret_session_key
-USE_GSTREAMER=1
-USE_PADDLE_ONNX=1
 ```
 
 ---
@@ -280,10 +268,7 @@ model.export(
 
 | Cấu hình phần cứng | FPS Đạt Được | Độ trễ luồng stream |
 |---|---|---|
-| YOLO .pt (Chạy CPU Core i5 / libx264) | 5 - 8 FPS | ~3.5 giây |
-| YOLO .pt (Chạy GPU GTX 3060) | 12 - 15 FPS | ~1.5 giây |
 | YOLO .engine (Lượng tử hóa TRT FP16) | 18 - 22 FPS | ~1.1 giây |
-| **TRT FP16 + WebRTC GOP Optimizations** | **25 - 30 FPS** | **<0.8 giây (Tức thì)** |
 
 ---
 

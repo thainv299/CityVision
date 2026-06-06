@@ -445,14 +445,27 @@ class ParkingManager:
             else:
                 box_color = None
                 state_str = "MOVING"
-                if just_changed and mapped_id in self.violation_records:
-                    if self.violation_end_callback:
-                        self.violation_end_callback(self.violation_records[mapped_id])
-                    del self.violation_records[mapped_id]
+                if just_changed:
+                    if mapped_id in self.violation_records:
+                        if self.violation_end_callback:
+                            self.violation_end_callback(self.violation_records[mapped_id])
+                        del self.violation_records[mapped_id]
+                    self.waiting_vehicles.pop(mapped_id, None)
+                    self.active_recordings.pop(mapped_id, None)
                 
             display_label = f"ID:{mapped_id} {label} {state_str}"
             return display_label, box_color
         else:
+            # Xe nằm ngoài vùng cấm đỗ -> Reset trạng thái giám sát đỗ xe của xe này nếu có
+            if self.logic and mapped_id in self.logic.states:
+                if mapped_id in self.violation_records:
+                    if self.violation_end_callback:
+                        self.violation_end_callback(self.violation_records[mapped_id])
+                    del self.violation_records[mapped_id]
+                self.logic.states.pop(mapped_id, None)
+                self.waiting_vehicles.pop(mapped_id, None)
+                self.active_recordings.pop(mapped_id, None)
+
             if mapped_id != track_id:
                 return f"ID:{mapped_id} {label}", None
         return None, None
