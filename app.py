@@ -140,9 +140,19 @@ def create_app() -> FastAPI:
             print(f"[Database] Lỗi khi dọn dẹp các sự kiện chưa kết thúc từ phiên trước: {e}")
 
         # Dọn dẹp CSDL định kỳ
-        from backend.database.sqlite_db import cleanup_old_data
+        from backend.database.sqlite_db import cleanup_old_data, get_system_setting
         try:
-            cleanup_old_data(days_to_keep=30)
+            retention = get_system_setting("log_retention", "30_days")
+            days_map = {
+                "7_days": 7,
+                "30_days": 30,
+                "90_days": 90
+            }
+            if retention != "forever":
+                days = days_map.get(retention, 30)
+                cleanup_old_data(days_to_keep=days)
+            else:
+                print("[Database] Cấu hình lưu trữ dữ liệu vĩnh viễn (forever), bỏ qua dọn dẹp định kỳ.")
         except Exception as e:
             print(f"[Database] Lỗi dọn dẹp định kỳ: {e}")
 

@@ -128,16 +128,27 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
             <div>
-                <label
-                    style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời
-                    gian tự động dọn dẹp Logs</label>
-                <select id="setting-log-retention"
-                    style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
-                    <option value="7_days">7 ngày gần nhất</option>
-                    <option value="30_days">30 ngày gần nhất (Khuyên dùng)</option>
-                    <option value="90_days">90 ngày gần nhất</option>
-                    <option value="forever">Toàn bộ (Lưu trữ vĩnh viễn)</option>
-                </select>
+                <div style="margin-bottom: 15px;">
+                    <label
+                        style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời
+                        gian tự động dọn dẹp Logs</label>
+                    <select id="setting-log-retention"
+                        style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                        <option value="7_days">7 ngày gần nhất</option>
+                        <option value="30_days">30 ngày gần nhất (Khuyên dùng)</option>
+                        <option value="90_days">90 ngày gần nhất</option>
+                        <option value="forever">Toàn bộ (Lưu trữ vĩnh viễn)</option>
+                    </select>
+                </div>
+                <div>
+                    <label
+                        style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thông báo qua Telegram</label>
+                    <select id="setting-telegram-notifications"
+                        style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                        <option value="true">Bật (Gửi cảnh báo tức thời)</option>
+                        <option value="false">Tắt (Không gửi thông báo)</option>
+                    </select>
+                </div>
             </div>
 
             <div
@@ -263,8 +274,8 @@
                 // Parking violation time
                 document.getElementById('setting-parking-violation-time').value = s.parking_violation_time;
 
-                // Log retention
-                document.getElementById('setting-log-retention').value = s.log_retention;
+                // Log retention (Chuyển thành cấu hình hệ thống, không nạp theo camera)
+                // document.getElementById('setting-log-retention').value = s.log_retention;
 
                 statusInfo.innerHTML = `<span style="color: #166534;"><i class="fas fa-check-circle" style="margin-right: 4px;"></i> Đã nạp cấu hình</span>`;
                 statusInfo.style.backgroundColor = '#F0FDF4';
@@ -306,14 +317,28 @@
         feedback.textContent = '';
 
         try {
+            // 1. Lưu cấu hình camera
             const response = await fetch(`/api/cameras/${cameraId}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
+            // 2. Lưu cấu hình hệ thống (Log retention & Telegram notifications)
+            const systemPayload = {
+                log_retention: document.getElementById('setting-log-retention').value,
+                telegram_notifications: document.getElementById('setting-telegram-notifications').value
+            };
+            const sysResponse = await fetch('/api/system/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(systemPayload)
+            });
+
             const result = await response.json();
-            if (response.ok && result.ok) {
+            const sysResult = await sysResponse.json();
+
+            if (response.ok && result.ok && sysResponse.ok && sysResult.ok) {
                 feedback.style.color = '#166534';
                 feedback.innerHTML = '<i class="fas fa-check" style="margin-right: 4px;"></i> Cấu hình đã được áp dụng động thành công';
 
@@ -335,9 +360,25 @@
         }
     }
 
+    async function loadSystemSettings() {
+        try {
+            const response = await fetch('/api/system/settings');
+            const result = await response.json();
+            if (result.ok && result.settings) {
+                document.getElementById('setting-log-retention').value = result.settings.log_retention;
+                if (result.settings.telegram_notifications !== undefined) {
+                    document.getElementById('setting-telegram-notifications').value = String(result.settings.telegram_notifications);
+                }
+            }
+        } catch (error) {
+            console.error('Không thể tải cấu hình hệ thống:', error);
+        }
+    }
+
     // Gọi load camera ngay khi tải trang
     document.addEventListener("DOMContentLoaded", () => {
         onCameraChange();
+        loadSystemSettings();
         loadBackups();
     });
 

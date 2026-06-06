@@ -53,7 +53,7 @@ Hỗ trợ cả **Desktop GUI (Tkinter)** và **Web Portal (FastAPI)** với mô
 Mô hình YOLO được huấn luyện kỹ lưỡng qua nhiều epoch với các chỉ số chất lượng thực tế vô cùng ấn tượng:
 
 ### Biểu đồ Precision Confident và Recall Confident
-![Chỉ số Huấn luyện 1](assets/boxP_curve.png)
+![Chỉ số Huấn luyện 1](assets/BoxP_curve.png)
 ![Chỉ số Huấn luyện 2](assets/BoxR_curve.png)
 ### Đánh giá chất lượng nhận diện (Precision-Recall & Confusion Matrix)
 - **Ma trận nhầm lẫn chuẩn hóa (Confusion Matrix Normalized):** Giúp kiểm soát độ chính xác phân loại giữa các lớp xe và biển số, tránh nhầm lẫn giữa nền (background) và vật thể.
