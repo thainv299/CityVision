@@ -401,6 +401,12 @@ def init_db() -> None:
             VALUES ('log_retention', '30_days')
             """
         )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO cai_dat_he_thong (khoa, gia_tri)
+            VALUES ('telegram_notifications', 'true')
+            """
+        )
         connection.commit()
 
 

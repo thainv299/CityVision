@@ -10,6 +10,14 @@ def send_telegram_image(
     timeout_seconds: int = 10,
 ) -> bool:
     """Gửi ảnh qua Telegram"""
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        if get_system_setting("telegram_notifications", "true") == "false":
+            print("[Telegram Bot] Gửi ảnh bị bỏ qua do cấu hình hệ thống đã tắt thông báo Telegram.")
+            return False
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra cấu hình hệ thống: {e}")
+
     bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
     chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
 
@@ -41,6 +49,14 @@ def send_telegram_video(
     timeout_seconds: int = 10,
 ) -> bool:
     """Gửi video qua Telegram"""
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        if get_system_setting("telegram_notifications", "true") == "false":
+            print("[Telegram Bot] Gửi video bị bỏ qua do cấu hình hệ thống đã tắt thông báo Telegram.")
+            return False
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra cấu hình hệ thống: {e}")
+
     bot_token = (bot_token or os.getenv("TELEGRAM_BOT_TOKEN", "")).strip()
     chat_id = (chat_id or os.getenv("TELEGRAM_CHAT_ID", "")).strip()
 

@@ -43,6 +43,8 @@ class ParkingManager:
         self.ghost_tracks = {}
         self.last_seen = {}
         self.track_id_map = {}
+        self.pending_telegram_warnings = {}
+        self._last_notified_plates = {}
 
 
     def init_ui(self):
@@ -106,8 +108,69 @@ class ParkingManager:
         self.ghost_tracks = {}
         self.last_seen = {}
         self.track_id_map = {}
+        self.pending_telegram_warnings = {}
+        self._last_notified_plates = {}
         # Dict nhận cập nhật biển số async từ OCR: {track_id: plate_str}
         self._pending_plate_updates: dict = {}
+
+
+    def cancel_pending_warning(self, track_id: int):
+        """Hủy bỏ Timer debounce cảnh báo nếu xe di chuyển hoặc bị Re-ID"""
+        if hasattr(self, 'pending_telegram_warnings') and track_id in self.pending_telegram_warnings:
+            timer_data = self.pending_telegram_warnings.pop(track_id)
+            try:
+                timer_data['timer'].cancel()
+                print(f"[ParkingManager] Đã hủy cảnh báo Telegram bị debounce cho ID:{track_id} do xe đã di chuyển hoặc được Re-ID.")
+            except Exception as e:
+                pass
+
+
+    def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str, initial_plate: str | None = None):
+        """Lên lịch gửi cảnh báo Telegram sau 3 giây để debounce và lọc trùng lặp"""
+        self.cancel_pending_warning(track_id)
+
+        def fire():
+            # 1. Kiểm tra xe còn trong danh sách giám sát (waiting hoặc recording) không
+            if track_id not in self.waiting_vehicles and track_id not in self.active_recordings:
+                print(f"[ParkingManager] Bỏ qua gửi cảnh báo Telegram cho ID:{track_id} do xe không còn đỗ.")
+                return
+
+            # 2. Lấy biển số xe mới nhất được cập nhật từ OCR
+            current_plate = None
+            if track_id in self.waiting_vehicles:
+                current_plate = self.waiting_vehicles[track_id].get('plate')
+            elif track_id in self.active_recordings:
+                current_plate = self.active_recordings[track_id].get('plate')
+            
+            if not current_plate:
+                current_plate = initial_plate
+
+            # 3. Kiểm tra lọc trùng lặp theo biển số (trong 45 giây gần nhất)
+            if current_plate and not current_plate.startswith("ID_"):
+                now = time.time()
+                last_time = self._last_notified_plates.get(current_plate, 0)
+                if now - last_time < 45.0:
+                    print(f"[ParkingManager] Bỏ qua gửi cảnh báo trùng lặp Telegram cho biển số {current_plate} (debounce).")
+                    return
+                self._last_notified_plates[current_plate] = now
+
+            # 4. Tạo lại caption với biển số xe thực tế nếu có
+            if current_plate and not current_plate.startswith("ID_"):
+                final_caption = f"⚠️ CẢNH BÁO: Xe biển số {current_plate} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+            else:
+                final_caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+
+            # 5. Gửi cảnh báo
+            threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
+
+        t = threading.Timer(3.0, fire)
+        t.daemon = True
+        self.pending_telegram_warnings[track_id] = {
+            'timer': t,
+            'caption': caption_template
+        }
+        t.start()
+        print(f"[ParkingManager] Đã lên lịch gửi cảnh báo Telegram cho ID:{track_id} sau 3 giây (debounce).")
 
 
     def update_plate(self, track_id: int, plate: str):
@@ -121,6 +184,8 @@ class ParkingManager:
         mapped_id = self.track_id_map.get(track_id, track_id)
         if mapped_id in self.active_recordings:
             self.active_recordings[mapped_id]['plate'] = plate
+        if mapped_id in self.waiting_vehicles:
+            self.waiting_vehicles[mapped_id]['plate'] = plate
         else:
             # Lưu tạm, update_buffer sẽ áp dụng khi recording bắt đầu
             self._pending_plate_updates[mapped_id] = plate
@@ -289,8 +354,13 @@ class ParkingManager:
         print(f"[ParkingManager] Đã xử lý bằng chứng cho ID:{track_id} tại {save_dir}")
             
         if self.telegram_enabled and self.save_to_db:
-            caption_img = f"🚨 VI PHẠM CHỐT: Xe {plate_folder} đỗ sai quy định."
-            caption_vid = f"Bằng chứng Video 15s cho xe {plate_folder}"
+            raw_plate = data.get('plate')
+            if raw_plate and not raw_plate.startswith("ID_"):
+                caption_img = f"🚨 VI PHẠM CHỐT: Xe biển số {raw_plate} đỗ sai quy định."
+                caption_vid = f"Bằng chứng Video 15s cho xe biển số {raw_plate}"
+            else:
+                caption_img = f"🚨 VI PHẠM CHỐT: Phát hiện xe đỗ sai quy định (Không rõ biển số)."
+                caption_vid = f"Bằng chứng Video 15s phát hiện xe đỗ sai quy định"
             if self.io_worker is not None:
                 # Async mode: đẩy vào queue
                 self.io_worker.enqueue_telegram_image(
@@ -366,6 +436,7 @@ class ParkingManager:
                 # Nối ghép thành công! Khôi phục trí nhớ cho xe bằng cách ánh xạ ID mới về ID cũ
                 self.track_id_map[track_id] = best_match
                 mapped_id = best_match
+                self.cancel_pending_warning(track_id)
                 
                 ginfo = self.ghost_tracks.pop(best_match)
                 if 'logic_state' in ginfo:
@@ -398,10 +469,17 @@ class ParkingManager:
                         cv2.rectangle(img_t0, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
                         cv2.putText(img_t0, txt, (x1 + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
                         
-                    self.waiting_vehicles[mapped_id] = {'img_t0': img_t0, 'start_time': datetime.datetime.now()}
+                    self.waiting_vehicles[mapped_id] = {
+                        'img_t0': img_t0,
+                        'start_time': datetime.datetime.now(),
+                        'plate': license_plate
+                    }
                     if self.telegram_enabled and self.save_to_db:
-                        caption = f"⚠️ CẢNH BÁO: Xe ID {mapped_id} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
-                        threading.Thread(target=self._send_warning_thread, args=(img_t0, caption), daemon=True).start()
+                        if license_plate and not license_plate.startswith("ID_"):
+                            caption = f"⚠️ CẢNH BÁO: Xe biển số {license_plate} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                        else:
+                            caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                        self.schedule_telegram_warning(mapped_id, img_t0, caption, license_plate)
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
@@ -450,6 +528,7 @@ class ParkingManager:
                         if self.violation_end_callback:
                             self.violation_end_callback(self.violation_records[mapped_id])
                         del self.violation_records[mapped_id]
+                    self.cancel_pending_warning(mapped_id)
                     self.waiting_vehicles.pop(mapped_id, None)
                     self.active_recordings.pop(mapped_id, None)
                 
@@ -462,6 +541,7 @@ class ParkingManager:
                     if self.violation_end_callback:
                         self.violation_end_callback(self.violation_records[mapped_id])
                     del self.violation_records[mapped_id]
+                self.cancel_pending_warning(mapped_id)
                 self.logic.states.pop(mapped_id, None)
                 self.waiting_vehicles.pop(mapped_id, None)
                 self.active_recordings.pop(mapped_id, None)

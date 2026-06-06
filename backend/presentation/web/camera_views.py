@@ -403,7 +403,14 @@ def api_get_system_settings(user=Depends(login_required)):
     from database.sqlite_db import get_system_setting
     try:
         log_retention = get_system_setting("log_retention", "30_days")
-        return {"ok": True, "settings": {"log_retention": log_retention}}
+        telegram_notifications = get_system_setting("telegram_notifications", "true")
+        return {
+            "ok": True,
+            "settings": {
+                "log_retention": log_retention,
+                "telegram_notifications": telegram_notifications
+            }
+        }
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
 
@@ -415,6 +422,11 @@ def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_requi
         log_retention = payload.get("log_retention")
         if log_retention:
             update_system_setting("log_retention", log_retention)
+            
+        telegram_notifications = payload.get("telegram_notifications")
+        if telegram_notifications is not None:
+            update_system_setting("telegram_notifications", telegram_notifications)
+            
         return {"ok": True, "message": "Đã cập nhật cấu hình hệ thống thành công."}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})

@@ -128,16 +128,27 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
             <div>
-                <label
-                    style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời
-                    gian tự động dọn dẹp Logs</label>
-                <select id="setting-log-retention"
-                    style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
-                    <option value="7_days">7 ngày gần nhất</option>
-                    <option value="30_days">30 ngày gần nhất (Khuyên dùng)</option>
-                    <option value="90_days">90 ngày gần nhất</option>
-                    <option value="forever">Toàn bộ (Lưu trữ vĩnh viễn)</option>
-                </select>
+                <div style="margin-bottom: 15px;">
+                    <label
+                        style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời
+                        gian tự động dọn dẹp Logs</label>
+                    <select id="setting-log-retention"
+                        style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                        <option value="7_days">7 ngày gần nhất</option>
+                        <option value="30_days">30 ngày gần nhất (Khuyên dùng)</option>
+                        <option value="90_days">90 ngày gần nhất</option>
+                        <option value="forever">Toàn bộ (Lưu trữ vĩnh viễn)</option>
+                    </select>
+                </div>
+                <div>
+                    <label
+                        style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thông báo qua Telegram</label>
+                    <select id="setting-telegram-notifications"
+                        style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                        <option value="true">Bật (Gửi cảnh báo tức thời)</option>
+                        <option value="false">Tắt (Không gửi thông báo)</option>
+                    </select>
+                </div>
             </div>
 
             <div
@@ -313,9 +324,10 @@
                 body: JSON.stringify(payload)
             });
 
-            // 2. Lưu cấu hình hệ thống (Log retention)
+            // 2. Lưu cấu hình hệ thống (Log retention & Telegram notifications)
             const systemPayload = {
-                log_retention: document.getElementById('setting-log-retention').value
+                log_retention: document.getElementById('setting-log-retention').value,
+                telegram_notifications: document.getElementById('setting-telegram-notifications').value
             };
             const sysResponse = await fetch('/api/system/settings', {
                 method: 'PUT',
@@ -354,6 +366,9 @@
             const result = await response.json();
             if (result.ok && result.settings) {
                 document.getElementById('setting-log-retention').value = result.settings.log_retention;
+                if (result.settings.telegram_notifications !== undefined) {
+                    document.getElementById('setting-telegram-notifications').value = String(result.settings.telegram_notifications);
+                }
             }
         } catch (error) {
             console.error('Không thể tải cấu hình hệ thống:', error);

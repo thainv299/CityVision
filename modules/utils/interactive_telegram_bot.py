@@ -20,6 +20,14 @@ if TELEGRAM_BOT_TOKEN:
 alert_manager_ref = None
 
 def send_alert_with_button(img_path, caption, level):
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        if get_system_setting("telegram_notifications", "true") == "false":
+            print("[Telegram Bot] Gửi cảnh báo nút bấm bị bỏ qua do cấu hình hệ thống đã tắt thông báo Telegram.")
+            return
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra cấu hình hệ thống: {e}")
+
     if not bot or not TELEGRAM_CHAT_ID:
         # Im lặng nếu không có bot hoặc chat_id
         return
