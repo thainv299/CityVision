@@ -50,8 +50,11 @@
                             <div style="width: 100%; height: 350px; overflow: hidden; background-color: #f8fafc; border-radius: 8px; box-shadow: var(--shadow-sm); position: relative;">
                                 <img id="image-search-preview-img" style="display: block; max-width: 100%;">
                             </div>
-                            <div style="margin-top: 12px; font-size: 0.85rem; color: var(--brand-blue); font-weight: 600;">
-                                Bạn có thể kéo thả để cắt (crop) phương tiện cần tìm kiếm <i class="fas fa-crop-alt" style="margin-left: 4px;"></i>
+                            <div style="margin-top: 12px; font-size: 0.85rem; color: var(--brand-blue); font-weight: 600; display: flex; justify-content: space-between; align-items: center; text-align: left;">
+                                <span>Bạn có thể kéo để cắt (crop) phương tiện cần tìm kiếm <i class="fas fa-crop-alt" style="margin-left: 4px;"></i></span>
+                                <button type="button" id="reselect-image-btn" style="background: var(--bg-main); border: 1px solid var(--brand-blue); border-radius: 6px; padding: 6px 12px; color: var(--brand-blue); cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.2s;">
+                                    <i class="fas fa-image"></i> Chọn ảnh khác
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -270,7 +273,15 @@
 
     scoreSlider.oninput = () => { scoreVal.textContent = scoreSlider.value + '%'; };
 
-    dropZone.onclick = () => fileInput.click();
+    dropZone.onclick = (e) => {
+        if (e.target.closest('#image-preview-container')) return;
+        fileInput.click();
+    };
+    
+    document.getElementById('reselect-image-btn').onclick = (e) => {
+        e.stopPropagation();
+        fileInput.click();
+    };
     dropZone.ondragover = (e) => { e.preventDefault(); dropZone.style.borderColor = 'var(--brand-blue)'; };
     dropZone.ondragleave = () => { dropZone.style.borderColor = 'var(--border)'; };
     dropZone.ondrop = (e) => {
