@@ -675,8 +675,8 @@ def process_video(
     save_to_db = bool(settings.get("save_to_db", True))
 
     # Cấu hình hiển thị (Overlay settings)
-    show_roi_surveillance = bool(settings.get("show_roi_surveillance", True))
-    show_roi_parking = bool(settings.get("show_roi_parking", True))
+    show_roi_surveillance = bool(settings.get("show_roi_surveillance", False))
+    show_roi_parking = bool(settings.get("show_roi_parking", False))
     show_fps = bool(settings.get("show_fps", True))
     show_box_person = bool(settings.get("show_box_person", True))
     show_box_bicycle = bool(settings.get("show_box_bicycle", True))
@@ -770,10 +770,8 @@ def process_video(
     parking_manager.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     parking_manager.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
-    try:
-        start_bot_thread(traffic_alert_manager)
-    except Exception as e:
-        print(f"[Telegram] Không khởi động được polling thread: {e}")
+    # Không gọi start_bot_thread ở đây để tránh lỗi 409 Conflict từ Telegram
+    # (Chỉ duy nhất tiến trình chính mới được phép gọi bot.polling())
 
     # Flags quản lý job
     logged_vehicle_ids: set = set()
@@ -1185,7 +1183,7 @@ def process_video(
                         show_box = show_box_car
                     elif label == "motorcycle":
                         show_box = show_box_motorcycle
-                    elif label == "license plate":
+                    elif label == "license_plate":
                         show_box = show_box_plate
                     elif label == "bus":
                         show_box = show_box_bus
@@ -1318,8 +1316,10 @@ def process_video(
                     else:
                         push_frame = frame
                     rtsp_proc.stdin.write(push_frame.tobytes())
-                except Exception:
-                    pass
+                except Exception as e:
+                    if rtsp_proc is None or rtsp_proc.poll() is not None:
+                        print(f"[RTSP Push] Tiến trình FFmpeg đã ngắt ({e}). Đang khởi động lại...")
+                        start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
 
             response = None
             # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame/hoặc throttle tùy số lượng viewer để tránh nghẽn Queue IPC)
