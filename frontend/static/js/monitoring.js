@@ -5,7 +5,8 @@
 async function startWebRTCPlayer(videoElement, cameraId) {
     const streamPath = `live_camera_${cameraId}`;
     const hostname = window.location.hostname || "localhost";
-    const url = `http://${hostname}:8889/${streamPath}/whep`;
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+    const url = isLocal ? `http://${hostname}:8889/${streamPath}/whep` : `/api/webrtc/whep/${cameraId}`;
 
     console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url);
     const pc = new RTCPeerConnection({
