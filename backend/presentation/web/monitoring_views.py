@@ -434,6 +434,16 @@ async def api_create_test_job(
                 )
         else:
             # 2. Nếu camera đang TẮT, tạo job tạm thời và KHÔNG lưu vào Database (save_to_db=False)
+            
+            # Dọn dẹp các job tạm cũ của cùng camera này
+            # Tránh trường hợp user F5/thoát ngang khiến job cũ vẫn chạy và tranh chấp RTSP push
+            for existing_id, existing_job in list(container.job_use_cases.jobs.items()):
+                if not existing_id.startswith("background_") and existing_job.camera_id == camera.id:
+                    if existing_job.status in {"queued", "running"}:
+                        print(f"[API] Dọn dẹp job tạm cũ {existing_id} của camera {camera.id} để tránh xung đột RTSP")
+                        container.job_use_cases.abort_job(existing_id)
+            #
+
             test_settings["save_to_db"] = False
             job = container.job_use_cases.submit_job(
                 job_id=job_id,
@@ -494,6 +504,9 @@ def api_resume_test_job(job_id: str, user=Depends(login_required)):
     
 @monitoring_router.post("/api/test-jobs/{job_id}/quality")
 def api_update_job_quality(job_id: str, quality: str = Body(..., embed=True), user=Depends(login_required)):
+    if getattr(user, 'role', 'viewer') != 'admin':
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Chỉ Admin mới có quyền đổi độ phân giải."})
+        
     if quality not in ["low", "medium", "high", "ultra"]:
         return JSONResponse(status_code=400, content={"ok": False, "error": "Chất lượng không hợp lệ."})
         
@@ -505,6 +518,9 @@ def api_update_job_quality(job_id: str, quality: str = Body(..., embed=True), us
 
 @monitoring_router.post("/api/test-jobs/{job_id}/settings")
 def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), user=Depends(login_required)):
+    if getattr(user, 'role', 'viewer') != 'admin':
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Chỉ Admin mới có quyền đổi cấu hình hiển thị."})
+        
     with container.job_use_cases.job_lock:
         job = container.job_use_cases.jobs.get(job_id)
         if not job:
@@ -633,6 +649,54 @@ async def serve_test_job_preview(job_id: str, user=Depends(login_required)):
         media_type="image/jpeg",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
     )
+
+
+@monitoring_router.post("/api/webrtc/whep/{camera_id}")
+async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login_required)):
+    """
+    Proxy WHEP (WebRTC) signaling requests to local MediaMTX instance.
+    This resolves Mixed Content errors (HTTPS -> HTTP) and avoids exposing port 8889 online.
+    """
+    if isinstance(user, RedirectResponse):
+        return user
+        
+    sdp_offer = await request.body()
+    stream_path = f"live_camera_{camera_id}"
+    mediamtx_url = f"http://localhost:8889/{stream_path}/whep"
+
+    import requests
+
+    def forward_request():
+        try:
+            return requests.post(
+                mediamtx_url,
+                headers={"Content-Type": "application/sdp"},
+                data=sdp_offer,
+                timeout=5.0
+            )
+        except Exception as e:
+            return e
+
+    resp = await asyncio.to_thread(forward_request)
+    
+    if isinstance(resp, Exception):
+        return JSONResponse(
+            status_code=502,
+            content={"ok": False, "error": f"Không thể kết nối đến MediaMTX: {str(resp)}"}
+        )
+
+    if resp.status_code not in (200, 201):
+        return JSONResponse(
+            status_code=resp.status_code,
+            content={"ok": False, "error": f"MediaMTX trả về lỗi: {resp.text}"}
+        )
+
+    # Return the SDP answer back to the frontend
+    return StreamingResponse(
+        io.BytesIO(resp.content),
+        media_type="application/sdp"
+    )
+
 
 
 
