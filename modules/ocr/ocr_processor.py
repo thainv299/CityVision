@@ -15,7 +15,6 @@ def order_points(pts):
 
 def get_plate_perspective(img_bgr):
     h, w = img_bgr.shape[:2]
-    # Tránh chia cho 0 hoặc lỗi nếu crop quá nhỏ
     if h == 0 or w == 0:
         return img_bgr, "Error", w, h
 
@@ -27,36 +26,42 @@ def get_plate_perspective(img_bgr):
 
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
-    edged = cv2.Canny(blur, 50, 200)
-    dilated = cv2.dilate(edged, np.ones((3, 3), np.uint8), iterations=1)
-    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # 1. Dùng Canny để tìm viền
+    edged = cv2.Canny(blur, 50, 150)
+    
+    # 2. Dùng phép đóng (Morphology Close) để nối các nét đứt ở viền biển số thành 1 khung khép kín
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    closed = cv2.morphologyEx(edged, cv2.MORPH_CLOSE, kernel)
+    
+    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
 
     rect_pts = None
-    img_area = h * w  # Tính tổng diện tích bức ảnh crop
+    img_area = h * w
 
     for c in contours:
-        perimeter = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.03 * perimeter, True)
-        
-        # Chỉ nắn góc nếu tìm thấy 4 điểm VÀ diện tích khung đó phải > 40% diện tích ảnh
-        if len(approx) == 4:
-            contour_area = cv2.contourArea(approx)
-            if contour_area > (img_area * 0.4): 
-                rect_pts = approx.reshape(4, 2)
-                break
+        contour_area = cv2.contourArea(c)
+        # Chỉ xét các contour có diện tích chiếm trên 35% ảnh crop
+        if contour_area > (img_area * 0.35): 
+            # Dùng minAreaRect để tính khung chữ nhật xoay (ổn định hơn rất nhiều approxPolyDP)
+            rect = cv2.minAreaRect(c)
+            box = cv2.boxPoints(rect)
+            rect_pts = np.array(box, dtype="float32")
+            break
 
     if rect_pts is not None:
         ordered_pts = order_points(rect_pts)
         dst_pts = np.array([[0, 0], [dst_w - 1, 0], [dst_w - 1, dst_h - 1], [0, dst_h - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(ordered_pts, dst_pts)
         img_plate_color = cv2.warpPerspective(img_bgr, M, (dst_w, dst_h))
-        status_text = f"Nan goc ({dst_w}x{dst_h})"
+        status_text = f"MinAreaRect ({dst_w}x{dst_h})"
     else:
         img_plate_color = cv2.resize(img_bgr, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
         status_text = f"Phong to ({dst_w}x{dst_h})"
     
     return img_plate_color, status_text, dst_w, dst_h
+
 
 def preprocess_plate(img_bgr):
     h, w = img_bgr.shape[:2]
