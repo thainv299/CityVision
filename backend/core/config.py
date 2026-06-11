@@ -13,7 +13,7 @@ SAMPLES_DIR = PROJECT_ROOT / "data" / "samples"
 
 # Cấu hình file / ML
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".mpeg", ".mpg"}
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "best.pt"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "VTS_FINETUNE.pt"
 
 # Cấu hình người dùng
 VALID_ROLES = {"admin", "operator"}
