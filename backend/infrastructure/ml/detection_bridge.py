@@ -355,60 +355,84 @@ def _canonical_label(label: Any) -> str:
 def create_paddle_ocr() -> "PaddleOCR":
     """Tạo instance PaddleOCR, tự động nhận diện biến môi trường cho ONNX và cấu hình TensorRT Caching."""
     import os
-    use_onnx = os.environ.get("USE_PADDLE_ONNX", "0") == "1"
+    use_onnx_mode = os.environ.get("USE_PADDLE_ONNX", "0")
     
-    if use_onnx:
-        os.makedirs("./trt_cache", exist_ok=True)
-        
-        try:
-            import onnxruntime as ort
-            if not hasattr(ort, "_patched_by_cityvision"):
-                _original_InferenceSession = ort.InferenceSession
-                
-                def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
-                    if isinstance(path_or_bytes, (str, Path)) and os.path.isdir(path_or_bytes):
-                        path_or_bytes = os.path.join(str(path_or_bytes), "model.onnx")
+    if use_onnx_mode in ("1", "2"):
+        if use_onnx_mode == "1":
+            os.makedirs("./trt_cache", exist_ok=True)
+            
+            try:
+                import onnxruntime as ort
+                if not hasattr(ort, "_patched_by_cityvision"):
+                    _original_InferenceSession = ort.InferenceSession
+                    
+                    def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+                        if isinstance(path_or_bytes, (str, Path)) and os.path.isdir(path_or_bytes):
+                            path_or_bytes = os.path.join(str(path_or_bytes), "model.onnx")
+                            
+                        model_path = str(path_or_bytes).lower()
                         
-                    model_path = str(path_or_bytes).lower()
-                    
-                    # Cấu hình lõi chung cho mọi model
-                    trt_options = {
-                        'device_id': 0,
-                        'trt_fp16_enable': True,
-                        'trt_engine_cache_enable': True,
-                        'trt_engine_cache_path': './trt_cache',
-                    }
+                        # Cấu hình lõi chung cho mọi model
+                        trt_options = {
+                            'device_id': 0,
+                            'trt_fp16_enable': True,
+                            'trt_engine_cache_enable': True,
+                            'trt_engine_cache_path': './trt_cache',
+                        }
 
-                    # Bơm Dynamic Shapes tùy thuộc vào mô hình đang được load
-                    if "rec" in model_path:
-                        # Profile cho mô hình Nhận diện chữ (Batch 1-10, Width 10-1000)
-                        trt_options['trt_profile_min_shapes'] = 'x:1x3x48x10'
-                        trt_options['trt_profile_opt_shapes'] = 'x:6x3x48x320'
-                        trt_options['trt_profile_max_shapes'] = 'x:10x3x48x1000'
-                    elif "det" in model_path:
-                        # Profile cho mô hình Phát hiện vùng chữ (Batch 1-4)
-                        trt_options['trt_profile_min_shapes'] = 'x:1x3x64x64'
-                        trt_options['trt_profile_opt_shapes'] = 'x:1x3x640x640'
-                        trt_options['trt_profile_max_shapes'] = 'x:4x3x960x960'
+                        # Bơm Dynamic Shapes tùy thuộc vào mô hình đang được load
+                        if "rec" in model_path:
+                            # Profile cho mô hình Nhận diện chữ (Batch 1-10, Width 10-1000)
+                            trt_options['trt_profile_min_shapes'] = 'x:1x3x48x10'
+                            trt_options['trt_profile_opt_shapes'] = 'x:6x3x48x320'
+                            trt_options['trt_profile_max_shapes'] = 'x:10x3x48x1000'
+                        elif "det" in model_path:
+                            # Profile cho mô hình Phát hiện vùng chữ (Batch 1-4)
+                            trt_options['trt_profile_min_shapes'] = 'x:1x3x64x64'
+                            trt_options['trt_profile_opt_shapes'] = 'x:1x3x640x640'
+                            trt_options['trt_profile_max_shapes'] = 'x:4x3x960x960'
 
-                    trt_providers = [
-                        ('TensorrtExecutionProvider', trt_options),
-                        'CUDAExecutionProvider',
-                        'CPUExecutionProvider'
-                    ]
+                        trt_providers = [
+                            ('TensorrtExecutionProvider', trt_options),
+                            'CUDAExecutionProvider',
+                            'CPUExecutionProvider'
+                        ]
+                        
+                        session = _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                        print(f"[ONNX GPU] Đã kích hoạt lõi TensorRT cho model {os.path.basename(model_path)}.")
+                        print(f"[ONNX GPU] Các bộ xử lý đang chạy: {session.get_providers()}")
+                        
+                        return session
                     
-                    session = _original_InferenceSession(path_or_bytes, sess_options, trt_providers, None, **kwargs)
+                    ort.InferenceSession = _patched_InferenceSession
+                    ort._patched_by_cityvision = True
+            except ImportError:
+                print("Cảnh báo: onnxruntime không khả dụng!")
+        else:
+            # use_onnx_mode == "2": Chỉ dùng CUDA và CPU, không patch TensorRT để tránh sinh cache .engine
+            try:
+                import onnxruntime as ort
+                if not hasattr(ort, "_patched_by_cityvision"):
+                    _original_InferenceSession = ort.InferenceSession
                     
-                    # IN RA MÀN HÌNH ĐỂ USER THẤY RÕ RÀNG
-                    print(f"[ONNX GPU] Đã kích hoạt lõi TensorRT cho model {os.path.basename(model_path)}.")
-                    print(f"[ONNX GPU] Các bộ xử lý đang chạy: {session.get_providers()}")
-                    
-                    return session
-                
-                ort.InferenceSession = _patched_InferenceSession
-                ort._patched_by_cityvision = True
-        except ImportError:
-            print("Cảnh báo: onnxruntime không khả dụng!")
+                    def _patched_InferenceSession(path_or_bytes, sess_options=None, providers=None, provider_options=None, **kwargs):
+                        if isinstance(path_or_bytes, (str, Path)) and os.path.isdir(path_or_bytes):
+                            path_or_bytes = os.path.join(str(path_or_bytes), "model.onnx")
+                            
+                        model_path = str(path_or_bytes).lower()
+                        cuda_providers = [
+                            'CUDAExecutionProvider',
+                            'CPUExecutionProvider'
+                        ]
+                        session = _original_InferenceSession(path_or_bytes, sess_options, cuda_providers, None, **kwargs)
+                        print(f"[ONNX CUDA] Khởi tạo model {os.path.basename(model_path)} qua CUDA.")
+                        print(f"[ONNX CUDA] Các bộ xử lý đang chạy: {session.get_providers()}")
+                        return session
+                        
+                    ort.InferenceSession = _patched_InferenceSession
+                    ort._patched_by_cityvision = True
+            except ImportError:
+                print("Cảnh báo: onnxruntime không khả dụng!")
 
         # Import PaddleOCR tại đây để đảm bảo onnxruntime đã được patch TRƯỚC khi PaddleOCR gọi tới
         from paddleocr import PaddleOCR 
