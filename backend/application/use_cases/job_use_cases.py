@@ -41,31 +41,38 @@ def _child_process_run(
 
     current_quality = None
 
-    def handle_progress(progress: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def handle_progress(progress: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         nonlocal current_quality
         
-        # Gửi tiến độ qua Queue về Parent Process
-        progress_payload = dict(progress)
-        
-        # Luôn gửi preview_jpeg để hỗ trợ fallback mượt mà và hiển thị trạng thái tức thì
-        try:
-            progress_queue.put({
-                "job_id": job_id,
-                "type": "progress",
-                "data": progress_payload
-            })
-        except Exception as e:
-            print(f"[Child Process {job_id}] Lỗi gửi queue: {e}")
+        if progress:
+            # Gửi tiến độ qua Queue về Parent Process
+            progress_payload = dict(progress)
+            
+            # Luôn gửi preview_jpeg để hỗ trợ fallback mượt mà và hiển thị trạng thái tức thì
+            try:
+                progress_queue.put({
+                    "job_id": job_id,
+                    "type": "progress",
+                    "data": progress_payload
+                })
+            except Exception as e:
+                print(f"[Child Process {job_id}] Lỗi gửi queue: {e}")
 
         # Đọc các cập nhật/lệnh điều khiển từ Parent qua Shared Dict (Chỉ đọc, KHÔNG ghi để tránh race condition)
         actions = {}
         try:
             state = shared_jobs_state.get(job_id)
-            if state:
+            if state is None:
+                actions["abort"] = True
+            else:
                 req_q = state.get("requested_quality")
                 req_settings = state.get("requested_settings")
                 req_force_preview = state.get("requested_force_preview")
                 viewer_count = state.get("viewer_count", 0)
+                aborted = state.get("aborted", False)
+
+                if aborted:
+                    actions["abort"] = True
 
                 # Chỉ gửi chất lượng mới nếu nó khác với chất lượng hiện tại
                 if req_q and req_q != current_quality:
@@ -151,7 +158,17 @@ class JobUseCases:
     def _queue_listener(self):
         """Luồng đón dữ liệu tiến độ từ các tiến trình con để cập nhật vào RAM tiến trình chính FastAPI."""
         import queue
+        last_check_time = time.time()
         while True:
+            # Kiểm tra timeout cho các job tạm thời cứ sau mỗi 3 giây
+            now = time.time()
+            if now - last_check_time >= 3.0:
+                last_check_time = now
+                try:
+                    self._check_temporary_jobs_timeouts()
+                except Exception as e:
+                    print(f"[System] Lỗi khi quét timeout: {e}")
+
             try:
                 msg = self.progress_queue.get(timeout=1.0)
                 if not msg:
@@ -210,19 +227,43 @@ class JobUseCases:
                 # Tránh in lỗi lung tung khi server tắt
                 pass
 
+    def _check_temporary_jobs_timeouts(self):
+        """Tự động dừng các job tạm thời khi frontend ngắt kết nối (không poll nữa)."""
+        with self.job_lock:
+            now = time.time()
+            to_stop = []
+            for job_id, job in self.jobs.items():
+                if not job_id.startswith("background_") and job.status in {"queued", "running"}:
+                    if job.last_polled_at is not None:
+                        # Frontend đã từng poll → nếu quá 15 giây không poll lại thì coi như đã đóng trình duyệt
+                        if now - job.last_polled_at > 15.0:
+                            to_stop.append(job_id)
+                    else:
+                        # Chưa có poll nào → ân hạn 30 giây kể từ khi submit (thời gian load model)
+                        submitted = job.submitted_at or now
+                        if now - submitted > 30.0:
+                            to_stop.append(job_id)
+
+            for job_id in to_stop:
+                job = self.jobs[job_id]
+                job.status = "aborted"
+                job.message = "Đã dừng tự động do không phát hiện người xem (timeout)."
+                print(f"[System] Tự động dừng job tạm thời {job_id} (camera {job.camera_id}) do mất kết nối với client.")
+                
+                try:
+                    state = dict(self.shared_jobs_state.get(job_id) or {})
+                    state["aborted"] = True
+                    self.shared_jobs_state[job_id] = state
+                except Exception:
+                    pass
+                
+                self._cleanup_process(job_id)
+
     def _cleanup_process(self, job_id: str):
         """Thu hồi tài nguyên của một tiến trình con"""
         p = self.processes.pop(job_id, None)
         if p:
-            # Dừng bằng thư viện Python trước
-            try:
-                p.kill()
-                p.terminate()
-                p.join(timeout=1)
-            except Exception:
-                pass
-            
-            # Sử dụng lệnh hệ thống để cưỡng chế dừng toàn bộ nhánh tiến trình (Process Tree) bao gồm cả FFmpeg
+            # Sử dụng lệnh hệ thống để cưỡng chế dừng toàn bộ nhánh tiến trình (Process Tree) bao gồm cả FFmpeg trước
             if p.pid:
                 import platform
                 import subprocess
@@ -233,6 +274,14 @@ class JobUseCases:
                         subprocess.run(["kill", "-9", str(p.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception:
                     pass
+
+            # Dừng bằng thư viện Python sau
+            try:
+                p.kill()
+                p.terminate()
+                p.join(timeout=1)
+            except Exception:
+                pass
                     
         self.pause_events.pop(job_id, None)
         try:
@@ -277,7 +326,10 @@ class JobUseCases:
 
     def get_job(self, job_id: str) -> Optional[Job]:
         with self.job_lock:
-            return self.jobs.get(job_id)
+            job = self.jobs.get(job_id)
+            if job:
+                job.last_heartbeat = time.time()
+            return job
 
     def update_job_quality(self, job_id: str, quality: str) -> bool:
         """Cập nhật chất lượng video đang xử lý"""
@@ -363,6 +415,14 @@ class JobUseCases:
                         close_dangling_records_for_camera(int(job.camera_id))
                     except Exception as e:
                         print(f"[System] Lỗi khi đóng bản ghi dang dở cho job {job_id}: {e}")
+
+                # Đánh dấu cờ aborted trong shared state để child process dừng chủ động nếu có thể
+                try:
+                    state = dict(self.shared_jobs_state.get(job_id) or {})
+                    state["aborted"] = True
+                    self.shared_jobs_state[job_id] = state
+                except Exception:
+                    pass
 
                 self._cleanup_process(job_id)
                 return True
@@ -478,6 +538,9 @@ class JobUseCases:
             while True:
                 if job.status in ("completed", "failed", "aborted"):
                     break
+                
+                # Cập nhật heartbeat khi đang đẩy stream MJPEG
+                job.last_heartbeat = time.time()
                 
                 frame_bytes = job.latest_frame
                 if frame_bytes:

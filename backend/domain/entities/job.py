@@ -19,6 +19,7 @@ class Job:
     is_paused: bool = False
     camera_id: Optional[int] = None
     viewer_count: int = 0
+    last_polled_at: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -37,3 +38,4 @@ class Job:
             "camera_id": self.camera_id,
             "viewer_count": self.viewer_count,
         }
+
