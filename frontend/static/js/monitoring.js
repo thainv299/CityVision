@@ -1060,6 +1060,30 @@ function initMonitoringForm() {
 
     loadAllCameras();
     refreshTimer = setInterval(refreshSnapshots, 10000);
+
+    // Dừng tất cả các slot đang chạy khi người dùng đóng tab hoặc chuyển trang khác
+    const stoppedJobs = new Set();
+    function stopAllActiveJobsBeacon() {
+        slots.forEach(slot => {
+            if (slot && slot.jobId && !stoppedJobs.has(slot.jobId)) {
+                stoppedJobs.add(slot.jobId);
+                const url = `${window.location.origin}/api/test-jobs/${slot.jobId}/stop`;
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(url);
+                } else {
+                    fetch(url, {
+                        method: 'POST',
+                        keepalive: true,
+                        credentials: 'same-origin'
+                    }).catch(() => {});
+                }
+            }
+        });
+    }
+
+    window.addEventListener('beforeunload', stopAllActiveJobsBeacon);
+    window.addEventListener('pagehide', stopAllActiveJobsBeacon);
+    window.addEventListener('unload', stopAllActiveJobsBeacon);
 }
 
 document.addEventListener('DOMContentLoaded', initMonitoringForm);

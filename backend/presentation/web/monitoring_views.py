@@ -441,7 +441,7 @@ async def api_create_test_job(
                 if not existing_id.startswith("background_") and existing_job.camera_id == camera.id:
                     if existing_job.status in {"queued", "running"}:
                         print(f"[API] Dọn dẹp job tạm cũ {existing_id} của camera {camera.id} để tránh xung đột RTSP")
-                        container.job_use_cases.abort_job(existing_id)
+                        container.job_use_cases.stop_job(existing_id)
             #
 
             test_settings["save_to_db"] = False
@@ -468,7 +468,11 @@ def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)
     job = container.job_use_cases.get_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job kiểm tra."})
-        
+
+    # Ghi nhận thời điểm frontend poll gần nhất để server-side watchdog phát hiện client ngắt kết nối
+    import time as _time
+    job.last_polled_at = _time.time()
+
     payload = job.to_dict()
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
@@ -484,6 +488,7 @@ def api_pause_test_job(job_id: str, user=Depends(login_required)):
 
 @monitoring_router.post("/api/test-jobs/{job_id}/stop")
 def api_stop_test_job(job_id: str, user=Depends(login_required)):
+    print(f"[API] Nhận yêu cầu dừng job {job_id} từ trình duyệt")
     if job_id.startswith("background_"):
         # Đối với job chạy nền, chỉ ngắt luồng xem của frontend chứ không thực hiện stop job nền quan trọng
         print(f"[API] Từ chối dừng job nền {job_id} từ yêu cầu frontend xem camera.")
