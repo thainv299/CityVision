@@ -355,6 +355,19 @@ def _canonical_label(label: Any) -> str:
 def create_paddle_ocr() -> "PaddleOCR":
     """Tạo instance PaddleOCR, tự động nhận diện biến môi trường cho ONNX và cấu hình TensorRT Caching."""
     import os
+    if os.name == 'nt':
+        try:
+            import site
+            for s_dir in (site.getsitepackages() if hasattr(site, "getsitepackages") else []):
+                trt_dir = os.path.join(s_dir, "tensorrt_libs")
+                if os.path.isdir(trt_dir):
+                    if hasattr(os, "add_dll_directory"):
+                        os.add_dll_directory(trt_dir)
+                    os.environ["PATH"] = trt_dir + os.pathsep + os.environ["PATH"]
+                    break
+        except Exception:
+            pass
+            
     use_onnx_mode = os.environ.get("USE_PADDLE_ONNX", "0")
     
     if use_onnx_mode in ("1", "2"):
@@ -388,9 +401,9 @@ def create_paddle_ocr() -> "PaddleOCR":
                             trt_options['trt_profile_max_shapes'] = 'x:10x3x48x1000'
                         elif "det" in model_path:
                             # Profile cho mô hình Phát hiện vùng chữ (Batch 1-4)
-                            trt_options['trt_profile_min_shapes'] = 'x:1x3x64x64'
-                            trt_options['trt_profile_opt_shapes'] = 'x:1x3x640x640'
-                            trt_options['trt_profile_max_shapes'] = 'x:4x3x960x960'
+                            trt_options['trt_profile_min_shapes'] = 'x:1x3x32x32'
+                            trt_options['trt_profile_opt_shapes'] = 'x:1x3x384x640'
+                            trt_options['trt_profile_max_shapes'] = 'x:4x3x768x960'
 
                         trt_providers = [
                             ('TensorrtExecutionProvider', trt_options),

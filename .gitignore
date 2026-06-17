@@ -138,3 +138,4 @@ cloudflared.exe
 deploy/*
 */md
 bin/*
+trt_cache/*
