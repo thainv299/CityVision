@@ -157,6 +157,7 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
         "show_box_plate": _parse_bool(form_data.get("show_box_plate"), True),
         "show_box_bus": _parse_bool(form_data.get("show_box_bus"), True),
         "show_box_truck": _parse_bool(form_data.get("show_box_truck"), True),
+        "show_label": _parse_bool(form_data.get("show_label"), True),
     }
 
 
