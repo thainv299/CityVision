@@ -263,8 +263,14 @@ class JobUseCases:
         """Thu hồi tài nguyên của một tiến trình con"""
         p = self.processes.pop(job_id, None)
         if p:
-            # Sử dụng lệnh hệ thống để cưỡng chế dừng toàn bộ nhánh tiến trình (Process Tree) bao gồm cả FFmpeg trước
-            if p.pid:
+            # Đợi tiến trình con tự kết thúc (đã set aborted=True trước đó)
+            try:
+                p.join(timeout=1.5)
+            except Exception:
+                pass
+
+            # Nếu vẫn còn sống mới cưỡng chế dừng (Hard kill)
+            if p.is_alive() and p.pid:
                 import platform
                 import subprocess
                 try:
@@ -275,11 +281,11 @@ class JobUseCases:
                 except Exception:
                     pass
 
-            # Dừng bằng thư viện Python sau
+            # Giải phóng tài nguyên Python còn lại
             try:
                 p.kill()
                 p.terminate()
-                p.join(timeout=1)
+                p.join(timeout=0.5)
             except Exception:
                 pass
                     

@@ -48,6 +48,7 @@ VEHICLE_LABELS = {"car", "motorcycle", "bus", "truck"}
 PARKING_LABELS = {"car", "bus", "truck"}
 LICENSE_PLATE_LABELS = {"license_plate", "licenseplate", "number_plate", "licence_plate"}
 DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS
+SMALL_OBJECT_LABELS = {"person", "motorcycle", "bicycle", "car"}
 
 # Ánh xạ tên mức độ ùn tắc cho tên thư mục ảnh
 TRAFFIC_LEVEL_NAMES = {
@@ -722,6 +723,7 @@ def process_video(
     show_box_plate = bool(settings.get("show_box_plate", True))
     show_box_bus = bool(settings.get("show_box_bus", True))
     show_box_truck = bool(settings.get("show_box_truck", True))
+    show_label = bool(settings.get("show_label", True))
 
     # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
     capture = VideoStream(input_video_path, force_single_thread=is_hevc).start()
@@ -820,8 +822,9 @@ def process_video(
     true_clear_seconds = 5.0
     
     # Logic quản lý "Không phát hiện biển số"
-    VEHICLE_LOG_LABELS = {"car", "truck", "bus"}
-    pending_alpr_tracks = {} # track_id -> { "last_seen": frame_idx, "best_image": (frame, bbox), "seen_count": int }
+    VEHICLE_LOG_LABELS = {"car", "truck", "bus", "motorcycle", "bicycle"}
+    VEHICLE_NO_IMAGE_LABELS = {"motorcycle", "bicycle"}  # Xe máy/xe đạp: chỉ thống kê, không lưu ảnh
+    pending_alpr_tracks = {} # track_id -> { "last_seen": frame_idx, "best_image": (frame, bbox) | None, "seen_count": int, "label": str }
 
     frame_index = 0
     last_results = None
@@ -894,6 +897,9 @@ def process_video(
     except Exception:
         pass
 
+    encoder_to_use = encoder
+    rtsp_start_time = 0.0
+
     # Kích thước push mặc định
     push_w, push_h = draw_w, draw_h
     push_bitrate = "3.5M"
@@ -916,7 +922,8 @@ def process_video(
     push_h = push_h + (push_h % 2)
 
     def start_rtsp_push(w, h, bitrate, crf):
-        nonlocal rtsp_proc
+        nonlocal rtsp_proc, rtsp_start_time
+        rtsp_start_time = time.time()
         if rtsp_proc:
             try:
                 rtsp_proc.stdin.close()
@@ -930,6 +937,7 @@ def process_video(
         
         ffmpeg_push_cmd = [
             "ffmpeg", "-y",
+            "-loglevel", "error",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{w}x{h}",
@@ -948,7 +956,7 @@ def process_video(
             max_r = f"{int(val*1.5)}K"
             buf_s = f"{int(val*2)}K"
 
-        if encoder == "h264_nvenc":
+        if encoder_to_use == "h264_nvenc":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_nvenc",
@@ -959,7 +967,7 @@ def process_video(
                 "-g", gop_size,
                 "-forced-idr", "1"
             ])
-        elif encoder == "h264_v4l2m2m":
+        elif encoder_to_use == "h264_v4l2m2m":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_v4l2m2m",
@@ -996,7 +1004,7 @@ def process_video(
                 ffmpeg_push_cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=None,
                 startupinfo=startupinfo
             )
             print(f"[RTSP Push] Khởi động đẩy RTSP: {w}x{h} @ {bitrate} (CRF={crf})")
@@ -1023,7 +1031,7 @@ def process_video(
                     cv2.putText(p_frame, "TAM DUNG",
                                 (draw_w // 2 - int(100 * (draw_w / 1280)), draw_h // 2 + int(15 * (draw_h / 720))),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.2 * (draw_w / 1280), (0, 255, 255), f_thick + 1)
-                    progress_callback({
+                    resp = progress_callback({
                         "phase": "running_detection",
                         "processed_frames": frame_index,
                         "source_total_frames": total_frames,
@@ -1032,6 +1040,9 @@ def process_video(
                         "latest_status": "Đang tạm dừng...",
                         "preview_jpeg": _encode_preview_frame(p_frame, preview_w, preview_h),
                     })
+                    if resp and resp.get("abort"):
+                        print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng khi đang tạm dừng. Đang dừng luồng xử lý...")
+                        break
                 time.sleep(0.5)
                 continue
 
@@ -1072,8 +1083,9 @@ def process_video(
 
             current_plate_ids = set()
             valid_vehicles = []
+            frame_snapshot = None  # Lazy copy: chỉ copy clean_frame khi thực sự cần lưu ảnh
 
-            # Tiền xử lý list xe cho OCR
+            # Pass 1: Thu thập valid_vehicles cho OCR (cần hoàn thành trước khi xử lý license plate)
             for result in results:
                 for box in result.boxes:
                     lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
@@ -1107,21 +1119,18 @@ def process_video(
                         continue
 
                     # Lọc nhiễu: Bỏ qua Bounding Box lớn bất thường (> 30% diện tích ROI)
-                    SMALL_OBJECT_LABELS = {"person", "motorcycle", "bicycle", "car"}
                     box_area = (x2 - x1) * (y2 - y1)
                     if label in SMALL_OBJECT_LABELS and roi_contour_area > 0 and box_area > roi_contour_area * 0.3:
                         continue
 
                     # Xác định màu sắc nhãn
-                    if label in BOX_COLORS:
-                        box_color = BOX_COLORS[label]
-                    else:
-                        import hashlib
-                        h = hashlib.md5(label.encode()).digest()
-                        box_color = (h[0], h[1], h[2])
+                    box_color = BOX_COLORS.get(label, (128, 128, 128))
 
-                    label_text = _display_label(label)
-                    display_label = label_text if track_id == -1 else f"ID:{track_id} {label_text}"
+                    if show_label:
+                        label_text = _display_label(label)
+                        display_label = label_text if track_id == -1 else f"ID:{track_id} {label_text}"
+                    else:
+                        display_label = ""
 
                     # 1. OCR Biển số
                     if label in LICENSE_PLATE_LABELS:
@@ -1165,7 +1174,7 @@ def process_video(
                         )
 
                         if display_label_p:
-                            display_label = display_label_p
+                            display_label = display_label_p if show_label else ""
                             if license_plate:
                                 parking_manager.update_plate(track_id, license_plate)
                             if "VIOLATION" in display_label_p and track_id not in logged_violation_track_ids:
@@ -1180,21 +1189,31 @@ def process_video(
                             # Khởi tạo theo dõi cho xe mới
                             pending_alpr_tracks[track_id] = {
                                 "last_seen": frame_index,
-                                "best_image": (clean_frame.copy(), (x1, y1, x2, y2)),
+                                "best_image": None,  # Lazy: sẽ gán khi cần (bỏ qua xe máy/xe đạp)
                                 "seen_count": 1,
                                 "is_passed_logged": False, # Đã ghi log 'Xe đi qua' chưa
-                                "missing_frames": 0
+                                "missing_frames": 0,
+                                "label": label,
+                                "best_w": (x2 - x1) if label not in VEHICLE_NO_IMAGE_LABELS else 0
                             }
+                            # Lưu ảnh ban đầu cho xe cần ảnh (ô tô/bus/truck)
+                            if label not in VEHICLE_NO_IMAGE_LABELS:
+                                if frame_snapshot is None:
+                                    frame_snapshot = clean_frame.copy()
+                                pending_alpr_tracks[track_id]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
                         else:
                             # Cập nhật thông tin xe đang theo dõi
                             pending_alpr_tracks[track_id]["last_seen"] = frame_index
                             pending_alpr_tracks[track_id]["seen_count"] += 1
                             pending_alpr_tracks[track_id]["missing_frames"] = 0
                             
-                            # Cập nhật ảnh tốt nhất (Lấy lúc xe to nhất)
-                            old_w = pending_alpr_tracks[track_id]["best_image"][1][2] - pending_alpr_tracks[track_id]["best_image"][1][0]
-                            if (x2 - x1) > old_w:
-                                pending_alpr_tracks[track_id]["best_image"] = (clean_frame.copy(), (x1, y1, x2, y2))
+                            # Cập nhật ảnh tốt nhất (Lấy lúc xe to nhất) - Bỏ qua xe máy/xe đạp
+                            if label not in VEHICLE_NO_IMAGE_LABELS:
+                                if (x2 - x1) > pending_alpr_tracks[track_id]["best_w"]:
+                                    if frame_snapshot is None:
+                                        frame_snapshot = clean_frame.copy()
+                                    pending_alpr_tracks[track_id]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
+                                    pending_alpr_tracks[track_id]["best_w"] = (x2 - x1)
                             
                             # XÁC MINH XE MỚI: Chỉ lưu vào DB sau khi đã thấy xe ổn định (> 30 frames ~ 1s)
                             if not pending_alpr_tracks[track_id]["is_passed_logged"] and pending_alpr_tracks[track_id]["seen_count"] > 30:
@@ -1203,7 +1222,6 @@ def process_video(
                                     io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{track_id}", label))
                                     
                                     # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
-                                    from database.sqlite_db import log_vehicle_count
                                     io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, 1))
                                 
                                 logged_vehicle_ids.add(track_id)
@@ -1211,35 +1229,29 @@ def process_video(
                                 pending_alpr_tracks[track_id]["is_passed_logged"] = True
 
                     # 5. Vẽ nhãn lên frame nếu được bật
-                    show_box = True
-                    if label == "person":
-                        show_box = show_box_person
-                    elif label == "bicycle":
-                        show_box = show_box_bicycle
-                    elif label == "car":
-                        show_box = show_box_car
-                    elif label == "motorcycle":
-                        show_box = show_box_motorcycle
-                    elif label == "license_plate":
-                        show_box = show_box_plate
-                    elif label == "bus":
-                        show_box = show_box_bus
-                    elif label == "truck":
-                        show_box = show_box_truck
+                    # Dict lookup thay cho chuỗi if-elif
+                    show_box_map = {
+                        "person": show_box_person, "bicycle": show_box_bicycle,
+                        "car": show_box_car, "motorcycle": show_box_motorcycle,
+                        "license_plate": show_box_plate, "bus": show_box_bus,
+                        "truck": show_box_truck
+                    }
+                    show_box = show_box_map.get(label, True)
 
                     if show_box:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
 
-                        (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
-                        text_y = max(th + 10, y1 - 5)
-                        cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
+                        if display_label and show_label:
+                            (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+                            text_y = max(th + 10, y1 - 5)
+                            cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
 
-                        brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
-                        text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
-                        cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
+                            brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
+                            text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
+                            cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
 
             # --- LOGIC DỌN DẸP VÀ CHỐT LOG (VỚI THỜI GIAN ĐỢI RE-ID) ---
-            current_track_ids = {int(box.id) for res in last_results for box in res.boxes if box.id is not None} if last_results else set()
+            current_track_ids = {int(box.id[0]) for res in last_results for box in res.boxes if box.id is not None} if last_results else set()
             
             for tid in list(pending_alpr_tracks.keys()):
                 if tid not in current_track_ids:
@@ -1250,7 +1262,8 @@ def process_video(
                     if pending_alpr_tracks[tid]["missing_frames"] > 45:
                         # Chỉ ghi log nếu xe đã từng xuất hiện ổn định (đã được log 'Xe đi qua')
                         if pending_alpr_tracks[tid]["is_passed_logged"]:
-                            if tid not in alpr_logger.logged_v_tracks and save_to_db:
+                            # Chỉ lưu ảnh cho xe ô tô/bus/truck, bỏ qua xe máy/xe đạp
+                            if tid not in alpr_logger.logged_v_tracks and save_to_db and pending_alpr_tracks[tid]["best_image"] is not None:
                                 best_f, best_box = pending_alpr_tracks[tid]["best_image"]
                                 alpr_logger.log_vehicle_without_plate(frame_index, best_f, best_box)
                         
@@ -1355,6 +1368,11 @@ def process_video(
                     rtsp_proc.stdin.write(push_frame.tobytes())
                 except Exception as e:
                     if rtsp_proc is None or rtsp_proc.poll() is not None:
+                        run_duration = time.time() - rtsp_start_time
+                        if run_duration < 3.0 and encoder_to_use != "libx264":
+                            print(f"[RTSP Push - Camera {camera_id}] Bộ mã hóa phần cứng '{encoder_to_use}' lỗi hoặc quá tải (chạy được {run_duration:.2f} giây). Tự động chuyển về bộ mã hóa CPU 'libx264'...")
+                            encoder_to_use = "libx264"
+                        
                         print(f"[RTSP Push] Tiến trình FFmpeg đã ngắt ({e}). Đang khởi động lại...")
                         start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
 
@@ -1376,6 +1394,9 @@ def process_video(
                         "timestamp": now_t,
                         "processed_frames": frame_index
                     })
+                    if response and response.get("abort"):
+                        print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng từ hệ thống. Đang dừng luồng xử lý...")
+                        break
                 
                 # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
                 if response and "viewer_count" in response:
@@ -1522,6 +1543,8 @@ def process_video(
                         show_box_bus = bool(new_s["show_box_bus"])
                     if "show_box_truck" in new_s:
                         show_box_truck = bool(new_s["show_box_truck"])
+                    if "show_label" in new_s:
+                        show_label = bool(new_s["show_label"])
 
             # 4. THROTTLE & PROFILING
             elapsed = time.time() - frame_start_time

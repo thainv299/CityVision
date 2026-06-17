@@ -357,7 +357,8 @@ function initMonitoringForm() {
             show_box_car: "on",
             show_box_bus: "on",
             show_box_truck: "on",
-            show_box_plate: "on"
+            show_box_plate: "on",
+            show_label: "on"
         };
 
         try {
@@ -829,7 +830,8 @@ function initMonitoringForm() {
             { id: "show-box-car-chk", key: "show_box_car" },
             { id: "show-box-bus-chk", key: "show_box_bus" },
             { id: "show-box-truck-chk", key: "show_box_truck" },
-            { id: "show-box-plate-chk", key: "show_box_plate" }
+            { id: "show-box-plate-chk", key: "show_box_plate" },
+            { id: "show-label-chk", key: "show_label" }
         ];
 
         checkBoxes.forEach(item => {
