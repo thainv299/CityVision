@@ -70,7 +70,7 @@ class OCRManager:
                 self.pending_results.pop(tid, None)
         
         for sid in list(self.spatial_memory.keys()):
-            if frame_count - self.spatial_memory[sid][3] > 300: # Xóa vết cũ sau khoảng 10s
+            if frame_count - self.spatial_memory[sid][3] > 150: # Xóa vết cũ sau khoảng 5s
                 del self.spatial_memory[sid]
 
     def draw_grace_period_boxes(self, frame, current_plate_ids, drawing_params=None):
