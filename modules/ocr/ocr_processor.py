@@ -68,10 +68,8 @@ def preprocess_plate(img_bgr):
     img_scaled = cv2.resize(img_bgr, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
     
     img_gray = cv2.cvtColor(img_scaled, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(4, 4))
-    img_enhanced = clahe.apply(img_gray)
-    img_enhanced_bgr = cv2.cvtColor(img_enhanced, cv2.COLOR_GRAY2BGR)
-    return img_enhanced_bgr
+    img_gray_bgr = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
+    return img_gray_bgr
 
 def correct_plate_format(text):
     """Sửa lỗi OCR: Ép đúng vị trí nào là số, vị trí nào là chữ."""
@@ -79,7 +77,7 @@ def correct_plate_format(text):
         return text
 
     dict_char_to_num = {'O': '0', 'Q': '0', 'I': '1', 'Z': '2', 'S': '5', 'G': '6', 'B': '8', 'A': '4'}
-    dict_num_to_char = {'0': 'D', '8': 'B', '4': 'A', '5': 'S', '2': 'Z'}
+    dict_num_to_char = {'0': 'D', '8': 'B', '4': 'A', '5': 'S', '2': 'Z', '6': 'G'}
 
     text_list = list(text)
 
@@ -106,7 +104,7 @@ def is_valid_vn_plate(text):
 def run_ocr(ocr_reader, img_bgr):
     # Lấy ảnh đã căn góc/bóp méo
     img_plate_color, status_text, dst_w, dst_h = get_plate_perspective(img_bgr)
-    # Tiền xử lý (CLAHE)
+    # Tiền xử lý (Phóng to, Xám)
     img_processed = preprocess_plate(img_plate_color)
     read_text = ""
     
