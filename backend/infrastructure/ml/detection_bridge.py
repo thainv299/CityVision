@@ -897,6 +897,9 @@ def process_video(
     except Exception:
         pass
 
+    encoder_to_use = encoder
+    rtsp_start_time = 0.0
+
     # Kích thước push mặc định
     push_w, push_h = draw_w, draw_h
     push_bitrate = "3.5M"
@@ -919,7 +922,8 @@ def process_video(
     push_h = push_h + (push_h % 2)
 
     def start_rtsp_push(w, h, bitrate, crf):
-        nonlocal rtsp_proc
+        nonlocal rtsp_proc, rtsp_start_time
+        rtsp_start_time = time.time()
         if rtsp_proc:
             try:
                 rtsp_proc.stdin.close()
@@ -933,6 +937,7 @@ def process_video(
         
         ffmpeg_push_cmd = [
             "ffmpeg", "-y",
+            "-loglevel", "error",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-s", f"{w}x{h}",
@@ -951,7 +956,7 @@ def process_video(
             max_r = f"{int(val*1.5)}K"
             buf_s = f"{int(val*2)}K"
 
-        if encoder == "h264_nvenc":
+        if encoder_to_use == "h264_nvenc":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_nvenc",
@@ -962,7 +967,7 @@ def process_video(
                 "-g", gop_size,
                 "-forced-idr", "1"
             ])
-        elif encoder == "h264_v4l2m2m":
+        elif encoder_to_use == "h264_v4l2m2m":
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_v4l2m2m",
@@ -999,7 +1004,7 @@ def process_video(
                 ffmpeg_push_cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=None,
                 startupinfo=startupinfo
             )
             print(f"[RTSP Push] Khởi động đẩy RTSP: {w}x{h} @ {bitrate} (CRF={crf})")
@@ -1026,7 +1031,7 @@ def process_video(
                     cv2.putText(p_frame, "TAM DUNG",
                                 (draw_w // 2 - int(100 * (draw_w / 1280)), draw_h // 2 + int(15 * (draw_h / 720))),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.2 * (draw_w / 1280), (0, 255, 255), f_thick + 1)
-                    progress_callback({
+                    resp = progress_callback({
                         "phase": "running_detection",
                         "processed_frames": frame_index,
                         "source_total_frames": total_frames,
@@ -1035,6 +1040,9 @@ def process_video(
                         "latest_status": "Đang tạm dừng...",
                         "preview_jpeg": _encode_preview_frame(p_frame, preview_w, preview_h),
                     })
+                    if resp and resp.get("abort"):
+                        print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng khi đang tạm dừng. Đang dừng luồng xử lý...")
+                        break
                 time.sleep(0.5)
                 continue
 
@@ -1166,7 +1174,7 @@ def process_video(
                         )
 
                         if display_label_p:
-                            display_label = display_label_p
+                            display_label = display_label_p if show_label else ""
                             if license_plate:
                                 parking_manager.update_plate(track_id, license_plate)
                             if "VIOLATION" in display_label_p and track_id not in logged_violation_track_ids:
@@ -1233,7 +1241,7 @@ def process_video(
                     if show_box:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
 
-                        if display_label:
+                        if display_label and show_label:
                             (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
                             text_y = max(th + 10, y1 - 5)
                             cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
@@ -1360,6 +1368,11 @@ def process_video(
                     rtsp_proc.stdin.write(push_frame.tobytes())
                 except Exception as e:
                     if rtsp_proc is None or rtsp_proc.poll() is not None:
+                        run_duration = time.time() - rtsp_start_time
+                        if run_duration < 3.0 and encoder_to_use != "libx264":
+                            print(f"[RTSP Push - Camera {camera_id}] Bộ mã hóa phần cứng '{encoder_to_use}' lỗi hoặc quá tải (chạy được {run_duration:.2f} giây). Tự động chuyển về bộ mã hóa CPU 'libx264'...")
+                            encoder_to_use = "libx264"
+                        
                         print(f"[RTSP Push] Tiến trình FFmpeg đã ngắt ({e}). Đang khởi động lại...")
                         start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
 
@@ -1381,6 +1394,9 @@ def process_video(
                         "timestamp": now_t,
                         "processed_frames": frame_index
                     })
+                    if response and response.get("abort"):
+                        print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng từ hệ thống. Đang dừng luồng xử lý...")
+                        break
                 
                 # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
                 if response and "viewer_count" in response:
