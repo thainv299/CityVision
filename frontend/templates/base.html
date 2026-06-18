@@ -611,7 +611,7 @@
                                                 </div>
                                                 ${imgPath ? `
                                                     <div style="width: 50px; height: 30px; border-radius: 4px; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8f0;">
-                                                        <img src="/${imgPath}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'">
+                                                        <img src="/${imgPath}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" loading="lazy">
                                                     </div>
                                                 ` : ''}
                                             </div>

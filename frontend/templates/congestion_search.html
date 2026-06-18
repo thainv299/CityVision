@@ -265,7 +265,7 @@ function displayCongestion(logs) {
                             <td style="text-align: center;">
                                 ${log.image_path ? `
                                     <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
-                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border);">
+                                        <img src="/${log.image_path}" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border);" loading="lazy">
                                     </div>
                                 ` : '<span class="muted">—</span>'}
                             </td>

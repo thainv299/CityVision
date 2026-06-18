@@ -141,7 +141,7 @@
                             <td style="text-align: center;">
                                 ${log.image_path ? `
                                     <div class="evidence-thumb" onclick="window.portalApi.previewImage('/${log.image_path}', 'Ùn tắc tại ${log.camera_name}')">
-                                        <img src="/api/thumbnail?path=${encodeURIComponent(log.image_path)}&width=200" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border); transition: transform 0.2s;">
+                                        <img src="/api/thumbnail?path=${encodeURIComponent(log.image_path)}&width=200" alt="Bằng chứng" style="width: 120px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; border: 2px solid var(--border); transition: transform 0.2s;" loading="lazy">
                                     </div>
                                 ` : '<span class="muted">—</span>'}
                             </td>
