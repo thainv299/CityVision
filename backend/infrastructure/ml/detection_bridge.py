@@ -945,7 +945,7 @@ def process_video(
             "-i", "-",
         ]
         
-        gop_size = str(int(fps) if fps > 0 else 25)
+        gop_size = "15"
         
         if 'M' in bitrate:
             val = float(bitrate.replace('M',''))
@@ -960,7 +960,8 @@ def process_video(
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_nvenc",
-                "-preset", "fast",           
+                "-preset", "p1",
+                "-tune", "ull",
                 "-b:v", bitrate,
                 "-maxrate", max_r,
                 "-bufsize", buf_s,
@@ -1349,8 +1350,6 @@ def process_video(
             fps_now = time.time()
             if fps_now - fps_prev_time >= 1.0:
                 current_fps = fps_frame_count / (fps_now - fps_prev_time)
-                max_fps = fps_frame_count / accumulated_process_time if accumulated_process_time > 0 else 0.0
-                print(f"[Camera {camera_id}] Tốc độ thực tế: {current_fps:.1f} FPS | Hiệu năng tối đa: {max_fps:.1f} FPS")
                 fps_prev_time = fps_now
                 fps_frame_count = 0
                 accumulated_process_time = 0.0
