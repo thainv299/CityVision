@@ -506,6 +506,12 @@ async def api_create_test_job(
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
+    if job.latest_frame:
+        import base64
+        if "progress" not in payload:
+            payload["progress"] = {}
+        payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
+
     return JSONResponse(status_code=200, content={"ok": True, "job": payload})
 
 
@@ -522,6 +528,12 @@ def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)
     payload = job.to_dict()
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
+
+    if job.latest_frame:
+        import base64
+        if "progress" not in payload:
+            payload["progress"] = {}
+        payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
 
     return {"ok": True, "job": payload}
 @monitoring_router.post("/api/test-jobs/{job_id}/pause")

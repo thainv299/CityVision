@@ -8,7 +8,7 @@ async function startWebRTCPlayer(videoElement, cameraId) {
     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
     const url = isLocal ? `http://${hostname}:8889/${streamPath}/whep` : `/api/webrtc/whep/${cameraId}`;
 
-    console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url, "(isLocal:", isLocal, ")");
+    console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url);
     
     // Tải cấu hình ICE/TURN Servers động từ Backend
     let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
@@ -36,7 +36,6 @@ async function startWebRTCPlayer(videoElement, cameraId) {
     videoElement.srcObject = remoteStream;
 
     pc.ontrack = (event) => {
-        console.log("[WebRTC] Đã nhận được track hình ảnh:", event.track);
         if (event.track) {
             remoteStream.addTrack(event.track);
             videoElement.play().catch(err => {
@@ -73,18 +72,16 @@ async function startWebRTCPlayer(videoElement, cameraId) {
             }
         };
 
-        // Timeout: 3s cho mạng local, 8s cho WAN (TURN relay thường mất 2-4s)
-        const iceTimeout = isLocal ? 3000 : 8000;
-        console.log(`[WebRTC] ICE timeout: ${iceTimeout}ms (${isLocal ? 'local' : 'WAN/TURN'})`);
-        const timeoutId = setTimeout(() => {
+        // Timeout CHỜ API (MediaMTX sẽ treo request WHEP cho tới khi FFMPEG đẩy luồng lên, khoảng 3-5s)
+        const fetchTimeout = isLocal ? 12000 : 15000;
+        let timeoutId = setTimeout(() => {
             if (!isSettled) {
                 isSettled = true;
                 cleanup();
-                console.warn(`[WebRTC] ICE timeout sau ${iceTimeout}ms. Trạng thái cuối: ${pc.iceConnectionState}`);
                 pc.close();
-                reject(new Error(`Timeout kết nối ICE WebRTC (${iceTimeout / 1000}s)`));
+                reject(new Error(`Timeout API WHEP (${fetchTimeout / 1000}s)`));
             }
-        }, iceTimeout);
+        }, fetchTimeout);
 
         try {
             const offer = await pc.createOffer();
@@ -123,18 +120,34 @@ async function startWebRTCPlayer(videoElement, cameraId) {
             });
 
             if (!response.ok) {
-                throw new Error(`WHEP endpoint returned error: ${response.status}`);
+                if (response.status === 404) {
+                    throw new Error("Luồng không tồn tại (404)");
+                }
+                throw new Error(`Lỗi Server WHEP: ${response.status}`);
             }
 
             const answerSdp = await response.text();
-            await pc.setRemoteDescription(new RTCSessionDescription({
+            
+            await pc.setRemoteDescription({
                 type: "answer",
                 sdp: answerSdp
-            }));
+            });
 
-            console.log("[WebRTC] SDP Offer/Answer thành công, đang đợi bắt tay ICE...");
-        } catch (e) {
+            // Khởi động bộ đếm Timeout MỚI sau khi đã nhận SDP từ server.
+            // Điều này đảm bảo ICE connection có trọn vẹn 6 giây để kết nối
             clearTimeout(timeoutId);
+            const iceTimeout = isLocal ? 6000 : 8000;
+            
+            const connTimeoutId = setTimeout(() => {
+                if (!isSettled) {
+                    isSettled = true;
+                    cleanup();
+                    pc.close();
+                    reject(new Error(`Timeout kết nối ICE WebRTC (${iceTimeout / 1000}s)`));
+                }
+            }, iceTimeout);
+
+        } catch (e) {
             if (!isSettled) {
                 isSettled = true;
                 cleanup();
@@ -284,7 +297,7 @@ function initMonitoringForm() {
 
                     // Try WebRTC with retries to give MediaMTX time to ingest the new stream
                     let retryCount = 0;
-                    const maxRetries = 1; // Giảm xuống 1 để fallback MJPEG nhanh hơn nếu mạng bị chặn
+                    const maxRetries = 4; // Bắt buộc phải là 4 để chờ FFMPEG khởi động xong!
                     const attemptWebRTC = () => {
                         if (!slot.cameraId) {
                             console.log("[WebRTC] Slot đã trống, hủy kết nối.");
