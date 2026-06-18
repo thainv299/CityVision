@@ -704,5 +704,34 @@ async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login
     )
 
 
+@monitoring_router.get("/api/webrtc/config")
+async def webrtc_config(user=Depends(login_required)):
+    """
+    Get WebRTC ICE servers configuration including STUN and TURN relays.
+    This enables WebRTC traversal over WAN via Cloudflare Tunnel.
+    """
+    if isinstance(user, RedirectResponse):
+        return user
+
+    import os
+    turn_server = os.getenv("WEBRTC_TURN_SERVER", "turn:openrelay.metered.ca:443?transport=tcp")
+    turn_user = os.getenv("WEBRTC_TURN_USERNAME", "openrelayproject")
+    turn_pass = os.getenv("WEBRTC_TURN_PASSWORD", "openrelayproject")
+
+    ice_servers = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:openrelay.metered.ca:80"}
+    ]
+
+    if turn_server and turn_server.lower() != "disabled":
+        ice_servers.append({
+            "urls": turn_server,
+            "username": turn_user,
+            "credential": turn_pass
+        })
+
+    return {"ok": True, "iceServers": ice_servers}
+
+
 
 

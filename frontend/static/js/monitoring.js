@@ -9,9 +9,22 @@ async function startWebRTCPlayer(videoElement, cameraId) {
     const url = isLocal ? `http://${hostname}:8889/${streamPath}/whep` : `/api/webrtc/whep/${cameraId}`;
 
     console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url);
-    const pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-    });
+    
+    // Tải cấu hình ICE/TURN Servers động từ Backend
+    let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+    try {
+        const configResp = await fetch("/api/webrtc/config");
+        if (configResp.ok) {
+            const configData = await configResp.json();
+            if (configData.ok && configData.iceServers) {
+                iceServers = configData.iceServers;
+            }
+        }
+    } catch (err) {
+        console.warn("[WebRTC] Không thể tải cấu hình TURN từ Backend, sử dụng mặc định STUN:", err);
+    }
+
+    const pc = new RTCPeerConnection({ iceServers });
 
     const remoteStream = new MediaStream();
     videoElement.srcObject = remoteStream;
