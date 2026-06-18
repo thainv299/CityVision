@@ -8,23 +8,29 @@ async function startWebRTCPlayer(videoElement, cameraId) {
     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
     const url = isLocal ? `http://${hostname}:8889/${streamPath}/whep` : `/api/webrtc/whep/${cameraId}`;
 
-    console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url);
+    console.log("[WebRTC] Khởi động trình phát WebRTC tại:", url, "(isLocal:", isLocal, ")");
     
     // Tải cấu hình ICE/TURN Servers động từ Backend
     let iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+    let hasTurnServer = false;
     try {
         const configResp = await fetch("/api/webrtc/config");
         if (configResp.ok) {
             const configData = await configResp.json();
             if (configData.ok && configData.iceServers) {
                 iceServers = configData.iceServers;
+                // Kiểm tra xem có TURN server trong cấu hình không
+                hasTurnServer = iceServers.some(s => s.urls && s.urls.toString().startsWith('turn'));
             }
         }
     } catch (err) {
         console.warn("[WebRTC] Không thể tải cấu hình TURN từ Backend, sử dụng mặc định STUN:", err);
     }
 
-    const pc = new RTCPeerConnection({ iceServers });
+    // Cấu hình RTCPeerConnection
+    const rtcConfig = { iceServers };
+
+    const pc = new RTCPeerConnection(rtcConfig);
 
     const remoteStream = new MediaStream();
     videoElement.srcObject = remoteStream;
@@ -67,26 +73,53 @@ async function startWebRTCPlayer(videoElement, cameraId) {
             }
         };
 
-        // Giới hạn thời gian kết nối tối đa 2 giây (Timeout cho mạng local/localhost cực nhanh)
+        // Timeout: 3s cho mạng local, 8s cho WAN (TURN relay thường mất 2-4s)
+        const iceTimeout = isLocal ? 3000 : 8000;
+        console.log(`[WebRTC] ICE timeout: ${iceTimeout}ms (${isLocal ? 'local' : 'WAN/TURN'})`);
         const timeoutId = setTimeout(() => {
             if (!isSettled) {
                 isSettled = true;
                 cleanup();
+                console.warn(`[WebRTC] ICE timeout sau ${iceTimeout}ms. Trạng thái cuối: ${pc.iceConnectionState}`);
                 pc.close();
-                reject(new Error("Timeout kết nối ICE WebRTC (2s)"));
+                reject(new Error(`Timeout kết nối ICE WebRTC (${iceTimeout / 1000}s)`));
             }
-        }, 2000);
+        }, iceTimeout);
 
         try {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+
+            // Chờ quá trình thu thập địa chỉ trung gian (ICE candidates) hoàn tất
+            // Rất quan trọng khi dùng TURN Server vì gửi SDP ngay lập tức sẽ bị thiếu địa chỉ IP của TURN
+            await new Promise((resolve) => {
+                if (pc.iceGatheringState === 'complete') {
+                    resolve();
+                } else {
+                    const checkState = () => {
+                        if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', checkState);
+                            resolve();
+                        }
+                    };
+                    pc.addEventListener('icegatheringstatechange', checkState);
+                    // Chờ tối đa 3 giây cho ICE gathering
+                    setTimeout(() => {
+                        pc.removeEventListener('icegatheringstatechange', checkState);
+                        resolve();
+                    }, 3000);
+                }
+            });
+
+            console.log("[WebRTC] Đã thu thập xong ICE. Đang gửi WHEP Offer lên MediaMTX...");
 
             const response = await fetch(url, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/sdp"
                 },
-                body: offer.sdp
+                // Dùng pc.localDescription.sdp thay vì offer.sdp vì localDescription đã chứa các candidates
+                body: pc.localDescription.sdp
             });
 
             if (!response.ok) {
@@ -251,23 +284,27 @@ function initMonitoringForm() {
 
                     // Try WebRTC with retries to give MediaMTX time to ingest the new stream
                     let retryCount = 0;
-                    const maxRetries = 4;
+                    const maxRetries = 1; // Giảm xuống 1 để fallback MJPEG nhanh hơn nếu mạng bị chặn
                     const attemptWebRTC = () => {
+                        if (!slot.cameraId) {
+                            console.log("[WebRTC] Slot đã trống, hủy kết nối.");
+                            return;
+                        }
                         startWebRTCPlayer(videoEl, slot.cameraId).then(pc => {
                             slot.rtcPeerConnection = pc;
                             if (badgeEl) {
                                 badgeEl.textContent = 'WebRTC';
                                 badgeEl.style.background = '#2563EB';
                             }
+                            console.log('[WebRTC] ✓ Kết nối thành công!');
                         }).catch(err => {
-                            const isIceError = err.message && (err.message.includes("ICE") || err.message.includes("Timeout"));
-
-                            if (!isIceError && retryCount < maxRetries) {
+                            // Retry cho TẤT CẢ các lỗi (kể cả ICE timeout) vì luồng có thể chưa sẵn sàng
+                            if (retryCount < maxRetries) {
                                 retryCount++;
-                                console.log(`[WebRTC] Luồng chưa sẵn sàng, đang thử lại (Lần ${retryCount}/${maxRetries})...`);
-                                setTimeout(attemptWebRTC, 1500); // Thử lại sau 1.5s
+                                console.log(`[WebRTC] Lỗi: ${err.message}. Thử lại lần ${retryCount}/${maxRetries} sau 3s...`);
+                                setTimeout(attemptWebRTC, 3000); // Thử lại sau 3s
                             } else {
-                                console.log(`[WebRTC] Gặp lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
+                                console.log(`[WebRTC] Hết lượt thử (${maxRetries}). Lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
                                 if (videoEl) videoEl.style.display = 'none';
                                 if (imgEl) {
                                     imgEl.src = imgEl.dataset.src; // Nạp luồng MJPEG thực tế khi thực sự có nhu cầu fallback

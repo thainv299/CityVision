@@ -723,7 +723,7 @@ async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login
                 mediamtx_url,
                 headers={"Content-Type": "application/sdp"},
                 data=sdp_offer,
-                timeout=5.0
+                timeout=20.0
             )
         except Exception as e:
             return e
@@ -759,9 +759,9 @@ async def webrtc_config(user=Depends(login_required)):
         return user
 
     import os
-    turn_server = os.getenv("WEBRTC_TURN_SERVER", "turn:openrelay.metered.ca:443?transport=tcp")
-    turn_user = os.getenv("WEBRTC_TURN_USERNAME", "openrelayproject")
-    turn_pass = os.getenv("WEBRTC_TURN_PASSWORD", "openrelayproject")
+    turn_server = os.getenv("WEBRTC_TURN_SERVER")
+    turn_user = os.getenv("WEBRTC_TURN_USERNAME", "")
+    turn_pass = os.getenv("WEBRTC_TURN_PASSWORD", "")
 
     ice_servers = [
         {"urls": "stun:stun.l.google.com:19302"},

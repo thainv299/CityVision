@@ -122,19 +122,72 @@ class MediaMTXManager:
         
         try:
             self.ensure_installed()
-            # Kích hoạt WebRTC over TCP để bypass lỗi chặn local UDP/mDNS của Chrome/Edge trên Windows Dev
             yml_path = BIN_DIR / "mediamtx.yml"
             if yml_path.exists():
                 with open(yml_path, "r", encoding="utf-8") as f:
                     content = f.read()
+                
+                modified = False
+                
+                # Kích hoạt WebRTC over TCP để bypass lỗi chặn local UDP/mDNS của Chrome/Edge trên Windows Dev
                 if "webrtcLocalTCPAddress: ''" in content or 'webrtcLocalTCPAddress: ""' in content:
                     content = content.replace("webrtcLocalTCPAddress: ''", "webrtcLocalTCPAddress: :8189")
                     content = content.replace('webrtcLocalTCPAddress: ""', "webrtcLocalTCPAddress: :8189")
+                    modified = True
+                    print("[MediaMTX] Đã tự động kích hoạt WebRTC-over-TCP (:8189) để bypass bảo mật mDNS/Firewall.")
+                
+                # Cấu hình IP/Domain Public cho WebRTC (webrtcAdditionalHosts)
+                public_host = os.getenv("WEBRTC_PUBLIC_HOST")
+                if not public_host:
+                    # Tự động lấy public IP ngoại mạng
+                    try:
+                        print("[MediaMTX] Đang tự động truy vấn địa chỉ IP Public...")
+                        req = urllib.request.Request("https://api.ipify.org", headers={"User-Agent": "Mozilla/5.0"})
+                        with urllib.request.urlopen(req, timeout=2.0) as response:
+                            public_host = response.read().decode("utf-8").strip()
+                        print(f"[MediaMTX] Đã phát hiện IP Public hiện tại: {public_host}")
+                    except Exception as ex:
+                        print(f"[MediaMTX] Không thể tự động lấy IP Public (Offline hoặc lỗi API): {ex}")
+                
+                import re
+                if public_host and public_host.lower() != "disabled":
+                    # Thay thế webrtcAdditionalHosts
+                    new_hosts_line = f"webrtcAdditionalHosts: [{public_host}]"
+                    content, count = re.subn(r"webrtcAdditionalHosts:\s*\[.*?\]", new_hosts_line, content)
+                    if count > 0:
+                        modified = True
+                        print(f"[MediaMTX] Đã cấu hình host kết nối WebRTC: {public_host}")
+                else:
+                    # Nếu disabled hoặc không lấy được, reset về rỗng
+                    content, count = re.subn(r"webrtcAdditionalHosts:\s*\[.*?\]", "webrtcAdditionalHosts: []", content)
+                    if count > 0:
+                        modified = True
+                
+                # Cấu hình TURN Server cho MediaMTX (webrtcICEServers2)
+                turn_server = os.getenv("WEBRTC_TURN_SERVER")
+                turn_user = os.getenv("WEBRTC_TURN_USERNAME", "")
+                turn_pass = os.getenv("WEBRTC_TURN_PASSWORD", "")
+                
+                if turn_server and turn_server.lower() != "disabled":
+                    ice_yaml = f"""webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+  - url: {turn_server}
+    username: '{turn_user}'
+    password: '{turn_pass}'"""
+                else:
+                    ice_yaml = """webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302"""
+                
+                content, count = re.subn(r"webrtcICEServers2:\s*(?:\[\]|.*?(?=\n\S))", ice_yaml, content, flags=re.DOTALL)
+                if count > 0:
+                    modified = True
+                    print(f"[MediaMTX] Đã cấu hình ICE/TURN Servers: {turn_server}")
+                
+                if modified:
                     with open(yml_path, "w", encoding="utf-8") as f:
                         f.write(content)
-                    print("[MediaMTX] Đã tự động kích hoạt WebRTC-over-TCP (:8189) để bypass bảo mật mDNS/Firewall.")
         except Exception as e:
-            print(f"[MediaMTX] Lỗi cấu hình WebRTC TCP: {e}")
+            print(f"[MediaMTX] Lỗi cấu hình WebRTC: {e}")
 
         self.running = True
         self.thread = threading.Thread(target=self._run, daemon=True)
