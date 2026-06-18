@@ -219,7 +219,7 @@
             <div class="suggestion-item" onclick="handleSuggestionClick('${s.type}', '${s.text}', '${s.id || ''}')">
                 <div class="suggestion-icon" style="overflow: hidden; padding: 0;">
                     ${s.img ? 
-                        `<img src="/${s.img.replace(/^\/+/, '')}" style="width: 100%; height: 100%; object-fit: cover;">` : 
+                        `<img src="/${s.img.replace(/^\/+/, '')}" style="width: 100%; height: 100%; object-fit: cover;" loading="lazy">` : 
                         `<i class="fas ${s.type === 'camera' ? 'fa-video' : 'fa-car'}"></i>`
                     }
                 </div>
@@ -414,7 +414,7 @@
                                     <span class="pill success">${window.portalApi.formatVietnameseDateTime(res.detected_time)}</span>
                                 </td>
                                 <td style="text-align: center;">
-                                    <img src="/${res.path}" class="plate-thumbnail" 
+                                    <img src="/${res.path}" class="plate-thumbnail" loading="lazy"
                                          onclick="portalApi.previewImage('/${res.path}', 'Khớp: ${res.score_pct}% — ${res.camera_name}')"
                                          title="Xem ảnh lớn">
                                 </td>
