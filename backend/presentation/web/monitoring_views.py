@@ -245,6 +245,14 @@ def api_list_server_videos(user=Depends(login_required)):
         
     return {"ok": True, "groups": grouped_videos}
 
+
+import threading
+import hashlib
+import shutil
+
+# Khóa giới hạn tối đa 3 tiến trình ffmpeg chạy cùng lúc để bảo vệ CPU
+ffmpeg_semaphore = threading.Semaphore(3)
+
 @monitoring_router.get("/api/server-videos/preview")
 def api_get_server_video_preview(path: Optional[str] = None, rel_path: Optional[str] = None, user=Depends(login_required)):
     final_path = path or rel_path
@@ -268,49 +276,86 @@ def api_get_server_video_preview(path: Optional[str] = None, rel_path: Optional[
         
     if not input_path.exists():
         raise HTTPException(status_code=404, detail="Không tìm thấy file video.")
-        
-    # Tạo file tạm cho ảnh preview
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        out_jpg = tmp.name
 
-    try:
-        # Trích xuất frame tại giây thứ 1 (hoặc đầu tiên nếu ngắn hơn)
-        # -ss 1 đặt trước -i để nhanh hơn, nhưng đôi khi không chính xác với một số codec
-        # Đặt sau -i để chắc chắn lấy được ảnh có nội dung
-        process = subprocess.run([
-            "ffmpeg", "-y",
-            "-i", str(input_path),
-            "-ss", "00:00:01",
-            "-frames:v", "1",
-            "-q:v", "4",  # Chất lượng vừa phải cho preview
-            "-f", "image2",
-            out_jpg
-        ], capture_output=True, timeout=10)
-        
-        if process.returncode != 0 or not os.path.exists(out_jpg):
-            # Nếu giây thứ 1 lỗi (video ngắn), thử lấy frame đầu tiên
-            subprocess.run([
+    # ──── 1. KIỂM TRA BỘ NHỚ ĐỆM (CACHE) ────
+    # Tạo mã hash duy nhất cho đường dẫn video
+    path_hash = hashlib.md5(str(input_path).encode("utf-8")).hexdigest()
+    cache_dir = PROJECT_ROOT / "runtime" / "thumbnails"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{path_hash}.jpg"
+
+    # Nếu đã có cache và video không bị sửa đổi sau khi lưu cache -> Trả về luôn
+    if cache_file.exists():
+        try:
+            video_mtime = input_path.stat().st_mtime
+            cache_mtime = cache_file.stat().st_mtime
+            if cache_mtime >= video_mtime:
+                with open(cache_file, "rb") as f:
+                    content = f.read()
+                return StreamingResponse(io.BytesIO(content), media_type="image/jpeg")
+        except Exception:
+            pass
+
+    # ──── 2. TRÍCH XUẤT HÌNH ẢNH (Bảo vệ bằng Semaphore) ────
+    with ffmpeg_semaphore:
+        # Double-check cache sau khi có được Lock (Tránh trường hợp request trước đó vừa tạo xong cache)
+        if cache_file.exists():
+            try:
+                if cache_file.stat().st_mtime >= input_path.stat().st_mtime:
+                    with open(cache_file, "rb") as f:
+                        content = f.read()
+                    return StreamingResponse(io.BytesIO(content), media_type="image/jpeg")
+            except Exception:
+                pass
+
+        # Tạo file tạm cho ảnh preview
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            out_jpg = tmp.name
+
+        try:
+            # Trích xuất frame tại giây thứ 1 (hoặc đầu tiên nếu ngắn hơn)
+            process = subprocess.run([
                 "ffmpeg", "-y",
                 "-i", str(input_path),
+                "-ss", "00:00:01",
                 "-frames:v", "1",
-                "-q:v", "4",
+                "-q:v", "4",  # Chất lượng vừa phải cho preview
+                "-f", "image2",
                 out_jpg
-            ], capture_output=True, timeout=5)
+            ], capture_output=True, timeout=10)
+            
+            if process.returncode != 0 or not os.path.exists(out_jpg):
+                # Nếu giây thứ 1 lỗi (video ngắn), thử lấy frame đầu tiên
+                subprocess.run([
+                    "ffmpeg", "-y",
+                    "-i", str(input_path),
+                    "-frames:v", "1",
+                    "-q:v", "4",
+                    out_jpg
+                ], capture_output=True, timeout=5)
 
-        if os.path.exists(out_jpg):
-            with open(out_jpg, "rb") as f:
-                content = f.read()
-            return StreamingResponse(io.BytesIO(content), media_type="image/jpeg")
-        else:
-            # Fallback nếu hoàn toàn không trích xuất được
-            return StreamingResponse(
-                io.BytesIO(build_placeholder_frame("Không có preview", str(final_path))),
-                media_type="image/jpeg"
-            )
-    finally:
-        if os.path.exists(out_jpg):
-            try: os.remove(out_jpg)
-            except: pass
+            if os.path.exists(out_jpg):
+                # Lưu file JPG thành công -> Lưu vào thư mục cache
+                try:
+                    shutil.move(out_jpg, str(cache_file))
+                    # Đọc từ cache để trả về
+                    with open(cache_file, "rb") as f:
+                        content = f.read()
+                except Exception:
+                    # Nếu lưu cache lỗi (ví dụ lỗi phân quyền), đọc trực tiếp từ file tạm
+                    with open(out_jpg, "rb") as f:
+                        content = f.read()
+                return StreamingResponse(io.BytesIO(content), media_type="image/jpeg")
+            else:
+                # Fallback nếu hoàn toàn không trích xuất được
+                return StreamingResponse(
+                    io.BytesIO(build_placeholder_frame("Không có preview", str(final_path))),
+                    media_type="image/jpeg"
+                )
+        finally:
+            if os.path.exists(out_jpg):
+                try: os.remove(out_jpg)
+                except: pass
 
 @monitoring_router.post("/api/test-jobs")
 async def api_create_test_job(
@@ -461,6 +506,12 @@ async def api_create_test_job(
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
+    if job.latest_frame:
+        import base64
+        if "progress" not in payload:
+            payload["progress"] = {}
+        payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
+
     return JSONResponse(status_code=200, content={"ok": True, "job": payload})
 
 
@@ -477,6 +528,12 @@ def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)
     payload = job.to_dict()
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
+
+    if job.latest_frame:
+        import base64
+        if "progress" not in payload:
+            payload["progress"] = {}
+        payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
 
     return {"ok": True, "job": payload}
 @monitoring_router.post("/api/test-jobs/{job_id}/pause")
@@ -678,7 +735,7 @@ async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login
                 mediamtx_url,
                 headers={"Content-Type": "application/sdp"},
                 data=sdp_offer,
-                timeout=5.0
+                timeout=20.0
             )
         except Exception as e:
             return e
@@ -702,6 +759,35 @@ async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login
         io.BytesIO(resp.content),
         media_type="application/sdp"
     )
+
+
+@monitoring_router.get("/api/webrtc/config")
+async def webrtc_config(user=Depends(login_required)):
+    """
+    Get WebRTC ICE servers configuration including STUN and TURN relays.
+    This enables WebRTC traversal over WAN via Cloudflare Tunnel.
+    """
+    if isinstance(user, RedirectResponse):
+        return user
+
+    import os
+    turn_server = os.getenv("WEBRTC_TURN_SERVER")
+    turn_user = os.getenv("WEBRTC_TURN_USERNAME", "")
+    turn_pass = os.getenv("WEBRTC_TURN_PASSWORD", "")
+
+    ice_servers = [
+        {"urls": "stun:stun.l.google.com:19302"},
+        {"urls": "stun:openrelay.metered.ca:80"}
+    ]
+
+    if turn_server and turn_server.lower() != "disabled":
+        ice_servers.append({
+            "urls": turn_server,
+            "username": turn_user,
+            "credential": turn_pass
+        })
+
+    return {"ok": True, "iceServers": ice_servers}
 
 
 
