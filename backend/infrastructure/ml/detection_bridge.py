@@ -960,7 +960,7 @@ def process_video(
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "h264_nvenc",
-                "-preset", "p1",
+                "-preset", "p3",
                 "-tune", "ull",
                 "-b:v", bitrate,
                 "-maxrate", max_r,
@@ -980,7 +980,7 @@ def process_video(
             ffmpeg_push_cmd.extend([
                 "-vf", "format=yuv420p",
                 "-c:v", "libx264",
-                "-preset", "ultrafast",
+                "-preset", "veryfast",
                 "-tune", "zerolatency",
                 "-crf", crf,
                 "-b:v", bitrate,
