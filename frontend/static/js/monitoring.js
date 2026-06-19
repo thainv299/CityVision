@@ -49,8 +49,6 @@ async function startWebRTCPlayer(videoElement, cameraId) {
     // Tạo Promise đợi kết nối ICE thành công thực tế để đảm bảo không bị đen màn hình
     return new Promise(async (resolve, reject) => {
         let isSettled = false;
-        const startTotal = performance.now();
-        let startConnection = 0;
 
         const cleanup = () => {
             pc.oniceconnectionstatechange = null;
@@ -62,9 +60,6 @@ async function startWebRTCPlayer(videoElement, cameraId) {
                 if (!isSettled) {
                     isSettled = true;
                     cleanup();
-                    const duration = (performance.now() - startConnection).toFixed(0);
-                    const totalDuration = (performance.now() - startTotal).toFixed(0);
-                    console.log(`[WebRTC Profiling] ✓ Kết nối thành công! Thời gian kết nối: ${duration}ms (Tổng cộng từ đầu: ${totalDuration}ms)`);
                     resolve(pc);
                 }
             } else if (pc.iceConnectionState === "failed") {
@@ -93,7 +88,6 @@ async function startWebRTCPlayer(videoElement, cameraId) {
             await pc.setLocalDescription(offer);
 
             // Chờ quá trình thu thập địa chỉ trung gian (ICE candidates) hoàn tất
-            const startGathering = performance.now();
             await new Promise((resolve) => {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
@@ -112,11 +106,8 @@ async function startWebRTCPlayer(videoElement, cameraId) {
                     }, 1100);
                 }
             });
-            const gatheringDuration = (performance.now() - startGathering).toFixed(0);
-            console.log(`[WebRTC Profiling] Thu thập ICE mất: ${gatheringDuration}ms. Trạng thái cuối: ${pc.iceGatheringState}`);
 
-            console.log("[WebRTC] Đang gửi WHEP Offer lên MediaMTX...");
-            startConnection = performance.now();
+            console.log("[WebRTC] Đã thu thập xong ICE. Đang gửi WHEP Offer lên MediaMTX...");
 
             const response = await fetch(url, {
                 method: "POST",
@@ -307,7 +298,6 @@ function initMonitoringForm() {
                     let retryCount = 0;
                     const maxRetries = 4; // Bắt buộc phải là 4 để chờ FFMPEG khởi động xong!
                     const attemptWebRTC = () => {
-                        console.log("[WebRTC DEBUG] attemptWebRTC called. Slot state:", slot.state, "cameraId:", slot.cameraId, "jobId:", slot.jobId);
                         if (slot.cameraId === null || slot.cameraId === undefined) {
                             console.log("[WebRTC] Slot đã trống, hủy kết nối.");
                             return;
