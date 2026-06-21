@@ -102,10 +102,41 @@ def is_valid_vn_plate(text):
     return bool(re.match(pattern, text))
 
 def run_ocr(ocr_reader, img_bgr):
-    # Lấy ảnh đã căn góc/bóp méo
-    img_plate_color, status_text, dst_w, dst_h = get_plate_perspective(img_bgr)
-    # Tiền xử lý (Phóng to, Xám)
-    img_processed = preprocess_plate(img_plate_color)
+    # Load các cấu hình tiền xử lý từ Database
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        use_perspective = get_system_setting("ocr_preprocess_perspective", "true") == "true"
+        use_grayscale = get_system_setting("ocr_preprocess_grayscale", "true") == "true"
+        use_magnify = get_system_setting("ocr_preprocess_magnify", "true") == "true"
+    except Exception:
+        use_perspective = True
+        use_grayscale = True
+        use_magnify = True
+
+    # 1. Khử góc nghiêng (Perspective Warp)
+    if use_perspective:
+        img_plate_color, status_text, dst_w, dst_h = get_plate_perspective(img_bgr)
+    else:
+        h_orig, w_orig = img_bgr.shape[:2]
+        ratio = w_orig / h_orig if h_orig > 0 else 1.0
+        if ratio < 1.8:
+            dst_w, dst_h = 240, 180   
+        else:
+            dst_w, dst_h = 480, 120   
+        img_plate_color = cv2.resize(img_bgr, (dst_w, dst_h), interpolation=cv2.INTER_CUBIC)
+        status_text = f"Bỏ qua Warp ({dst_w}x{dst_h})"
+
+    # 2. Tiền xử lý (Phóng to x2 và Chuyển xám)
+    h, w = img_plate_color.shape[:2]
+    if use_magnify:
+        img_processed = cv2.resize(img_plate_color, (w * 2, h * 2), interpolation=cv2.INTER_CUBIC)
+    else:
+        img_processed = img_plate_color.copy()
+
+    if use_grayscale:
+        img_gray = cv2.cvtColor(img_processed, cv2.COLOR_BGR2GRAY)
+        img_processed = cv2.cvtColor(img_gray, cv2.COLOR_GRAY2BGR)
+
     read_text = ""
     
     res = ocr_reader.ocr(img_processed, cls=False)

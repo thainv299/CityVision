@@ -9,8 +9,16 @@ from . import ocr_processor
 class OCRManager:
     def __init__(self, reader, interval=1, vote_threshold=3, max_lost_frames=5, alpr_logger=None):
         self.reader = reader
-        self.OCR_INTERVAL = interval
-        self.VOTE_THRESHOLD = vote_threshold
+        
+        # Nạp cấu hình động từ cơ sở dữ liệu
+        try:
+            from backend.database.sqlite_db import get_system_setting
+            self.OCR_INTERVAL = int(get_system_setting("ocr_interval", str(interval)))
+            self.VOTE_THRESHOLD = int(get_system_setting("ocr_voting_threshold", str(vote_threshold)))
+        except Exception:
+            self.OCR_INTERVAL = interval
+            self.VOTE_THRESHOLD = vote_threshold
+
         self.MAX_LOST_FRAMES = max_lost_frames
         self.alpr_logger = alpr_logger
         self.save_to_db = True

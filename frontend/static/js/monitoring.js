@@ -2,6 +2,20 @@
 // CityVision AI — Multi-view Monitoring Controller
 // ═══════════════════════════════════════════════════════════════
 
+let wanTransmissionMode = "webrtc"; // Global variable for WAN streaming mode
+
+async function fetchSystemSettings() {
+    try {
+        const response = await fetch('/api/system/settings');
+        const data = await response.json();
+        if (data.ok && data.settings && data.settings.wan_transmission_mode) {
+            wanTransmissionMode = data.settings.wan_transmission_mode;
+        }
+    } catch (e) {
+        // Bỏ qua lỗi trong môi trường production
+    }
+}
+
 async function startWebRTCPlayer(videoElement, cameraId) {
     const streamPath = `live_camera_${cameraId}`;
     const hostname = window.location.hostname || "localhost";
@@ -159,6 +173,9 @@ async function startWebRTCPlayer(videoElement, cameraId) {
 
 
 function initMonitoringForm() {
+    // Tải cấu hình hệ thống bao gồm WAN transmission mode
+    fetchSystemSettings();
+
     // ── DOM ELEMENTS ────────────────────────────────────────
     const feedback = document.getElementById("test-job-feedback");
     const statusPanel = document.getElementById("job-status-panel");
@@ -294,46 +311,62 @@ function initMonitoringForm() {
                     const imgEl = slotEl.querySelector('img');
                     const badgeEl = slotEl.querySelector('.mv-slot-badge');
 
-                    // Try WebRTC with retries to give MediaMTX time to ingest the new stream
-                    let retryCount = 0;
-                    const maxRetries = 4; // Bắt buộc phải là 4 để chờ FFMPEG khởi động xong!
-                    const attemptWebRTC = () => {
-                        if (slot.cameraId === null || slot.cameraId === undefined) {
-                            console.log("[WebRTC] Slot đã trống, hủy kết nối.");
-                            return;
+                    // Detect network type
+                    const hostname = window.location.hostname || "localhost";
+                    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+
+                    if (!isLocal && wanTransmissionMode === "mjpeg") {
+                        if (videoEl) videoEl.style.display = 'none';
+                        if (imgEl) {
+                            imgEl.src = imgEl.dataset.src;
+                            imgEl.style.display = 'block';
                         }
-                        startWebRTCPlayer(videoEl, slot.cameraId).then(pc => {
-                            slot.rtcPeerConnection = pc;
-                            if (slot.webRtcRetryTimeoutId) {
-                                clearTimeout(slot.webRtcRetryTimeoutId);
-                                slot.webRtcRetryTimeoutId = null;
+                        if (badgeEl) {
+                            badgeEl.textContent = 'MJPEG';
+                            badgeEl.style.background = '#EF4444';
+                        }
+                    } else {
+                        // Try WebRTC with retries to give MediaMTX time to ingest the new stream
+                        let retryCount = 0;
+                        const maxRetries = 4; // Bắt buộc phải là 4 để chờ FFMPEG khởi động xong!
+                        const attemptWebRTC = () => {
+                            if (slot.cameraId === null || slot.cameraId === undefined) {
+                                console.log("[WebRTC] Slot đã trống, hủy kết nối.");
+                                return;
                             }
-                            if (badgeEl) {
-                                badgeEl.textContent = 'WebRTC';
-                                badgeEl.style.background = '#2563EB';
-                            }
-                            console.log('[WebRTC] ✓ Kết nối thành công!');
-                        }).catch(err => {
-                            // Retry cho TẤT CẢ các lỗi (kể cả ICE timeout) vì luồng có thể chưa sẵn sàng
-                            if (retryCount < maxRetries) {
-                                retryCount++;
-                                console.log(`[WebRTC] Lỗi: ${err.message}. Thử lại lần ${retryCount}/${maxRetries} sau 3s...`);
-                                slot.webRtcRetryTimeoutId = setTimeout(attemptWebRTC, 3000); // Thử lại sau 3s
-                            } else {
-                                console.log(`[WebRTC] Hết lượt thử (${maxRetries}). Lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
-                                if (videoEl) videoEl.style.display = 'none';
-                                if (imgEl) {
-                                    imgEl.src = imgEl.dataset.src; // Nạp luồng MJPEG thực tế khi thực sự có nhu cầu fallback
-                                    imgEl.style.display = 'block';
+                            startWebRTCPlayer(videoEl, slot.cameraId).then(pc => {
+                                slot.rtcPeerConnection = pc;
+                                if (slot.webRtcRetryTimeoutId) {
+                                    clearTimeout(slot.webRtcRetryTimeoutId);
+                                    slot.webRtcRetryTimeoutId = null;
                                 }
                                 if (badgeEl) {
-                                    badgeEl.textContent = 'MJPEG';
-                                    badgeEl.style.background = '#EF4444';
+                                    badgeEl.textContent = 'WebRTC';
+                                    badgeEl.style.background = '#2563EB';
                                 }
-                            }
-                        });
-                    };
-                    attemptWebRTC();
+                                console.log('[WebRTC] ✓ Kết nối thành công!');
+                            }).catch(err => {
+                                // Retry cho TẤT CẢ các lỗi (kể cả ICE timeout) vì luồng có thể chưa sẵn sàng
+                                if (retryCount < maxRetries) {
+                                    retryCount++;
+                                    console.log(`[WebRTC] Lỗi: ${err.message}. Thử lại lần ${retryCount}/${maxRetries} sau 3s...`);
+                                    slot.webRtcRetryTimeoutId = setTimeout(attemptWebRTC, 3000); // Thử lại sau 3s
+                                } else {
+                                    console.log(`[WebRTC] Hết lượt thử (${maxRetries}). Lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
+                                    if (videoEl) videoEl.style.display = 'none';
+                                    if (imgEl) {
+                                        imgEl.src = imgEl.dataset.src; // Nạp luồng MJPEG thực tế khi thực sự có nhu cầu fallback
+                                        imgEl.style.display = 'block';
+                                    }
+                                    if (badgeEl) {
+                                        badgeEl.textContent = 'MJPEG';
+                                        badgeEl.style.background = '#EF4444';
+                                    }
+                                }
+                            });
+                        };
+                        attemptWebRTC();
+                    }
 
                     // Click-to-close and action buttons
                     const closeBtn = slotEl.querySelector('[data-action="close"]');
