@@ -404,11 +404,24 @@ def api_get_system_settings(user=Depends(login_required)):
     try:
         log_retention = get_system_setting("log_retention", "30_days")
         telegram_notifications = get_system_setting("telegram_notifications", "true")
+        wan_transmission_mode = get_system_setting("wan_transmission_mode", "webrtc")
+        ocr_voting_threshold = get_system_setting("ocr_voting_threshold", "3")
+        ocr_interval = get_system_setting("ocr_interval", "1")
+        ocr_preprocess_perspective = get_system_setting("ocr_preprocess_perspective", "true")
+        ocr_preprocess_grayscale = get_system_setting("ocr_preprocess_grayscale", "true")
+        ocr_preprocess_magnify = get_system_setting("ocr_preprocess_magnify", "true")
+        
         return {
             "ok": True,
             "settings": {
                 "log_retention": log_retention,
-                "telegram_notifications": telegram_notifications
+                "telegram_notifications": telegram_notifications,
+                "wan_transmission_mode": wan_transmission_mode,
+                "ocr_voting_threshold": ocr_voting_threshold,
+                "ocr_interval": ocr_interval,
+                "ocr_preprocess_perspective": ocr_preprocess_perspective,
+                "ocr_preprocess_grayscale": ocr_preprocess_grayscale,
+                "ocr_preprocess_magnify": ocr_preprocess_magnify
             }
         }
     except Exception as e:
@@ -426,6 +439,30 @@ def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_requi
         telegram_notifications = payload.get("telegram_notifications")
         if telegram_notifications is not None:
             update_system_setting("telegram_notifications", telegram_notifications)
+            
+        wan_transmission_mode = payload.get("wan_transmission_mode")
+        if wan_transmission_mode:
+            update_system_setting("wan_transmission_mode", wan_transmission_mode)
+            
+        ocr_voting_threshold = payload.get("ocr_voting_threshold")
+        if ocr_voting_threshold is not None:
+            update_system_setting("ocr_voting_threshold", str(ocr_voting_threshold))
+            
+        ocr_interval = payload.get("ocr_interval")
+        if ocr_interval is not None:
+            update_system_setting("ocr_interval", str(ocr_interval))
+            
+        ocr_preprocess_perspective = payload.get("ocr_preprocess_perspective")
+        if ocr_preprocess_perspective is not None:
+            update_system_setting("ocr_preprocess_perspective", "true" if ocr_preprocess_perspective else "false")
+            
+        ocr_preprocess_grayscale = payload.get("ocr_preprocess_grayscale")
+        if ocr_preprocess_grayscale is not None:
+            update_system_setting("ocr_preprocess_grayscale", "true" if ocr_preprocess_grayscale else "false")
+            
+        ocr_preprocess_magnify = payload.get("ocr_preprocess_magnify")
+        if ocr_preprocess_magnify is not None:
+            update_system_setting("ocr_preprocess_magnify", "true" if ocr_preprocess_magnify else "false")
             
         return {"ok": True, "message": "Đã cập nhật cấu hình hệ thống thành công."}
     except Exception as e:

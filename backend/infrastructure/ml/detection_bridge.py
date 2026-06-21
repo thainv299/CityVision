@@ -843,6 +843,9 @@ def process_video(
     # Khởi tạo Hardware JPEG Encoder
     hw_encoder = HardwareJPEGEncoder()
 
+    def _encode_preview_frame(f, w, h):
+        return hw_encoder.encode(f, w, h, 75)
+
     def preview_encoder_worker():
         while not preview_state["stop"]:
             try:
