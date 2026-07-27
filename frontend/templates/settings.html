@@ -119,22 +119,30 @@
 
     <div class="ds-chart-card"
         style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-        <h3 style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; display: flex; justify-content: space-between; align-items: center;">
-            <span><i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu lịch sử</span>
+        <h3
+            style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; display: flex; justify-content: space-between; align-items: center;">
+            <span><i class="fas fa-database" style="margin-right: 8px; color: #10B981;"></i>Hạ tầng & Lưu trữ Dữ liệu
+                lịch sử</span>
             {% if current_user.role == 'admin' %}
-            <button onclick="restartSystem()" id="restart-system-btn" style="background: #F59E0B; border: none; padding: 8px 16px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; transition: all 0.2s;"><i class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code</button>
+            <button onclick="restartSystem()" id="restart-system-btn"
+                style="background: #F59E0B; border: none; padding: 8px 16px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; font-size: 13px; transition: all 0.2s;"><i
+                    class="fas fa-sync-alt" style="margin-right: 5px;"></i>Khởi động lại / Cập nhật Code</button>
             {% endif %}
         </h3>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; margin-bottom: 20px;">
             <!-- Column 1: Lưu trữ & Thông báo -->
             <div style="border-right: 1px solid #E2E8F0; padding-right: 16px;">
-                <h4 style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                <h4
+                    style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
                     <i class="fas fa-database" style="color: #10B981;"></i> Lưu trữ & Thông báo
                 </h4>
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Thời gian dọn dẹp Logs</label>
-                    <select id="setting-log-retention" style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
+                    <label
+                        style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Thời
+                        gian dọn dẹp Logs</label>
+                    <select id="setting-log-retention"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
                         <option value="7_days">7 ngày gần nhất</option>
                         <option value="30_days">30 ngày gần nhất</option>
                         <option value="90_days">90 ngày gần nhất</option>
@@ -142,8 +150,11 @@
                     </select>
                 </div>
                 <div>
-                    <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Thông báo qua Telegram</label>
-                    <select id="setting-telegram-notifications" style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
+                    <label
+                        style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Thông
+                        báo qua Telegram</label>
+                    <select id="setting-telegram-notifications"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
                         <option value="true">Bật (Gửi cảnh báo)</option>
                         <option value="false">Tắt (Không gửi)</option>
                     </select>
@@ -152,47 +163,64 @@
 
             <!-- Column 2: Truyền luồng WAN -->
             <div style="border-right: 1px solid #E2E8F0; padding-right: 16px;">
-                <h4 style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                <h4
+                    style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
                     <i class="fas fa-network-wired" style="color: #3B82F6;"></i> Truyền luồng WAN
                 </h4>
                 <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Chế độ truyền tải WAN</label>
-                    <select id="setting-wan-transmission-mode" style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
-                        <option value="webrtc">WebRTC (Độ trễ cực thấp)</option>
-                        <option value="mjpeg">MJPEG (Wan fallback lập tức)</option>
+                    <label
+                        style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Chế
+                        độ truyền tải WAN</label>
+                    <select id="setting-wan-transmission-mode"
+                        style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none; background: white;">
+                        <option value="webrtc">WebRTC</option>
+                        <option value="mjpeg">MJPEG</option>
                     </select>
                     <p style="font-size: 11px; color: #64748B; margin-top: 6px; line-height: 1.4;">
-                        Nếu chọn MJPEG, hệ thống sẽ bỏ qua kết nối thử nghiệm WebRTC để truyền luồng ảnh động nhanh nhất trên môi trường WAN.
+                        Nếu chọn MJPEG, hệ thống sẽ bỏ qua kết nối thử nghiệm WebRTC để truyền luồng ảnh động nhanh nhất
+                        trên môi trường WAN.
                     </p>
                 </div>
             </div>
 
             <!-- Column 3: Nhận dạng biển số (PaddleOCR) -->
             <div>
-                <h4 style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
+                <h4
+                    style="font-size: 14px; font-weight: 700; color: #1E293B; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;">
                     <i class="fas fa-id-card" style="color: #8B5CF6;"></i> Nhận dạng biển số (PaddleOCR)
                 </h4>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
                     <div>
-                        <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Ngưỡng biểu quyết</label>
-                        <input type="number" id="setting-ocr-voting-threshold" min="1" max="10" value="3" style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none;">
+                        <label
+                            style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Ngưỡng
+                            biểu quyết</label>
+                        <input type="number" id="setting-ocr-voting-threshold" min="1" max="10" value="3"
+                            style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none;">
                     </div>
                     <div>
-                        <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Tần suất OCR (Frame)</label>
-                        <input type="number" id="setting-ocr-interval" min="1" max="30" value="1" style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none;">
+                        <label
+                            style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Tần
+                            suất OCR (Frame)</label>
+                        <input type="number" id="setting-ocr-interval" min="1" max="30" value="1"
+                            style="width: 100%; padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 13px; color: #334155; outline: none;">
                     </div>
                 </div>
                 <div>
-                    <label style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Tiền xử lý ảnh biển số</label>
+                    <label
+                        style="display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #475569;">Tiền
+                        xử lý ảnh biển số</label>
                     <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #334155;">
                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <input type="checkbox" id="setting-ocr-preprocess-perspective" style="accent-color: #8B5CF6;"> Khử góc nghiêng (Warp)
+                            <input type="checkbox" id="setting-ocr-preprocess-perspective"
+                                style="accent-color: #8B5CF6;"> Khử góc nghiêng (Warp)
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <input type="checkbox" id="setting-ocr-preprocess-grayscale" style="accent-color: #8B5CF6;"> Chuyển ảnh xám (Grayscale)
+                            <input type="checkbox" id="setting-ocr-preprocess-grayscale" style="accent-color: #8B5CF6;">
+                            Chuyển ảnh xám (Grayscale)
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                            <input type="checkbox" id="setting-ocr-preprocess-magnify" style="accent-color: #8B5CF6;"> Phóng to ảnh biển số x2 (Magnify)
+                            <input type="checkbox" id="setting-ocr-preprocess-magnify" style="accent-color: #8B5CF6;">
+                            Phóng to ảnh biển số x2 (Magnify)
                         </label>
                     </div>
                 </div>
@@ -200,12 +228,15 @@
         </div>
 
         <!-- Alert info banner at bottom -->
-        <div style="background: #F8FAFC; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #F59E0B; font-size: 13px; color: #64748B; line-height: 1.5; display: flex; justify-content: space-between; align-items: center;">
+        <div
+            style="background: #F8FAFC; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #F59E0B; font-size: 13px; color: #64748B; line-height: 1.5; display: flex; justify-content: space-between; align-items: center;">
             <div>
-                Cơ sở dữ liệu: <span style="color: #10B981; font-weight: 700;">urbanm_ai.db (Đang hoạt động)</span> | 
-                Ảnh bằng chứng vi phạm: <span style="color: #4379EE; font-weight: 700;">Tự động nén ảnh chất lượng cao</span>
+                Cơ sở dữ liệu: <span style="color: #10B981; font-weight: 700;">urbanm_ai.db (Đang hoạt động)</span> |
+                Ảnh bằng chứng vi phạm: <span style="color: #4379EE; font-weight: 700;">Tự động nén ảnh chất lượng
+                    cao</span>
             </div>
-            <div style="font-weight: 600; font-size: 12px; color: #475569;">* Các thiết lập hệ thống được áp dụng toàn cục cho tất cả camera.</div>
+            <div style="font-weight: 600; font-size: 12px; color: #475569;">* Các thiết lập hệ thống được áp dụng toàn
+                cục cho tất cả camera.</div>
         </div>
     </div>
 
@@ -548,7 +579,7 @@
 
                     if (elapsed >= maxWait) {
                         clearInterval(pollInterval);
-                        document.getElementById('restore-status-text').innerHTML = 
+                        document.getElementById('restore-status-text').innerHTML =
                             '<span style="color: #F87171;">Máy chủ không phản hồi sau ' + maxWait + 's. Vui lòng khởi động lại thủ công.</span>';
                         return;
                     }
@@ -557,7 +588,7 @@
                     if (elapsed < 2) return;
 
                     try {
-                        const ping = await fetch('/api/system/backups', { 
+                        const ping = await fetch('/api/system/backups', {
                             method: 'GET',
                             signal: AbortSignal.timeout(2000)
                         });
@@ -575,7 +606,7 @@
                         }
                     } catch (_) {
                         serverWentDown = true;
-                        document.getElementById('restore-status-text').innerHTML = 
+                        document.getElementById('restore-status-text').innerHTML =
                             'Máy chủ đang áp dụng dữ liệu... (<span id="restore-elapsed">' + elapsed + '</span>s)';
                     }
                 }, 1000);
@@ -645,7 +676,7 @@
 
                     if (elapsed >= maxWait) {
                         clearInterval(pollInterval);
-                        document.getElementById('restart-status-text').innerHTML = 
+                        document.getElementById('restart-status-text').innerHTML =
                             '<span style="color: #F87171;">Máy chủ không phản hồi sau ' + maxWait + 's. Vui lòng kiểm tra thủ công.</span>';
                         return;
                     }
@@ -653,7 +684,7 @@
                     if (elapsed < 2) return;
 
                     try {
-                        const ping = await fetch('/api/system/backups', { 
+                        const ping = await fetch('/api/system/backups', {
                             method: 'GET',
                             signal: AbortSignal.timeout(2000)
                         });
@@ -671,7 +702,7 @@
                         }
                     } catch (_) {
                         serverWentDown = true;
-                        document.getElementById('restart-status-text').innerHTML = 
+                        document.getElementById('restart-status-text').innerHTML =
                             'Máy chủ đang áp dụng bản cập nhật... (<span id="restart-elapsed">' + elapsed + '</span>s)';
                     }
                 }, 1000);
