@@ -110,6 +110,7 @@ class ParkingManager:
         self.track_id_map = {}
         self.pending_telegram_warnings = {}
         self._last_notified_plates = {}
+        self._last_notified_positions = []  # List of (cx, cy, timestamp) cho spatial cooldown
         # Dict nhận cập nhật biển số async từ OCR: {track_id: plate_str}
         self._pending_plate_updates: dict = {}
 
@@ -126,7 +127,7 @@ class ParkingManager:
 
 
     def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str, initial_plate: str | None = None):
-        """Lên lịch gửi cảnh báo Telegram sau 3 giây để debounce và lọc trùng lặp"""
+        """Lên lịch gửi cảnh báo Telegram sau 5 giây để debounce và lọc trùng lặp"""
         self.cancel_pending_warning(track_id)
 
         def fire():
@@ -159,6 +160,33 @@ class ParkingManager:
                     return
                 self._last_notified_plates[current_plate] = now
 
+            # 3b. Spatial Cooldown: Lọc trùng lặp theo vị trí tọa độ (cho trường hợp chưa có biển số)
+            now = time.time()
+            vehicle_cx, vehicle_cy = None, None
+            if track_id in self.last_seen:
+                vehicle_cx = self.last_seen[track_id]['cx']
+                vehicle_cy = self.last_seen[track_id]['cy']
+            elif track_id in self.track_id_map:
+                mapped = self.track_id_map[track_id]
+                if mapped in self.last_seen:
+                    vehicle_cx = self.last_seen[mapped]['cx']
+                    vehicle_cy = self.last_seen[mapped]['cy']
+
+            if vehicle_cx is not None:
+                # Dọn dẹp vị trí cũ hơn 60 giây
+                self._last_notified_positions = [
+                    (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < 60.0
+                ]
+                # Kiểm tra có cảnh báo nào gửi gần đây (< 30s) tại cùng vị trí (< 80px) không
+                for px, py, pt in self._last_notified_positions:
+                    dist = math.hypot(vehicle_cx - px, vehicle_cy - py)
+                    if dist < 80.0 and now - pt < 30.0:
+                        print(f"[ParkingManager] Bỏ qua cảnh báo trùng vị trí cho ID:{track_id} "
+                              f"(cách vị trí đã cảnh báo {dist:.0f}px, {now - pt:.1f}s trước).")
+                        return
+                # Ghi nhận vị trí đã gửi cảnh báo
+                self._last_notified_positions.append((vehicle_cx, vehicle_cy, now))
+
             # 4. Tạo lại caption với biển số xe thực tế nếu có
             if current_plate and not current_plate.startswith("ID_"):
                 final_caption = f"⚠️ CẢNH BÁO: Xe biển số {current_plate} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
@@ -168,14 +196,14 @@ class ParkingManager:
             # 5. Gửi cảnh báo
             threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
 
-        t = threading.Timer(3.0, fire)
+        t = threading.Timer(5.0, fire)
         t.daemon = True
         self.pending_telegram_warnings[track_id] = {
             'timer': t,
             'caption': caption_template
         }
         t.start()
-        print(f"[ParkingManager] Đã lên lịch gửi cảnh báo Telegram cho ID:{track_id} sau 3 giây (debounce).")
+        print(f"[ParkingManager] Đã lên lịch gửi cảnh báo Telegram cho ID:{track_id} sau 5 giây (debounce).")
 
 
     def update_plate(self, track_id: int, plate: str):
@@ -430,26 +458,49 @@ class ParkingManager:
         # 3. Thuật toán Spatial Re-ID (Sáp nhập Track vỡ nếu xuất hiện ID mới tại cùng vị trí)
         if track_id not in self.last_seen and track_id not in self.track_id_map:
             best_match = None
+            best_source = None  # 'ghost' hoặc 'last_seen'
             min_dist = float('inf')
             max_dist_px = max(60.0, self.move_thr_px * 2) # Khoảng cách tối đa cho phép nối ghép
             
+            # 3a. Tìm trong ghost_tracks (xe đã mất dấu > 1 giây)
             for gid, ginfo in self.ghost_tracks.items():
                 dist = math.hypot(cx - ginfo['cx'], cy - ginfo['cy'])
                 if dist < max_dist_px and dist < min_dist:
                     min_dist = dist
                     best_match = gid
+                    best_source = 'ghost'
+            
+            # 3b. Tìm trong last_seen (xe bị nhảy ID tức thời, chưa kịp vào ghost_tracks)
+            #     Chỉ xét các ID đang ở trạng thái WAITING hoặc có pending warning
+            #     để tránh nối ghép nhầm với xe đang di chuyển bình thường
+            for sid, sinfo in self.last_seen.items():
+                if sid == track_id:
+                    continue
+                # Chỉ Re-ID cho xe đang trong trạng thái đáng quan tâm (WAITING/có cảnh báo)
+                has_state = (sid in self.logic.states or sid in self.waiting_vehicles 
+                             or sid in self.pending_telegram_warnings)
+                if not has_state:
+                    continue
+                dist = math.hypot(cx - sinfo['cx'], cy - sinfo['cy'])
+                if dist < max_dist_px and dist < min_dist:
+                    min_dist = dist
+                    best_match = sid
+                    best_source = 'last_seen'
             
             if best_match is not None:
                 # Nối ghép thành công! Khôi phục trí nhớ cho xe bằng cách ánh xạ ID mới về ID cũ
                 self.track_id_map[track_id] = best_match
                 mapped_id = best_match
                 self.cancel_pending_warning(track_id)
+                print(f"[Re-ID] Nối ghép ID:{track_id} → ID:{best_match} (khoảng cách {min_dist:.0f}px, nguồn: {best_source})")
                 
-                ginfo = self.ghost_tracks.pop(best_match)
-                if 'logic_state' in ginfo:
-                    self.logic.states[best_match] = ginfo['logic_state']
-                if 'waiting_data' in ginfo:
-                    self.waiting_vehicles[best_match] = ginfo['waiting_data']
+                if best_source == 'ghost':
+                    ginfo = self.ghost_tracks.pop(best_match)
+                    if 'logic_state' in ginfo:
+                        self.logic.states[best_match] = ginfo['logic_state']
+                    if 'waiting_data' in ginfo:
+                        self.waiting_vehicles[best_match] = ginfo['waiting_data']
+                # Nếu best_source == 'last_seen': trạng thái đã có sẵn, không cần khôi phục
 
         # Cập nhật vị trí và dấu thời gian hiện tại dưới ID thực (mapped_id)
         self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time}
