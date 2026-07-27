@@ -282,7 +282,7 @@ function initMonitoringForm() {
                     slotEl.innerHTML = `
                         <div class="mv-slot-loader">
                             <div class="mv-spinner"></div>
-                            <p>Đang kết nối...</p>
+                            <p>${slot.message || 'Đang kết nối...'}</p>
                         </div>
                         <div class="mv-slot-status">
                             <span class="mv-cam-label">${slot.camera ? slot.camera.name : 'Camera'}</span>
@@ -505,6 +505,12 @@ function initMonitoringForm() {
             const data = await window.portalApi.get(`/api/test-jobs/${slot.jobId}`);
             const job = data.job;
 
+            // Log detailed job status to browser console
+            console.log(`[Job Polling] Slot ${slotIndex} | Job ID: ${job.id} | Status: ${job.status} | Phase: ${job.progress ? job.progress.phase : 'none'} | Message: ${job.message} | Error: ${job.error}`);
+
+            // Update slot message dynamically
+            slot.message = job.message || (job.progress && job.progress.latest_status) || "Đang kết nối...";
+
             // Chỉ hiển thị 'streaming' khi luồng thực tế đã bắt đầu xử lý ảnh và đẩy RTSP thành công lên MediaMTX
             const isProcessing = job.progress && (job.progress.phase === 'running_detection' || job.progress.processed_frames > 0);
 
@@ -512,6 +518,15 @@ function initMonitoringForm() {
                 slot.streamUrl = job.stream_url;
                 slot.state = 'streaming';
                 renderSlots();
+            } else if (slot.state === 'loading') {
+                // Update the text in the DOM directly to avoid re-rendering whole slot
+                const slotEl = slot.domElement;
+                if (slotEl) {
+                    const statusTextEl = slotEl.querySelector('.mv-slot-loader p');
+                    if (statusTextEl) {
+                        statusTextEl.textContent = slot.message;
+                    }
+                }
             }
 
             // In 1x1 mode, also update status panel
@@ -527,13 +542,16 @@ function initMonitoringForm() {
                     renderSummary(job.summary || {});
                 } else if (job.status === 'failed') {
                     slot.state = 'error';
+                    slot.message = job.error || "Xử lý thất bại.";
                     renderSlots();
                 }
             }
         } catch (error) {
+            console.error(`[Job Polling Error] Slot ${slotIndex} error:`, error);
             clearInterval(slot.pollingHandle);
             slot.pollingHandle = null;
             slot.state = 'error';
+            slot.message = `Lỗi kết nối server: ${error.message}`;
             renderSlots();
         }
     }
