@@ -34,6 +34,12 @@ async function startWebRTCPlayer(videoElement, cameraId) {
                 const configData = await configResp.json();
                 if (configData.ok && configData.iceServers) {
                     iceServers = configData.iceServers;
+                    const hasTurn = iceServers.some(s => s.urls && String(s.urls).startsWith("turn:"));
+                    if (hasTurn) {
+                        console.log("[WebRTC Check] ✅ Đã tải cấu hình TURN Server từ file .env thành công.");
+                    } else {
+                        console.error("[WebRTC Check] ❌ CẢNH BÁO: Không tìm thấy cấu hình TURN Server (có thể chưa cấu hình hoặc thiếu file .env trên máy chủ deploy).");
+                    }
                 }
             }
         } catch (err) {
