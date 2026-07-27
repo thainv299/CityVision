@@ -725,7 +725,7 @@ async def webrtc_whep_proxy(camera_id: str, request: Request, user=Depends(login
         
     sdp_offer = await request.body()
     stream_path = f"live_camera_{camera_id}"
-    mediamtx_url = f"http://localhost:8889/{stream_path}/whep"
+    mediamtx_url = f"http://127.0.0.1:8889/{stream_path}/whep"
 
     import requests
 

@@ -883,7 +883,7 @@ def process_video(
     # Khởi chạy FFmpeg RTSP push process
     import subprocess
     rtsp_proc = None
-    rtsp_target = f"rtsp://localhost:8554/live_camera_{camera_id}"
+    rtsp_target = f"rtsp://127.0.0.1:8554/live_camera_{camera_id}"
     
     # Phát hiện encoder tối ưu
     encoder = "libx264"
