@@ -405,6 +405,7 @@ class ParkingManager:
                 if self.violation_end_callback:
                     self.violation_end_callback(self.violation_records[gid])
                 del self.violation_records[gid]
+            self.cancel_pending_warning(gid)
             del self.ghost_tracks[gid]
             # Dọn dẹp bản đồ ánh xạ của ID cũ này
             keys_to_del = [k for k, v in self.track_id_map.items() if v == gid]
@@ -414,6 +415,7 @@ class ParkingManager:
         # 2. Phát hiện xe bị mất dấu (> 1s) và đẩy vào Ghost Tracks
         lost_ids = [lid for lid, linfo in self.last_seen.items() if current_time - linfo['last_time'] > 1.0]
         for lid in lost_ids:
+            self.cancel_pending_warning(lid)
             self.ghost_tracks[lid] = {
                 'cx': self.last_seen[lid]['cx'],
                 'cy': self.last_seen[lid]['cy'],
