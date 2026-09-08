@@ -619,14 +619,14 @@ def _full_frame_polygon(width: int, height: int) -> List[List[int]]:
 def _get_drawing_params(width: int) -> Tuple[float, int, int]:
     """
     Tính toán các tham số vẽ (fontScale, thickness, offset) dựa trên chiều rộng frame.
-    Lấy chuẩn là 1280px (HD).
+    Lấy chuẩn là 1280px (HD). Đã tinh chỉnh nhỏ hơn theo yêu cầu.
     """
     base_width = 1280
     ratio = width / base_width
 
-    font_scale = max(0.45, 0.55 * ratio)
-    thickness = max(1, int(round(2 * ratio)))
-    offset = max(10, int(round(15 * ratio)))
+    font_scale = max(0.38, 0.45 * ratio)
+    thickness = max(1, int(round(1.2 * ratio)))
+    offset = max(8, int(round(12 * ratio)))
 
     return font_scale, thickness, offset
 
@@ -1145,7 +1145,7 @@ def process_video(
 
                     if show_label:
                         label_text = _display_label(label)
-                        display_label = label_text if track_id == -1 else f"ID:{track_id} {label_text}"
+                        display_label = label_text
                     else:
                         display_label = ""
 
@@ -1257,8 +1257,10 @@ def process_video(
                                 unique_passed_count += 1
                                 pending_alpr_tracks[track_id]["is_passed_logged"] = True
 
-                    # 5. Vẽ nhãn lên frame nếu được bật
-                    if enabled_draw_labels is not None and len(enabled_draw_labels) > 0:
+                    # 5. Vẽ nhãn lên frame nếu được bật (hoặc nếu là person khi bật phát hiện tụ tập/ùn tắc)
+                    if label == "person" and enable_congestion:
+                        show_box = True
+                    elif enabled_draw_labels is not None and len(enabled_draw_labels) > 0:
                         show_box = label in enabled_draw_labels
                     else:
                         show_box_map = {
@@ -1316,8 +1318,8 @@ def process_video(
                 # 1. Lấy dữ liệu thô (Instantaneous)
                 avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
                 
-                # 2. Cập nhật Debounce Manager
-                traffic_alert_manager.update_traffic_state(raw_lvl, clean_frame)
+                # 2. Cập nhật Debounce Manager (truyền frame có vẽ Bounding Box)
+                traffic_alert_manager.update_traffic_state(raw_lvl, frame.copy())
                 confirmed_lvl = traffic_alert_manager.confirmed_level
                 
                 # 3. Lấy Text và Màu dựa trên mức đã được CONFIRMED (Debounced)
@@ -1356,8 +1358,8 @@ def process_video(
                         rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
                         abs_path = str(abs_dir / img_name)
                         
-                        # Lưu ảnh qua io_worker (Async)
-                        io_worker.enqueue_save_image(abs_path, clean_frame)
+                        # Lưu ảnh bằng chứng ĐÃ VẼ BOUNDING BOX qua io_worker (Async)
+                        io_worker.enqueue_save_image(abs_path, frame.copy())
                                 
                         last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
                     
