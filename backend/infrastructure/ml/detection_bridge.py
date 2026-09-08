@@ -728,6 +728,12 @@ def process_video(
     show_box_plate = bool(settings.get("show_box_plate", True))
     show_box_bus = bool(settings.get("show_box_bus", True))
     show_box_truck = bool(settings.get("show_box_truck", True))
+    show_box_knife = bool(settings.get("show_box_knife", True))
+    show_box_pistol = bool(settings.get("show_box_pistol", True))
+    show_box_sword = bool(settings.get("show_box_sword", True))
+    show_box_helmet = bool(settings.get("show_box_helmet", True))
+    show_box_mask = bool(settings.get("show_box_mask", True))
+    show_box_backpack = bool(settings.get("show_box_backpack", True))
     show_label = bool(settings.get("show_label", True))
 
     # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
@@ -1267,8 +1273,10 @@ def process_video(
                             "person": show_box_person, "bicycle": show_box_bicycle,
                             "car": show_box_car, "motorcycle": show_box_motorcycle,
                             "license_plate": show_box_plate, "bus": show_box_bus,
-                            "truck": show_box_truck,
-                            "knife": True, "pistol": True, "sword": True
+                            "truck": show_box_truck, "knife": show_box_knife,
+                            "pistol": show_box_pistol, "sword": show_box_sword,
+                            "helmet": show_box_helmet, "mask": show_box_mask,
+                            "backpack": show_box_backpack
                         }
                         show_box = show_box_map.get(label, True)
 
@@ -1575,6 +1583,18 @@ def process_video(
                         show_box_bus = bool(new_s["show_box_bus"])
                     if "show_box_truck" in new_s:
                         show_box_truck = bool(new_s["show_box_truck"])
+                    if "show_box_knife" in new_s:
+                        show_box_knife = bool(new_s["show_box_knife"])
+                    if "show_box_pistol" in new_s:
+                        show_box_pistol = bool(new_s["show_box_pistol"])
+                    if "show_box_sword" in new_s:
+                        show_box_sword = bool(new_s["show_box_sword"])
+                    if "show_box_helmet" in new_s:
+                        show_box_helmet = bool(new_s["show_box_helmet"])
+                    if "show_box_mask" in new_s:
+                        show_box_mask = bool(new_s["show_box_mask"])
+                    if "show_box_backpack" in new_s:
+                        show_box_backpack = bool(new_s["show_box_backpack"])
                     if "show_label" in new_s:
                         show_label = bool(new_s["show_label"])
 
