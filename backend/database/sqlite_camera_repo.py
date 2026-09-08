@@ -57,6 +57,7 @@ class SqliteCameraRepository(CameraRepository):
             enable_congestion=bool(row["bat_phat_hien_un_tac"]),
             enable_illegal_parking=bool(row["bat_phat_hien_do_sai"]),
             enable_license_plate=bool(row["bat_phat_hien_bien_so"]),
+            enable_weapon_detection=bool(row["bat_phat_hien_vu_khi"]) if "bat_phat_hien_vu_khi" in row.keys() else True,
             enable_ai=bool(row["bat_xu_ly_ai"]),
             is_active=bool(row["trang_thai_hoat_dong"]),
             model_path=row["mo_hinh_yolo"] or "",
@@ -103,10 +104,16 @@ class SqliteCameraRepository(CameraRepository):
                     "SELECT COUNT(*) AS total FROM camera WHERE trang_thai_hoat_dong = 1 AND bat_phat_hien_bien_so = 1"
                 ).fetchone()["total"]
             )
+            weapon_detection_enabled = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS total FROM camera WHERE trang_thai_hoat_dong = 1 AND bat_phat_hien_vu_khi = 1"
+                ).fetchone()["total"]
+            )
         return {
             "congestion": congestion_enabled,
             "illegal_parking": illegal_parking_enabled,
-            "license_plate": license_plate_enabled
+            "license_plate": license_plate_enabled,
+            "weapon_detection": weapon_detection_enabled
         }
 
     def get_recent(self, limit: int = 6) -> List[Camera]:
@@ -122,9 +129,9 @@ class SqliteCameraRepository(CameraRepository):
                 """
                 INSERT INTO camera (
                     ten_camera, nguon_phat, mo_ta, toa_do_vung_chon, toa_do_cam_do,
-                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, bat_xu_ly_ai, trang_thai_hoat_dong, mo_hinh_yolo, nguoi_tao_id
+                    bat_phat_hien_un_tac, bat_phat_hien_do_sai, bat_phat_hien_bien_so, bat_phat_hien_vu_khi, bat_xu_ly_ai, trang_thai_hoat_dong, mo_hinh_yolo, nguoi_tao_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     camera.name,
@@ -135,6 +142,7 @@ class SqliteCameraRepository(CameraRepository):
                     int(camera.enable_congestion),
                     int(camera.enable_illegal_parking),
                     int(camera.enable_license_plate),
+                    int(camera.enable_weapon_detection),
                     int(camera.enable_ai),
                     int(camera.is_active),
                     camera.model_path,
@@ -187,6 +195,9 @@ class SqliteCameraRepository(CameraRepository):
         if camera.enable_license_plate is not None:
             assignments.append("bat_phat_hien_bien_so = ?")
             values.append(int(camera.enable_license_plate))
+        if camera.enable_weapon_detection is not None:
+            assignments.append("bat_phat_hien_vu_khi = ?")
+            values.append(int(camera.enable_weapon_detection))
         if camera.enable_ai is not None:
             assignments.append("bat_xu_ly_ai = ?")
             values.append(int(camera.enable_ai))

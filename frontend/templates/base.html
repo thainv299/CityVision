@@ -284,6 +284,38 @@
                             nâng cao
                         </a>
                     </div>
+                <div id="nav-weapons-group" class="nav-group">
+                    <a id="nav-weapons"
+                        class="nav-link {% if page in ['weapons', 'weapon-search'] %}active{% endif %}"
+                        href="{{ url_for('weapons.weapons_page') }}">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                            <i class="fas fa-shield-alt" style="font-size: 20px; color: #EF4444; width: 24px; text-align: center;"></i>
+                            <span>Phát hiện vũ khí</span>
+                        </div>
+                        <div id="chevron-weapons"
+                            style="padding: 10px; margin-right: -10px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;"
+                            title="Đóng/Mở menu con">
+                            <i class="fas fa-chevron-down chevron"
+                                style="font-size: 0.7rem; transition: transform 0.3s;"></i>
+                        </div>
+                    </a>
+                    <div class="nav-sub-menu" id="sub-menu-weapons"
+                        style="padding-left: 12px; flex-direction: column; gap: 4px;">
+                        <a href="/weapons?weapon_type=pistol" class="nav-link sub-link"
+                            style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: #EF4444; margin-right: 8px;">●</span> Súng ngắn (Pistol)
+                        </a>
+                        <a href="/weapons?weapon_type=knife" class="nav-link sub-link"
+                            style="font-size: 0.8rem; padding: 8px 12px;">
+                            <span style="color: #F59E0B; margin-right: 8px;">●</span> Dao / Kiếm
+                        </a>
+                        <a href="/weapons/search" class="nav-link sub-link"
+                            style="font-size: 0.8rem; padding: 8px 12px;">
+                            <i class="fas fa-search"
+                                style="margin-right: 8px; color: var(--brand-blue); font-size: 0.75rem;"></i> Tìm kiếm
+                            nâng cao
+                        </a>
+                    </div>
                 </div>
 
                 <div class="nav-label" style="margin-top: 16px;">Phân tích AI</div>
@@ -490,6 +522,37 @@
                                     congestionToggle.classList.add('open');
                                 }
                             }
+
+                            // Logic Dropdown Sidebar (Phát hiện vũ khí)
+                            const weaponsToggle = document.getElementById('nav-weapons');
+                            const weaponsChevron = document.getElementById('chevron-weapons');
+                            const weaponsSubMenu = document.getElementById('sub-menu-weapons');
+
+                            if (weaponsToggle && weaponsChevron && weaponsSubMenu) {
+                                weaponsToggle.onclick = function (e) {
+                                    if (!weaponsSubMenu.classList.contains('active-menu')) {
+                                        e.preventDefault();
+                                        weaponsSubMenu.classList.add('active-menu');
+                                        weaponsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                        weaponsToggle.classList.add('open');
+                                    }
+                                };
+
+                                weaponsChevron.onclick = function (e) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+
+                                    const isActive = weaponsSubMenu.classList.toggle('active-menu');
+                                    weaponsChevron.querySelector('.chevron').style.transform = isActive ? 'rotate(180deg)' : 'rotate(0deg)';
+                                    weaponsToggle.classList.toggle('open', isActive);
+                                };
+
+                                if (window.portalContext && (window.portalContext.page === 'weapons' || window.portalContext.page === 'weapon-search')) {
+                                    weaponsSubMenu.classList.add('active-menu');
+                                    weaponsChevron.querySelector('.chevron').style.transform = 'rotate(180deg)';
+                                    weaponsToggle.classList.add('open');
+                                }
+                            }
                             document.onclick = function () {
                                 dropdown.style.display = 'none';
                             };
@@ -518,6 +581,9 @@
                             { name: "Ùn tắc: Mức 2 (Rất đông)", keywords: "un tac muc 2 rat dong", url: "/congestion?level=2", icon: "fa-traffic-light", color: "#f59e0b" },
                             { name: "Ùn tắc: Mức 3 (Tắc nghẽn)", keywords: "un tac muc 3 tac nghen ket xe", url: "/congestion?level=3", icon: "fa-traffic-light", color: "#ef4444" },
                             { name: "Tìm kiếm Ùn tắc", keywords: "tim kiem un tac search", url: "/congestion/search", icon: "fa-search", color: "#ef4444" },
+                            { name: "Phát hiện vũ khí: Tất cả", keywords: "vu khi sung dao kiem pistol knife sword", url: "/weapons", icon: "fa-shield-alt", color: "#ef4444" },
+                            { name: "Phát hiện vũ khí: Súng ngắn", keywords: "vu khi sung pistol gun", url: "/weapons?weapon_type=pistol", icon: "fa-crosshairs", color: "#ef4444" },
+                            { name: "Tìm kiếm Phát hiện vũ khí", keywords: "tim kiem vu khi search weapon", url: "/weapons/search", icon: "fa-search", color: "#ef4444" },
                             { name: "Xem luồng trực tiếp (Live)", keywords: "xem luong truc tiep test video live camera", url: "/monitoring", icon: "fa-play-circle", color: "#14b8a6" },
                             { name: "Cài đặt hệ thống", keywords: "cai dat he thong settings telegram bot", url: "/settings", icon: "fa-cog", color: "#64748b" }
                         ];

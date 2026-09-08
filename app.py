@@ -28,6 +28,7 @@ from backend.presentation.web.monitoring_views import monitoring_router
 from backend.presentation.web.user_views import user_router
 from backend.presentation.web.vehicle_views import vehicle_router
 from backend.presentation.web.violation_views import violation_router
+from backend.presentation.web.weapon_views import weapon_router
 from backend.presentation.web.congestion_views import congestion_router
 from backend.presentation.web.notification_views import notification_router
 from backend.presentation.web.model_views import model_router
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(camera_router)
     app.include_router(vehicle_router)
     app.include_router(violation_router)
+    app.include_router(weapon_router)
     app.include_router(congestion_router)
     app.include_router(monitoring_router)
     app.include_router(notification_router)

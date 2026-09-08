@@ -15,6 +15,7 @@ class Camera:
     enable_congestion: bool = True
     enable_illegal_parking: bool = True
     enable_license_plate: bool = True
+    enable_weapon_detection: bool = True
     enable_ai: bool = True
     is_active: bool = True
     model_path: str = ""
@@ -35,6 +36,7 @@ class Camera:
             "enable_congestion": self.enable_congestion,
             "enable_illegal_parking": self.enable_illegal_parking,
             "enable_license_plate": self.enable_license_plate,
+            "enable_weapon_detection": self.enable_weapon_detection,
             "enable_ai": self.enable_ai,
             "is_active": self.is_active,
             "model_path": self.model_path,

@@ -115,6 +115,130 @@
             <input type="number" id="setting-parking-violation-time" min="5" max="3600" value="30"
                 style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none;">
         </div>
+
+        <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">
+                <i class="fas fa-shield-alt" style="margin-right: 6px; color: #EF4444;"></i>Tính năng Phát hiện Vũ khí Khẩn cấp
+            </label>
+            <select id="setting-enable-weapon-detection"
+                style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none; background: white;">
+                <option value="true">Bật (Tự động đếm 5 frame, vẽ khung ĐỎ & gửi Telegram)</option>
+                <option value="false">Tắt (Không giám sát vũ khí)</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Card 3: Cấu hình Nhãn Phát hiện & Nhãn Vẽ lên màn hình -->
+    <div class="ds-chart-card"
+        style="grid-column: span 2; padding: 24px; background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+        <h3
+            style="margin-bottom: 20px; font-size: 16px; font-weight: 700; color: #202224; border-bottom: 2px solid #8B5CF6; padding-bottom: 10px; display: inline-block;">
+            <i class="fas fa-tags" style="margin-right: 8px; color: #8B5CF6;"></i>Cấu hình Nhãn Phát hiện & Nhãn Hiển thị trên Luồng Trực tiếp
+        </h3>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+            <!-- Cột 1: Nhãn cho phép phát hiện -->
+            <div style="background: #F8FAFC; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-size: 14px; font-weight: 700; color: #1E293B;">
+                        1. Nhãn AI Phát hiện (Detect Labels)
+                    </h4>
+                    <button type="button" onclick="selectAllDetectLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;">Chọn tất cả</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #334155;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="person" checked> 👤 Người (person)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="bicycle" checked> 🚲 Xe đạp (bicycle)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="car" checked> 🚗 Ô tô (car)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="motorcycle" checked> 🏍️ Xe máy (motorcycle)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="license_plate" checked> 🪪 Biển số (license_plate)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="bus" checked> 🚌 Xe buýt (bus)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="truck" checked> 🚚 Xe tải (truck)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="detect-label-cb" value="knife" checked> 🔪 Dao (knife)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="detect-label-cb" value="pistol" checked> 🔫 Súng ngắn (pistol)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="detect-label-cb" value="sword" checked> ⚔️ Kiếm (sword)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="helmet" checked> 🪖 Mũ bảo hiểm (helmet)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="mask" checked> 😷 Khẩu trang (mask)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="detect-label-cb" value="backpack" checked> 🎒 Balo (backpack)
+                    </label>
+                </div>
+            </div>
+
+            <!-- Cột 2: Nhãn cho phép vẽ lên màn hình -->
+            <div style="background: #F8FAFC; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <h4 style="font-size: 14px; font-weight: 700; color: #1E293B;">
+                        2. Nhãn Vẽ Khung Bounding Box (Draw Labels)
+                    </h4>
+                    <button type="button" onclick="selectAllDrawLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;">Chọn tất cả</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #334155;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="person" checked> 👤 Người (person)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="bicycle" checked> 🚲 Xe đạp (bicycle)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="car" checked> 🚗 Ô tô (car)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="motorcycle" checked> 🏍️ Xe máy (motorcycle)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="license_plate" checked> 🪪 Biển số (license_plate)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="bus" checked> 🚌 Xe buýt (bus)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="truck" checked> 🚚 Xe tải (truck)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="draw-label-cb" value="knife" checked> 🔪 Dao (knife)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="draw-label-cb" value="pistol" checked> 🔫 Súng ngắn (pistol)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
+                        <input type="checkbox" class="draw-label-cb" value="sword" checked> ⚔️ Kiếm (sword)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="helmet" checked> 🪖 Mũ bảo hiểm (helmet)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="mask" checked> 😷 Khẩu trang (mask)
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                        <input type="checkbox" class="draw-label-cb" value="backpack" checked> 🎒 Balo (backpack)
+                    </label>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="ds-chart-card"
@@ -302,6 +426,40 @@
 </div>
 
 <script>
+    function selectAllDetectLabels(checked) {
+        document.querySelectorAll('.detect-label-cb').forEach(cb => cb.checked = checked);
+    }
+
+    function selectAllDrawLabels(checked) {
+        document.querySelectorAll('.draw-label-cb').forEach(cb => cb.checked = checked);
+    }
+
+    function getSelectedDetectLabels() {
+        const selected = [];
+        document.querySelectorAll('.detect-label-cb:checked').forEach(cb => selected.push(cb.value));
+        return selected;
+    }
+
+    function getSelectedDrawLabels() {
+        const selected = [];
+        document.querySelectorAll('.draw-label-cb:checked').forEach(cb => selected.push(cb.value));
+        return selected;
+    }
+
+    function setSelectedDetectLabels(labelsArray) {
+        if (!labelsArray || !Array.isArray(labelsArray)) return;
+        document.querySelectorAll('.detect-label-cb').forEach(cb => {
+            cb.checked = labelsArray.includes(cb.value);
+        });
+    }
+
+    function setSelectedDrawLabels(labelsArray) {
+        if (!labelsArray || !Array.isArray(labelsArray)) return;
+        document.querySelectorAll('.draw-label-cb').forEach(cb => {
+            cb.checked = labelsArray.includes(cb.value);
+        });
+    }
+
     // Tải cấu hình camera khi thay đổi dropdown
     async function onCameraChange() {
         const cameraId = document.getElementById('camera-select').value;
@@ -351,8 +509,18 @@
                 // Parking violation time
                 document.getElementById('setting-parking-violation-time').value = s.parking_violation_time;
 
-                // Log retention (Chuyển thành cấu hình hệ thống, không nạp theo camera)
-                // document.getElementById('setting-log-retention').value = s.log_retention;
+                // Enable weapon detection
+                if (s.enable_weapon_detection !== undefined) {
+                    document.getElementById('setting-enable-weapon-detection').value = String(s.enable_weapon_detection);
+                }
+
+                // Enabled detect & draw labels
+                if (s.enabled_detect_labels) {
+                    setSelectedDetectLabels(s.enabled_detect_labels);
+                }
+                if (s.enabled_draw_labels) {
+                    setSelectedDrawLabels(s.enabled_draw_labels);
+                }
 
                 statusInfo.innerHTML = `<span style="color: #166534;"><i class="fas fa-check-circle" style="margin-right: 4px;"></i> Đã nạp cấu hình</span>`;
                 statusInfo.style.backgroundColor = '#F0FDF4';
@@ -384,7 +552,10 @@
             frame_skip: parseInt(document.getElementById('setting-frame-skip').value),
             congestion_threshold: parseInt(document.getElementById('setting-congestion-threshold').value),
             parking_violation_time: parseInt(document.getElementById('setting-parking-violation-time').value),
-            mo_hinh_yolo: document.getElementById('setting-model-path').value
+            mo_hinh_yolo: document.getElementById('setting-model-path').value,
+            enable_weapon_detection: document.getElementById('setting-enable-weapon-detection').value === 'true',
+            enabled_detect_labels: getSelectedDetectLabels(),
+            enabled_draw_labels: getSelectedDrawLabels()
         };
 
         saveBtn.disabled = true;

@@ -10,6 +10,7 @@ OUTPUTS_DIR = APP_DIR / "runtime" / "outputs"
 PREVIEWS_DIR = APP_DIR / "runtime" / "previews"
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".mpeg", ".mpg"}
 VALID_ROLES = {"admin", "operator"}
+DATABASE_PATH = PROJECT_ROOT / "backend" / "portal.db"
 
 from fastapi.templating import Jinja2Templates
 

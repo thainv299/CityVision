@@ -266,6 +266,18 @@ def init_db() -> None:
                 FOREIGN KEY (id_camera) REFERENCES camera(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS phat_hien_vu_khi (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id_camera INTEGER NOT NULL,
+                loai_vu_khi TEXT NOT NULL,
+                thoi_gian_phat_hien TEXT NOT NULL,
+                do_chinh_xac REAL DEFAULT 0.0,
+                duong_dan_anh TEXT NOT NULL,
+                da_giai_quyet INTEGER NOT NULL DEFAULT 0,
+                ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (id_camera) REFERENCES camera(id)
+            );
+
             CREATE TABLE IF NOT EXISTS cai_dat_he_thong (
                 khoa TEXT PRIMARY KEY,
                 gia_tri TEXT NOT NULL
@@ -370,6 +382,16 @@ def init_db() -> None:
         if "duong_dan_anh" not in congestion_columns:
             connection.execute(
                 "ALTER TABLE nhat_ky_un_tac ADD COLUMN duong_dan_anh TEXT"
+            )
+
+        # Cột bat_phat_hien_vu_khi trong bảng camera
+        camera_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(camera)").fetchall()
+        }
+        if "bat_phat_hien_vu_khi" not in camera_columns:
+            connection.execute(
+                "ALTER TABLE camera ADD COLUMN bat_phat_hien_vu_khi INTEGER NOT NULL DEFAULT 1"
             )
 
 
@@ -496,6 +518,91 @@ def resolve_parking_violation(violation_id: int) -> bool:
         cursor = connection.execute(
             "UPDATE vi_pham_do_xe SET da_giai_quyet = 1 WHERE id = ?",
             (violation_id,)
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+
+
+# --- PHÁT HIỆN VŨ KHÍ ---
+def log_weapon_detection(camera_id: int, loai_vu_khi: str, thoi_gian_phat_hien: str = None, do_chinh_xac: float = 0.0, frame_path: str = None) -> int:
+    """Lưu nhật ký phát hiện vũ khí vào CSDL"""
+    if not thoi_gian_phat_hien:
+        thoi_gian_phat_hien = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    query = """
+        INSERT INTO phat_hien_vu_khi (id_camera, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, duong_dan_anh)
+        VALUES (?, ?, ?, ?, ?)
+    """
+    with connect() as connection:
+        cursor = connection.execute(query, (camera_id, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, frame_path))
+        connection.commit()
+        return cursor.lastrowid
+
+def get_weapon_detections(limit: int = 30, offset: int = 0, weapon_type: str = None, date: str = None, hour: str = None, camera_id: int = None, record_id: int = None, allowed_camera_ids: list = None) -> list:
+    """Lấy danh sách sự kiện phát hiện vũ khí có phân trang và bộ lọc"""
+    query = """
+        SELECT vk.id, vk.id_camera as camera_id, vk.loai_vu_khi as weapon_type, vk.thoi_gian_phat_hien as detection_time,
+               vk.do_chinh_xac as confidence, vk.duong_dan_anh as frame_path, vk.da_giai_quyet as is_resolved,
+               vk.ngay_tao as created_at, c.ten_camera as camera_name
+        FROM phat_hien_vu_khi vk
+        LEFT JOIN camera c ON vk.id_camera = c.id
+    """
+    conditions = []
+    params = []
+
+    if allowed_camera_ids is not None:
+        if not allowed_camera_ids:
+            return []
+        placeholders = ','.join('?' * len(allowed_camera_ids))
+        conditions.append(f"vk.id_camera IN ({placeholders})")
+        params.extend(allowed_camera_ids)
+
+    if weapon_type:
+        conditions.append("vk.loai_vu_khi = ?")
+        params.append(weapon_type)
+
+    if date:
+        conditions.append("DATE(vk.thoi_gian_phat_hien) = ?")
+        params.append(date)
+
+    if hour:
+        conditions.append("strftime('%H', vk.thoi_gian_phat_hien) = ?")
+        params.append(hour.zfill(2))
+
+    if camera_id is not None:
+        conditions.append("vk.id_camera = ?")
+        params.append(camera_id)
+    
+    if record_id is not None:
+        conditions.append("vk.id = ?")
+        params.append(record_id)
+        
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
+    query += " ORDER BY vk.da_giai_quyet ASC, vk.thoi_gian_phat_hien DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    with connect() as connection:
+        rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+def resolve_weapon_detection(record_id: int) -> bool:
+    """Đánh dấu sự kiện phát hiện vũ khí đã giải quyết"""
+    with connect() as connection:
+        cursor = connection.execute(
+            "UPDATE phat_hien_vu_khi SET da_giai_quyet = 1 WHERE id = ?",
+            (record_id,)
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+
+def delete_weapon_detection(record_id: int) -> bool:
+    """Xóa sự kiện phát hiện vũ khí"""
+    with connect() as connection:
+        cursor = connection.execute(
+            "DELETE FROM phat_hien_vu_khi WHERE id = ?",
+            (record_id,)
         )
         connection.commit()
         return cursor.rowcount > 0

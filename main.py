@@ -14,6 +14,7 @@ from collections import deque
 from modules.parking.parking_manager import ParkingManager
 from modules.ocr.ocr_manager import OCRManager
 from modules.traffic.traffic_monitor import TrafficMonitor
+from modules.weapon.weapon_manager import WeaponManager
 from modules.utils.alpr_logger import ALPRLogger
 from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
@@ -43,6 +44,7 @@ class App:
 
         self.parking_manager = ParkingManager(root, self)
         self.alpr_logger = ALPRLogger()
+        self.weapon_manager = WeaponManager(camera_id=1, camera_name="Camera 1")
         self.traffic_alert_manager = TrafficAlertManager()
         start_bot_thread(self.traffic_alert_manager)
         self.ocr_manager = None
@@ -233,7 +235,7 @@ class App:
             self.update_status("Đang nhận diện...", "green")
 
             cap = cv2.VideoCapture(self.video_path)
-            target_classes = ["person", "bicycle", "car", "motorcycle", "license_plate", "bus", "truck"]
+            target_classes = ["person", "bicycle", "car", "motorcycle", "license_plate", "bus", "truck", "knife", "pistol", "sword"]
             
             traffic_monitor = TrafficMonitor(roi_polygon=self.roi_polygon)
             roi_contour_area = cv2.contourArea(self.roi_polygon)
@@ -347,6 +349,16 @@ class App:
                                     processed = self.ocr_manager.process_plate(frame, clean_frame, track_id, x1, y1, x2, y2, cx, cy, valid_vehicles, current_time, frame_count)
                                     if processed:
                                         current_plate_ids.add(processed)
+
+                            elif label in ["knife", "pistol", "sword"]:
+                                display_label_w, box_color_w = self.weapon_manager.process_weapon(
+                                    frame, clean_frame, track_id, label, conf, (x1, y1, x2, y2),
+                                    camera_id=camera_id, camera_name="Camera 1"
+                                )
+                                box_c = box_color_w if box_color_w else (0, 0, 255)
+                                display_lbl = display_label_w if display_label_w else f"⚠️ {label.upper()}"
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), box_c, 2)
+                                cv2.putText(frame, display_lbl, (x1, max(20, y1 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_c, 2)
 
                 if self.ocr_manager:
                     self.ocr_manager.draw_grace_period_boxes(frame, current_plate_ids)
