@@ -34,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
         enableCongestion: document.getElementById("enable_congestion"),
         enableIllegalParking: document.getElementById("enable_illegal_parking"),
         enableLicensePlate: document.getElementById("enable_license_plate"),
+        enableWeaponDetection: document.getElementById("enable_weapon_detection"),
         enableAi: document.getElementById("enable_ai"),
         isActive: document.getElementById("camera_is_active"),
     };
@@ -129,6 +130,9 @@ document.addEventListener("DOMContentLoaded", () => {
         fields.enableCongestion.checked = camera ? Boolean(camera.enable_congestion) : true;
         fields.enableIllegalParking.checked = camera ? Boolean(camera.enable_illegal_parking) : true;
         fields.enableLicensePlate.checked = camera ? Boolean(camera.enable_license_plate) : true;
+        if (fields.enableWeaponDetection) {
+            fields.enableWeaponDetection.checked = camera ? (camera.enable_weapon_detection !== false) : true;
+        }
         fields.isActive.checked = camera ? Boolean(camera.is_active) : true;
 
         if (typeof updateAiSubToggles === "function") {
@@ -653,6 +657,7 @@ document.addEventListener("DOMContentLoaded", () => {
             enable_simulation: fields.enableSimulation.checked,
             enable_illegal_parking: fields.enableIllegalParking.checked,
             enable_license_plate: fields.enableLicensePlate.checked,
+            enable_weapon_detection: fields.enableWeaponDetection ? fields.enableWeaponDetection.checked : true,
             enable_ai: fields.enableAi.checked,
             is_active: fields.isActive.checked,
         };

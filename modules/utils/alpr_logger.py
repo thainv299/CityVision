@@ -70,7 +70,7 @@ class ALPRLogger:
         
         evidence_frame = full_frame.copy()
         h, w = full_frame.shape[:2]
-        f_thick = max(1, int(round(2 * (w / 1280))))
+        f_thick = max(1, int(round(1.5 * (w / 1280))))
         
         # Vẽ bounding box của phương tiện (màu xanh lá) nếu có
         if vehicle_bbox:
@@ -80,26 +80,28 @@ class ALPRLogger:
         x1, y1, x2, y2 = plate_coords
         cv2.rectangle(evidence_frame, (x1, y1), (x2, y2), (0, 0, 255), f_thick)
         
-        # Vẽ text tiếng Việt bằng PIL
+        # Vẽ text biển số ở góc trên cùng bên trái màn hình (top-left) với nền đỏ chữ trắng
         try:
             from PIL import Image, ImageDraw, ImageFont
             import numpy as np
             img_pil = Image.fromarray(cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(img_pil)
             
-            font_size = int(32 * (w / 1280))
+            font_size = int(28 * (w / 1280))
             try:
-                # Arial hỗ trợ Unicode tốt trên Windows
                 font = ImageFont.truetype("arial.ttf", font_size)
             except:
                 font = ImageFont.load_default()
             
-            draw.text((x1, max(0, y1 - font_size - 10)), plate_text, font=font, fill=(255, 0, 0))
+            label_text_str = f" BIỂN SỐ PHÁT HIỆN: {plate_text} "
+            bbox_box = draw.textbbox((15, 15), label_text_str, font=font)
+            draw.rectangle((bbox_box[0] - 4, bbox_box[1] - 4, bbox_box[2] + 4, bbox_box[3] + 4), fill=(220, 38, 38))
+            draw.text((15, 15), label_text_str, font=font, fill=(255, 255, 255))
             evidence_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
         except Exception as e:
             print(f"[ALPR Logger] Lỗi vẽ font tiếng Việt: {e}")
-            cv2.putText(evidence_frame, "No Plate", (x1, max(30, y1 - 10)), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5 * (w/1280), (0, 0, 255), f_thick + 1)
+            cv2.putText(evidence_frame, f"BIEN SO: {plate_text}", (15, 40), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9 * (w/1280), (0, 0, 255), f_thick)
         
         # Đường dẫn web (dùng dấu gạch chéo)
         web_path = img_path.replace(os.sep, "/")

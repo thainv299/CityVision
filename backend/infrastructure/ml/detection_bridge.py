@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from modules.parking.parking_manager import ParkingManager
 from modules.traffic.traffic_monitor import TrafficMonitor
 from modules.ocr.ocr_manager import OCRManager
+from modules.weapon.weapon_manager import WeaponManager
 from modules.utils.alpr_logger import ALPRLogger
 from modules.utils.traffic_alert_manager import TrafficAlertManager
 from modules.utils.interactive_telegram_bot import start_bot_thread
@@ -46,9 +47,10 @@ from collections import deque
 TRAFFIC_LABELS = {"person", "bicycle", "car", "motorcycle", "bus", "truck"}
 VEHICLE_LABELS = {"car", "motorcycle", "bus", "truck"}
 PARKING_LABELS = {"car", "bus", "truck"}
+WEAPON_LABELS = {"knife", "pistol", "sword"}
 LICENSE_PLATE_LABELS = {"license_plate", "licenseplate", "number_plate", "licence_plate"}
-DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS
-SMALL_OBJECT_LABELS = {"person", "motorcycle", "bicycle", "car"}
+DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS | WEAPON_LABELS
+SMALL_OBJECT_LABELS = {"person", "motorcycle", "bicycle", "car", "knife", "pistol", "sword"}
 
 # Ánh xạ tên mức độ ùn tắc cho tên thư mục ảnh
 TRAFFIC_LEVEL_NAMES = {
@@ -617,14 +619,14 @@ def _full_frame_polygon(width: int, height: int) -> List[List[int]]:
 def _get_drawing_params(width: int) -> Tuple[float, int, int]:
     """
     Tính toán các tham số vẽ (fontScale, thickness, offset) dựa trên chiều rộng frame.
-    Lấy chuẩn là 1280px (HD).
+    Lấy chuẩn là 1280px (HD). Đã tinh chỉnh nhỏ hơn theo yêu cầu.
     """
     base_width = 1280
     ratio = width / base_width
 
-    font_scale = max(0.45, 0.55 * ratio)
-    thickness = max(1, int(round(2 * ratio)))
-    offset = max(10, int(round(15 * ratio)))
+    font_scale = max(0.38, 0.45 * ratio)
+    thickness = max(1, int(round(1.2 * ratio)))
+    offset = max(8, int(round(12 * ratio)))
 
     return font_scale, thickness, offset
 
@@ -707,6 +709,9 @@ def process_video(
     enable_congestion = bool(settings.get("enable_congestion", True)) if enable_ai else False
     enable_illegal_parking = bool(settings.get("enable_illegal_parking", True)) if enable_ai else False
     enable_license_plate = bool(settings.get("enable_license_plate", True)) if enable_ai else False
+    enable_weapon_detection = bool(settings.get("enable_weapon_detection", settings.get("bat_phat_hien_vu_khi", True))) if enable_ai else False
+    enabled_detect_labels = settings.get("enabled_detect_labels", None)
+    enabled_draw_labels = settings.get("enabled_draw_labels", None)
     stop_seconds = float(settings.get("stop_seconds", 30.0))
     move_threshold_px = float(settings.get("parking_move_threshold_px", 10.0))
     process_stride = max(1, int(settings.get("process_every_n_frames", 2)))
@@ -787,6 +792,7 @@ def process_video(
 
     # Khởi tạo các Manager (inject io_worker)
     camera_id = int(settings.get("camera_id", 0))
+    weapon_manager = WeaponManager(camera_id=camera_id, camera_name=settings.get("name", "Camera")) if enable_weapon_detection else None
     alpr_logger = ALPRLogger(db_callback=log_detected_license_plate, id_camera=camera_id)
     alpr_logger.io_worker = io_worker
 
@@ -1108,6 +1114,13 @@ def process_video(
                         continue
                     if label in LICENSE_PLATE_LABELS and not enable_license_plate:
                         continue
+                    if label in WEAPON_LABELS and not enable_weapon_detection:
+                        continue
+
+                    # Lọc nhãn theo cài đặt hệ thống (enabled_detect_labels)
+                    if enabled_detect_labels is not None and len(enabled_detect_labels) > 0:
+                        if label not in enabled_detect_labels:
+                            continue
 
                     confidence = float(box.conf[0])
                     if confidence < confidence_threshold:
@@ -1132,7 +1145,7 @@ def process_video(
 
                     if show_label:
                         label_text = _display_label(label)
-                        display_label = label_text if track_id == -1 else f"ID:{track_id} {label_text}"
+                        display_label = label_text
                     else:
                         display_label = ""
 
@@ -1187,6 +1200,18 @@ def process_video(
                         if box_color_p is not None:
                             box_color = box_color_p
 
+                    # 3.5. Quản lý Phát hiện Vũ khí (Weapon Detection)
+                    if label in WEAPON_LABELS and enable_weapon_detection and weapon_manager is not None:
+                        display_label_w, box_color_w = weapon_manager.process_weapon(
+                            frame, clean_frame, track_id, label, confidence,
+                            bbox=(x1, y1, x2, y2),
+                            camera_id=camera_id, camera_name=settings.get("name", "Camera"),
+                            telegram_enabled=True
+                        )
+                        if display_label_w:
+                            display_label = display_label_w if show_label else ""
+                            box_color = box_color_w
+
                     # 4. Quản lý theo dõi ALPR và Log phương tiện (Đợi xe ổn định mới lưu)
                     if track_id != -1 and label in VEHICLE_LOG_LABELS:
                         if track_id not in pending_alpr_tracks:
@@ -1232,15 +1257,20 @@ def process_video(
                                 unique_passed_count += 1
                                 pending_alpr_tracks[track_id]["is_passed_logged"] = True
 
-                    # 5. Vẽ nhãn lên frame nếu được bật
-                    # Dict lookup thay cho chuỗi if-elif
-                    show_box_map = {
-                        "person": show_box_person, "bicycle": show_box_bicycle,
-                        "car": show_box_car, "motorcycle": show_box_motorcycle,
-                        "license_plate": show_box_plate, "bus": show_box_bus,
-                        "truck": show_box_truck
-                    }
-                    show_box = show_box_map.get(label, True)
+                    # 5. Vẽ nhãn lên frame nếu được bật (hoặc nếu là person khi bật phát hiện tụ tập/ùn tắc)
+                    if label == "person" and enable_congestion:
+                        show_box = True
+                    elif enabled_draw_labels is not None and len(enabled_draw_labels) > 0:
+                        show_box = label in enabled_draw_labels
+                    else:
+                        show_box_map = {
+                            "person": show_box_person, "bicycle": show_box_bicycle,
+                            "car": show_box_car, "motorcycle": show_box_motorcycle,
+                            "license_plate": show_box_plate, "bus": show_box_bus,
+                            "truck": show_box_truck,
+                            "knife": True, "pistol": True, "sword": True
+                        }
+                        show_box = show_box_map.get(label, True)
 
                     if show_box:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
@@ -1288,8 +1318,8 @@ def process_video(
                 # 1. Lấy dữ liệu thô (Instantaneous)
                 avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
                 
-                # 2. Cập nhật Debounce Manager
-                traffic_alert_manager.update_traffic_state(raw_lvl, clean_frame)
+                # 2. Cập nhật Debounce Manager (truyền frame có vẽ Bounding Box)
+                traffic_alert_manager.update_traffic_state(raw_lvl, frame.copy())
                 confirmed_lvl = traffic_alert_manager.confirmed_level
                 
                 # 3. Lấy Text và Màu dựa trên mức đã được CONFIRMED (Debounced)
@@ -1328,8 +1358,8 @@ def process_video(
                         rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
                         abs_path = str(abs_dir / img_name)
                         
-                        # Lưu ảnh qua io_worker (Async)
-                        io_worker.enqueue_save_image(abs_path, clean_frame)
+                        # Lưu ảnh bằng chứng ĐÃ VẼ BOUNDING BOX qua io_worker (Async)
+                        io_worker.enqueue_save_image(abs_path, frame.copy())
                                 
                         last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
                     

@@ -1062,6 +1062,7 @@ function initMonitoringForm() {
                             ${createToggle("enable_congestion", "Tắc nghẽn", camera.enable_congestion)}
                             ${createToggle("enable_illegal_parking", "Đỗ trái phép", camera.enable_illegal_parking)}
                             ${createToggle("enable_license_plate", "Biển số xe", camera.enable_license_plate)}
+                            ${createToggle("enable_weapon_detection", "Cảnh báo vũ khí", camera.enable_weapon_detection)}
                         </div>
                         
                         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center;">
@@ -1100,6 +1101,7 @@ function initMonitoringForm() {
             payload.enable_congestion = false;
             payload.enable_illegal_parking = false;
             payload.enable_license_plate = false;
+            payload.enable_weapon_detection = false;
         }
 
         try {

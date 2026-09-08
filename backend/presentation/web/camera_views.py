@@ -410,6 +410,18 @@ def api_get_system_settings(user=Depends(login_required)):
         ocr_preprocess_perspective = get_system_setting("ocr_preprocess_perspective", "true")
         ocr_preprocess_grayscale = get_system_setting("ocr_preprocess_grayscale", "true")
         ocr_preprocess_magnify = get_system_setting("ocr_preprocess_magnify", "true")
+        enabled_detect_labels = get_system_setting("enabled_detect_labels", '["person","bicycle","car","motorcycle","license_plate","bus","truck","knife","pistol","sword","helmet","mask","backpack"]')
+        enabled_draw_labels = get_system_setting("enabled_draw_labels", '["person","bicycle","car","motorcycle","license_plate","bus","truck","knife","pistol","sword","helmet","mask","backpack"]')
+
+        import json
+        try:
+            detect_labels_list = json.loads(enabled_detect_labels)
+        except:
+            detect_labels_list = ["person","bicycle","car","motorcycle","license_plate","bus","truck","knife","pistol","sword","helmet","mask","backpack"]
+        try:
+            draw_labels_list = json.loads(enabled_draw_labels)
+        except:
+            draw_labels_list = ["person","bicycle","car","motorcycle","license_plate","bus","truck","knife","pistol","sword","helmet","mask","backpack"]
         
         return {
             "ok": True,
@@ -421,7 +433,9 @@ def api_get_system_settings(user=Depends(login_required)):
                 "ocr_interval": ocr_interval,
                 "ocr_preprocess_perspective": ocr_preprocess_perspective,
                 "ocr_preprocess_grayscale": ocr_preprocess_grayscale,
-                "ocr_preprocess_magnify": ocr_preprocess_magnify
+                "ocr_preprocess_magnify": ocr_preprocess_magnify,
+                "enabled_detect_labels": detect_labels_list,
+                "enabled_draw_labels": draw_labels_list
             }
         }
     except Exception as e:
@@ -431,6 +445,7 @@ def api_get_system_settings(user=Depends(login_required)):
 @camera_router.put("/api/system/settings")
 def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_required)):
     from database.sqlite_db import update_system_setting
+    import json
     try:
         log_retention = payload.get("log_retention")
         if log_retention:
@@ -464,6 +479,14 @@ def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_requi
         if ocr_preprocess_magnify is not None:
             update_system_setting("ocr_preprocess_magnify", "true" if ocr_preprocess_magnify else "false")
             
+        enabled_detect_labels = payload.get("enabled_detect_labels")
+        if enabled_detect_labels is not None:
+            update_system_setting("enabled_detect_labels", json.dumps(enabled_detect_labels))
+
+        enabled_draw_labels = payload.get("enabled_draw_labels")
+        if enabled_draw_labels is not None:
+            update_system_setting("enabled_draw_labels", json.dumps(enabled_draw_labels))
+
         return {"ok": True, "message": "Đã cập nhật cấu hình hệ thống thành công."}
     except Exception as e:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})

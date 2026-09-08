@@ -1,18 +1,30 @@
 from typing import Optional, List, Dict, Any
 
 from core.config import DATABASE_PATH as DB_PATH
-from database.sqlite_db import (
-    init_db,
-    get_dashboard_stats_data as get_dashboard_stats,
-    get_detected_license_plates as list_detected_license_plates,
-    get_license_plate_by_date as list_license_plates_by_date,
-    log_detected_license_plate
-)
-
-from domain.entities.user import User
-from domain.entities.camera import Camera
-from database.sqlite_user_repo import SqliteUserRepository
-from database.sqlite_camera_repo import SqliteCameraRepository
+try:
+    from backend.database.sqlite_db import (
+        init_db,
+        get_dashboard_stats_data as get_dashboard_stats,
+        get_detected_license_plates as list_detected_license_plates,
+        get_license_plate_by_date as list_license_plates_by_date,
+        log_detected_license_plate
+    )
+    from backend.domain.entities.user import User
+    from backend.domain.entities.camera import Camera
+    from backend.database.sqlite_user_repo import SqliteUserRepository
+    from backend.database.sqlite_camera_repo import SqliteCameraRepository
+except ImportError:
+    from database.sqlite_db import (
+        init_db,
+        get_dashboard_stats_data as get_dashboard_stats,
+        get_detected_license_plates as list_detected_license_plates,
+        get_license_plate_by_date as list_license_plates_by_date,
+        log_detected_license_plate
+    )
+    from domain.entities.user import User
+    from domain.entities.camera import Camera
+    from database.sqlite_user_repo import SqliteUserRepository
+    from database.sqlite_camera_repo import SqliteCameraRepository
 
 user_repo = SqliteUserRepository()
 camera_repo = SqliteCameraRepository()
@@ -93,6 +105,7 @@ def create_camera(payload: dict) -> Dict[str, Any]:
         enable_congestion=payload.get("enable_congestion", True),
         enable_illegal_parking=payload.get("enable_illegal_parking", True),
         enable_license_plate=payload.get("enable_license_plate", True),
+        enable_weapon_detection=payload.get("enable_weapon_detection", True),
         is_active=payload.get("is_active", True)
     )
     return __camera_to_dict(camera_repo.create(c))
@@ -108,6 +121,7 @@ def update_camera(camera_id: int, payload: dict) -> Optional[Dict[str, Any]]:
         enable_congestion=payload.get("enable_congestion"),
         enable_illegal_parking=payload.get("enable_illegal_parking"),
         enable_license_plate=payload.get("enable_license_plate"),
+        enable_weapon_detection=payload.get("enable_weapon_detection"),
         is_active=payload.get("is_active")
     )
     return __camera_to_dict(camera_repo.update(c))

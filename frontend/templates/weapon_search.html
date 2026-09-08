@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+
+{% block title %}Tìm kiếm Cảnh báo Vũ khí | CityVision AI Portal{% endblock %}
+
+{% block content %}
+<div class="page-head">
+    <div>
+        <p class="eyebrow">Giám sát An ninh AI</p>
+        <h2 class="page-title">Tìm kiếm Cảnh báo Vũ khí Nâng cao</h2>
+        <p class="muted">Lọc và tìm kiếm nhật ký phát hiện vũ khí theo ngày, giờ, camera và loại vũ khí</p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Bộ lọc nâng cao</p>
+            <h3>Điều kiện Tìm kiếm</h3>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto auto; gap: 16px; align-items: end;">
+        <label class="field">
+            <span>Chọn Ngày</span>
+            <input type="date" id="filterDate" style="border: 1px solid var(--border); padding: 10px; border-radius: 8px; font-size: 0.9rem;">
+        </label>
+        <label class="field">
+            <span>Chọn Giờ (0-23)</span>
+            <select id="filterHour" class="filter-select">
+                <option value="">-- Tất cả giờ --</option>
+                <option value="00">00:00 - 00:59</option>
+                <option value="01">01:00 - 01:59</option>
+                <option value="02">02:00 - 02:59</option>
+                <option value="03">03:00 - 03:59</option>
+                <option value="04">04:00 - 04:59</option>
+                <option value="05">05:00 - 05:59</option>
+                <option value="06">06:00 - 06:59</option>
+                <option value="07">07:00 - 07:59</option>
+                <option value="08">08:00 - 08:59</option>
+                <option value="09">09:00 - 09:59</option>
+                <option value="10">10:00 - 10:59</option>
+                <option value="11">11:00 - 11:59</option>
+                <option value="12">12:00 - 12:59</option>
+                <option value="13">13:00 - 13:59</option>
+                <option value="14">14:00 - 14:59</option>
+                <option value="15">15:00 - 15:59</option>
+                <option value="16">16:00 - 16:59</option>
+                <option value="17">17:00 - 17:59</option>
+                <option value="18">18:00 - 18:59</option>
+                <option value="19">19:00 - 19:59</option>
+                <option value="20">20:00 - 20:59</option>
+                <option value="21">21:00 - 21:59</option>
+                <option value="22">22:00 - 22:59</option>
+                <option value="23">23:00 - 23:59</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Loại Vũ Khí</span>
+            <select id="filterWeaponType" class="filter-select">
+                <option value="">-- Tất cả loại --</option>
+                <option value="pistol">Súng ngắn (Pistol)</option>
+                <option value="knife">Dao (Knife)</option>
+                <option value="sword">Kiếm / Dao dài (Sword)</option>
+            </select>
+        </label>
+        <label class="field">
+            <span>Camera</span>
+            <select id="filterCamera" class="filter-select">
+                <option value="">-- Tất cả Camera --</option>
+            </select>
+        </label>
+        <button class="button primary" onclick="searchWeapons()" style="height: 44px;">
+            <i class="fas fa-search" style="margin-right: 6px;"></i> Tìm kiếm
+        </button>
+        <button class="button secondary" onclick="resetFilters()" style="height: 44px;">
+            <i class="fas fa-undo" style="margin-right: 6px;"></i> Xoá lọc
+        </button>
+    </div>
+</section>
+
+<section class="panel margin-top">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Kết quả tìm kiếm</p>
+            <h3 id="results-title">Danh sách Cảnh báo Vũ khí</h3>
+        </div>
+        <span id="results-count" class="pill blue" style="font-size: 0.85rem;">0 kết quả</span>
+    </div>
+
+    <div id="weaponList" style="display: grid; gap: 16px;">
+        <div class="empty-state">
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để tìm nhật ký phát hiện vũ khí</p>
+        </div>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div id="pagination-controls" style="margin-top: 24px; display: flex; justify-content: center; align-items: center; gap: 16px; padding: 16px; border-top: 1px solid var(--border);">
+        <button id="prev-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
+            <i class="fas fa-chevron-left" style="margin-right: 8px;"></i> Trước
+        </button>
+        <div id="page-info" style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">
+            Trang <span id="current-page">1</span> / <span id="total-pages">1</span>
+        </div>
+        <button id="next-page" class="button secondary outline sm" style="padding: 8px 16px;" disabled>
+            Sau <i class="fas fa-chevron-right" style="margin-left: 8px;"></i>
+        </button>
+    </div>
+</section>
+
+<style>
+    .weapon-thumbnail {
+        width: 110px;
+        height: 65px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 2px solid #ef4444;
+        transition: all 0.3s var(--ease);
+        cursor: pointer;
+        box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.2);
+        display: block;
+        margin: 0 auto;
+    }
+    .weapon-thumbnail:hover {
+        transform: scale(1.1) translateY(-2px);
+        border-color: #dc2626;
+        box-shadow: 0 10px 15px -3px rgba(239, 68, 68, 0.4);
+    }
+    .data-table td {
+        vertical-align: middle;
+    }
+    .weapon-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-weight: 700;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+    }
+    .weapon-badge.pistol {
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .weapon-badge.knife {
+        background: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .weapon-badge.sword {
+        background: rgba(139, 92, 246, 0.15);
+        color: #8b5cf6;
+        border: 1px solid rgba(139, 92, 246, 0.3);
+    }
+
+    @media (max-width: 900px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr 1fr !important;
+        }
+    }
+    @media (max-width: 600px) {
+        .panel > div[style*="grid-template-columns"] {
+            grid-template-columns: 1fr !important;
+        }
+    }
+</style>
+
+<script>
+let currentPage = 1;
+let totalRecords = 0;
+const limit = 30;
+
+const WEAPON_LABELS_MAP = {
+    "pistol": { name: "Súng ngắn (Pistol)", class: "pistol", icon: "fa-crosshairs" },
+    "knife": { name: "Dao (Knife)", class: "knife", icon: "fa-cut" },
+    "sword": { name: "Kiếm / Dao dài (Sword)", class: "sword", icon: "fa-khanda" }
+};
+
+async function loadCameraOptions() {
+    try {
+        const resp = await portalApi.get('/api/cameras');
+        const cameras = resp.cameras || resp || [];
+        const select = document.getElementById('filterCamera');
+        cameras.forEach(cam => {
+            const opt = document.createElement('option');
+            opt.value = cam.id;
+            opt.textContent = cam.name || cam.ten_camera || `Camera ${cam.id}`;
+            select.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('Lỗi tải danh sách camera:', e);
+    }
+}
+
+function searchWeapons(page = 1) {
+    currentPage = page;
+    const date = document.getElementById('filterDate').value;
+    const hour = document.getElementById('filterHour').value;
+    const weaponType = document.getElementById('filterWeaponType').value;
+    const cameraId = document.getElementById('filterCamera').value;
+
+    let url = `/api/weapons?limit=${limit}&page=${currentPage}`;
+    if (date) url += `&date=${date}`;
+    if (hour) url += `&hour=${hour}`;
+    if (weaponType) url += `&weapon_type=${encodeURIComponent(weaponType)}`;
+    if (cameraId) url += `&camera_id=${cameraId}`;
+
+    let titleParts = [];
+    if (date) titleParts.push(`Ngày ${date}`);
+    if (hour) titleParts.push(`Giờ ${hour}:00-${hour}:59`);
+    if (weaponType) titleParts.push(`Vũ khí: ${weaponType}`);
+    if (cameraId) {
+        const camSelect = document.getElementById('filterCamera');
+        const camName = camSelect.options[camSelect.selectedIndex].textContent;
+        titleParts.push(camName);
+    }
+    document.getElementById('results-title').textContent = titleParts.length > 0
+        ? `Nhật ký: ${titleParts.join(' | ')}`
+        : 'Danh sách Cảnh báo Vũ khí';
+
+    portalApi.get(url).then(response => {
+        displayWeapons(response.weapons || []);
+        totalRecords = response.total || 0;
+        document.getElementById('results-count').textContent = `${totalRecords} kết quả`;
+        const totalPages = Math.ceil(totalRecords / limit) || 1;
+        document.getElementById('current-page').textContent = currentPage;
+        document.getElementById('total-pages').textContent = totalPages;
+        document.getElementById('prev-page').disabled = currentPage <= 1;
+        document.getElementById('next-page').disabled = currentPage >= totalPages;
+    }).catch(error => {
+        portalApi.showToast('Lỗi tải dữ liệu: ' + error.message, 'error', 'Lỗi');
+    });
+}
+
+function resetFilters() {
+    document.getElementById('filterDate').value = '';
+    document.getElementById('filterHour').value = '';
+    document.getElementById('filterWeaponType').value = '';
+    document.getElementById('filterCamera').value = '';
+    document.getElementById('results-title').textContent = 'Danh sách Cảnh báo Vũ khí';
+    document.getElementById('results-count').textContent = '0 kết quả';
+    document.getElementById('weaponList').innerHTML = `
+        <div class="empty-state">
+            <span class="empty-icon">🔍</span>
+            <p class="muted">Chọn bộ lọc và bấm "Tìm kiếm" để bắt đầu</p>
+        </div>
+    `;
+}
+
+document.getElementById('prev-page').addEventListener('click', () => {
+    if (currentPage > 1) searchWeapons(currentPage - 1);
+});
+document.getElementById('next-page').addEventListener('click', () => {
+    const totalPages = Math.ceil(totalRecords / limit) || 1;
+    if (currentPage < totalPages) searchWeapons(currentPage + 1);
+});
+
+async function resolveWeapon(id) {
+    if (!confirm("Xác nhận đã xử lý sự kiện phát hiện vũ khí này?")) return;
+    try {
+        await portalApi.post(`/api/weapons/${id}/resolve`);
+        portalApi.showToast('Đã đánh dấu xử lý sự kiện vũ khí thành công', 'success');
+        setTimeout(() => searchWeapons(currentPage), 300);
+    } catch (err) {
+        portalApi.showToast('Lỗi xử lý: ' + err.message, 'error');
+    }
+}
+
+async function deleteWeapon(id) {
+    if (!confirm("Bạn có chắc chắn muốn xóa bản ghi này?")) return;
+    try {
+        await portalApi.delete(`/api/weapons/${id}`);
+        portalApi.showToast('Đã xóa bản ghi thành công', 'success');
+        setTimeout(() => searchWeapons(currentPage), 300);
+    } catch (err) {
+        portalApi.showToast('Lỗi xóa bản ghi: ' + err.message, 'error');
+    }
+}
+
+function displayWeapons(weapons) {
+    const container = document.getElementById('weaponList');
+
+    if (!weapons || weapons.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">📭</span>
+                <p class="muted">Không tìm thấy sự kiện phát hiện vũ khí nào phù hợp với bộ lọc</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="text-align: center; width: 50px;">STT</th>
+                        <th>Camera</th>
+                        <th style="text-align: center;">Loại Vũ Khí</th>
+                        <th style="text-align: center;">Độ chính xác</th>
+                        <th style="text-align: center;">Thời Gian Phát Hiện</th>
+                        <th style="text-align: center;">Bằng Chứng (Ảnh Bounding Box Đỏ)</th>
+                        <th style="text-align: center;">Trạng Thái</th>
+                        <th style="text-align: center;">Hành Động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${weapons.map((w, index) => {
+                        const framePath = w.frame_path ? w.frame_path.replace(/^\/+/,'') : '';
+                        const info = WEAPON_LABELS_MAP[w.weapon_type] || { name: w.weapon_type.toUpperCase(), class: "pistol", icon: "fa-shield-alt" };
+                        const confPercent = Math.round((w.confidence || 0) * 100);
+
+                        return `
+                        <tr>
+                            <td style="text-align: center;"><strong>${(currentPage - 1) * limit + index + 1}</strong></td>
+                            <td>
+                                <strong>${w.camera_name || 'Camera #' + w.camera_id}</strong>
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="weapon-badge ${info.class}">
+                                    <i class="fas ${info.icon}"></i> ${info.name}
+                                </span>
+                            </td>
+                            <td style="text-align: center; font-weight: 700; color: #ef4444;">
+                                ${confPercent}%
+                            </td>
+                            <td style="text-align: center;">
+                                ${window.portalApi.formatVietnameseDateTime(w.detection_time)}
+                            </td>
+                            <td style="text-align: center;">
+                                ${framePath ? `
+                                    <div onclick="window.portalApi.previewImage('/${framePath}', 'Cảnh báo vũ khí: ${info.name}')" style="cursor: pointer;" title="Bấm xem ảnh bằng chứng lớn">
+                                        <img src="/${framePath}" class="weapon-thumbnail" alt="Bằng chứng ${w.weapon_type}" loading="lazy">
+                                    </div>
+                                ` : '<span class="badge muted">N/A</span>'}
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="pill ${w.is_resolved ? 'success' : 'danger'}">
+                                    ${w.is_resolved ? 'Đã xử lý' : 'Nguy hiểm (Chờ xử lý)'}
+                                </span>
+                            </td>
+                            <td style="text-align: center;">
+                                <div style="display: flex; gap: 6px; justify-content: center;">
+                                    ${!w.is_resolved ? `
+                                        <button class="button primary xs" onclick="resolveWeapon(${w.id})">
+                                            ✔ Xác nhận
+                                        </button>
+                                    ` : ''}
+                                    <button class="button secondary xs outline" onclick="deleteWeapon(${w.id})" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        `;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadCameraOptions();
+});
+</script>
+{% endblock %}
