@@ -143,47 +143,51 @@
                     <h4 style="font-size: 14px; font-weight: 700; color: #1E293B;">
                         1. Nhãn AI Phát hiện (Detect Labels)
                     </h4>
-                    <button type="button" onclick="selectAllDetectLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;">Chọn tất cả</button>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" onclick="selectAllDetectLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;"><i class="fas fa-check-double" style="margin-right: 3px;"></i> Chọn tất cả</button>
+                        <span style="color: #CBD5E1; font-size: 11px;">|</span>
+                        <button type="button" onclick="selectAllDetectLabels(false)" style="background: none; border: none; color: #EF4444; font-size: 12px; cursor: pointer; font-weight: 600;"><i class="fas fa-times" style="margin-right: 3px;"></i> Bỏ chọn tất cả</button>
+                    </div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #334155;">
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="person" checked> 👤 Người (person)
+                        <input type="checkbox" class="detect-label-cb" value="person" checked> <i class="fas fa-user" style="color: #3B82F6; width: 16px;"></i> Người (person)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="bicycle" checked> 🚲 Xe đạp (bicycle)
+                        <input type="checkbox" class="detect-label-cb" value="bicycle" checked> <i class="fas fa-bicycle" style="color: #10B981; width: 16px;"></i> Xe đạp (bicycle)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="car" checked> 🚗 Ô tô (car)
+                        <input type="checkbox" class="detect-label-cb" value="car" checked> <i class="fas fa-car" style="color: #2563EB; width: 16px;"></i> Ô tô (car)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="motorcycle" checked> 🏍️ Xe máy (motorcycle)
+                        <input type="checkbox" class="detect-label-cb" value="motorcycle" checked> <i class="fas fa-motorcycle" style="color: #F59E0B; width: 16px;"></i> Xe máy (motorcycle)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="license_plate" checked> 🪪 Biển số (license_plate)
+                        <input type="checkbox" class="detect-label-cb" value="license_plate" checked> <i class="fas fa-id-card" style="color: #8B5CF6; width: 16px;"></i> Biển số (license_plate)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="bus" checked> 🚌 Xe buýt (bus)
+                        <input type="checkbox" class="detect-label-cb" value="bus" checked> <i class="fas fa-bus" style="color: #06B6D4; width: 16px;"></i> Xe buýt (bus)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="truck" checked> 🚚 Xe tải (truck)
+                        <input type="checkbox" class="detect-label-cb" value="truck" checked> <i class="fas fa-truck" style="color: #64748B; width: 16px;"></i> Xe tải (truck)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="detect-label-cb" value="knife" checked> 🔪 Dao (knife)
+                        <input type="checkbox" class="detect-label-cb" value="knife" checked> <i class="fas fa-utensils" style="color: #EF4444; width: 16px;"></i> Dao (knife)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="detect-label-cb" value="pistol" checked> 🔫 Súng ngắn (pistol)
+                        <input type="checkbox" class="detect-label-cb" value="pistol" checked> <i class="fas fa-crosshairs" style="color: #EF4444; width: 16px;"></i> Súng ngắn (pistol)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="detect-label-cb" value="sword" checked> ⚔️ Kiếm (sword)
+                        <input type="checkbox" class="detect-label-cb" value="sword" checked> <i class="fas fa-shield-alt" style="color: #EF4444; width: 16px;"></i> Kiếm (sword)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="helmet" checked> 🪖 Mũ bảo hiểm (helmet)
+                        <input type="checkbox" class="detect-label-cb" value="helmet" checked> <i class="fas fa-hard-hat" style="color: #F59E0B; width: 16px;"></i> Mũ bảo hiểm (helmet)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="mask" checked> 😷 Khẩu trang (mask)
+                        <input type="checkbox" class="detect-label-cb" value="mask" checked> <i class="fas fa-head-side-mask" style="color: #3B82F6; width: 16px;"></i> Khẩu trang (mask)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="detect-label-cb" value="backpack" checked> 🎒 Balo (backpack)
+                        <input type="checkbox" class="detect-label-cb" value="backpack" checked> <i class="fas fa-briefcase" style="color: #8B5CF6; width: 16px;"></i> Balo (backpack)
                     </label>
                 </div>
             </div>
@@ -194,47 +198,51 @@
                     <h4 style="font-size: 14px; font-weight: 700; color: #1E293B;">
                         2. Nhãn Vẽ Khung Bounding Box (Draw Labels)
                     </h4>
-                    <button type="button" onclick="selectAllDrawLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;">Chọn tất cả</button>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" onclick="selectAllDrawLabels(true)" style="background: none; border: none; color: #4379EE; font-size: 12px; cursor: pointer; font-weight: 600;"><i class="fas fa-check-double" style="margin-right: 3px;"></i> Chọn tất cả</button>
+                        <span style="color: #CBD5E1; font-size: 11px;">|</span>
+                        <button type="button" onclick="selectAllDrawLabels(false)" style="background: none; border: none; color: #EF4444; font-size: 12px; cursor: pointer; font-weight: 600;"><i class="fas fa-times" style="margin-right: 3px;"></i> Bỏ chọn tất cả</button>
+                    </div>
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #334155;">
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="person" checked> 👤 Người (person)
+                        <input type="checkbox" class="draw-label-cb" value="person" checked> <i class="fas fa-user" style="color: #3B82F6; width: 16px;"></i> Người (person)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="bicycle" checked> 🚲 Xe đạp (bicycle)
+                        <input type="checkbox" class="draw-label-cb" value="bicycle" checked> <i class="fas fa-bicycle" style="color: #10B981; width: 16px;"></i> Xe đạp (bicycle)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="car" checked> 🚗 Ô tô (car)
+                        <input type="checkbox" class="draw-label-cb" value="car" checked> <i class="fas fa-car" style="color: #2563EB; width: 16px;"></i> Ô tô (car)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="motorcycle" checked> 🏍️ Xe máy (motorcycle)
+                        <input type="checkbox" class="draw-label-cb" value="motorcycle" checked> <i class="fas fa-motorcycle" style="color: #F59E0B; width: 16px;"></i> Xe máy (motorcycle)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="license_plate" checked> 🪪 Biển số (license_plate)
+                        <input type="checkbox" class="draw-label-cb" value="license_plate" checked> <i class="fas fa-id-card" style="color: #8B5CF6; width: 16px;"></i> Biển số (license_plate)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="bus" checked> 🚌 Xe buýt (bus)
+                        <input type="checkbox" class="draw-label-cb" value="bus" checked> <i class="fas fa-bus" style="color: #06B6D4; width: 16px;"></i> Xe buýt (bus)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="truck" checked> 🚚 Xe tải (truck)
+                        <input type="checkbox" class="draw-label-cb" value="truck" checked> <i class="fas fa-truck" style="color: #64748B; width: 16px;"></i> Xe tải (truck)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="draw-label-cb" value="knife" checked> 🔪 Dao (knife)
+                        <input type="checkbox" class="draw-label-cb" value="knife" checked> <i class="fas fa-utensils" style="color: #EF4444; width: 16px;"></i> Dao (knife)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="draw-label-cb" value="pistol" checked> 🔫 Súng ngắn (pistol)
+                        <input type="checkbox" class="draw-label-cb" value="pistol" checked> <i class="fas fa-crosshairs" style="color: #EF4444; width: 16px;"></i> Súng ngắn (pistol)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ef4444; font-weight: 700;">
-                        <input type="checkbox" class="draw-label-cb" value="sword" checked> ⚔️ Kiếm (sword)
+                        <input type="checkbox" class="draw-label-cb" value="sword" checked> <i class="fas fa-shield-alt" style="color: #EF4444; width: 16px;"></i> Kiếm (sword)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="helmet" checked> 🪖 Mũ bảo hiểm (helmet)
+                        <input type="checkbox" class="draw-label-cb" value="helmet" checked> <i class="fas fa-hard-hat" style="color: #F59E0B; width: 16px;"></i> Mũ bảo hiểm (helmet)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="mask" checked> 😷 Khẩu trang (mask)
+                        <input type="checkbox" class="draw-label-cb" value="mask" checked> <i class="fas fa-head-side-mask" style="color: #3B82F6; width: 16px;"></i> Khẩu trang (mask)
                     </label>
                     <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                        <input type="checkbox" class="draw-label-cb" value="backpack" checked> 🎒 Balo (backpack)
+                        <input type="checkbox" class="draw-label-cb" value="backpack" checked> <i class="fas fa-briefcase" style="color: #8B5CF6; width: 16px;"></i> Balo (backpack)
                     </label>
                 </div>
             </div>
