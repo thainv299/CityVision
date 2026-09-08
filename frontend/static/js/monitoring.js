@@ -463,6 +463,12 @@ function initMonitoringForm() {
             show_box_bus: "on",
             show_box_truck: "on",
             show_box_plate: "on",
+            show_box_knife: "on",
+            show_box_pistol: "on",
+            show_box_sword: "on",
+            show_box_helmet: "on",
+            show_box_mask: "on",
+            show_box_backpack: "on",
             show_label: "on"
         };
 
@@ -959,6 +965,12 @@ function initMonitoringForm() {
             { id: "show-box-bus-chk", key: "show_box_bus" },
             { id: "show-box-truck-chk", key: "show_box_truck" },
             { id: "show-box-plate-chk", key: "show_box_plate" },
+            { id: "show-box-knife-chk", key: "show_box_knife" },
+            { id: "show-box-pistol-chk", key: "show_box_pistol" },
+            { id: "show-box-sword-chk", key: "show_box_sword" },
+            { id: "show-box-helmet-chk", key: "show_box_helmet" },
+            { id: "show-box-mask-chk", key: "show_box_mask" },
+            { id: "show-box-backpack-chk", key: "show_box_backpack" },
             { id: "show-label-chk", key: "show_label" }
         ];
 

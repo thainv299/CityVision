@@ -157,6 +157,12 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
         "show_box_plate": _parse_bool(form_data.get("show_box_plate"), True),
         "show_box_bus": _parse_bool(form_data.get("show_box_bus"), True),
         "show_box_truck": _parse_bool(form_data.get("show_box_truck"), True),
+        "show_box_knife": _parse_bool(form_data.get("show_box_knife"), True),
+        "show_box_pistol": _parse_bool(form_data.get("show_box_pistol"), True),
+        "show_box_sword": _parse_bool(form_data.get("show_box_sword"), True),
+        "show_box_helmet": _parse_bool(form_data.get("show_box_helmet"), True),
+        "show_box_mask": _parse_bool(form_data.get("show_box_mask"), True),
+        "show_box_backpack": _parse_bool(form_data.get("show_box_backpack"), True),
         "show_label": _parse_bool(form_data.get("show_label"), True),
     }
 
