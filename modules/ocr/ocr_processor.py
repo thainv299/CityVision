@@ -89,6 +89,9 @@ def correct_plate_format(text):
     # Ký tự thứ 3 (Sê-ri) -> Đổi số thành chữ (A, B, C...)
     if len(text_list) > 2 and text_list[2].isdigit() and text_list[2] in dict_num_to_char:
         text_list[2] = dict_num_to_char[text_list[2]]
+    # Biển số VN không có chữ X -> nếu OCR đọc nhầm X thì sửa thành K
+    if len(text_list) > 2 and text_list[2] == 'X':
+        text_list[2] = 'K'
 
     # Kể từ ký tự thứ 4 trở đi -> Ép thành số
     for i in range(3, len(text_list)):
