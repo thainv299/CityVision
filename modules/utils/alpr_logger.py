@@ -81,27 +81,13 @@ class ALPRLogger:
         cv2.rectangle(evidence_frame, (x1, y1), (x2, y2), (0, 0, 255), f_thick)
         
         # Vẽ text biển số ở góc trên cùng bên trái màn hình (top-left) với nền đỏ chữ trắng
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-            import numpy as np
-            img_pil = Image.fromarray(cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2RGB))
-            draw = ImageDraw.Draw(img_pil)
-            
-            font_size = int(28 * (w / 1280))
-            try:
-                font = ImageFont.truetype("arial.ttf", font_size)
-            except:
-                font = ImageFont.load_default()
-            
-            label_text_str = f" BIỂN SỐ PHÁT HIỆN: {plate_text} "
-            bbox_box = draw.textbbox((15, 15), label_text_str, font=font)
-            draw.rectangle((bbox_box[0] - 4, bbox_box[1] - 4, bbox_box[2] + 4, bbox_box[3] + 4), fill=(220, 38, 38))
-            draw.text((15, 15), label_text_str, font=font, fill=(255, 255, 255))
-            evidence_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-        except Exception as e:
-            print(f"[ALPR Logger] Lỗi vẽ font tiếng Việt: {e}")
-            cv2.putText(evidence_frame, f"BIEN SO: {plate_text}", (15, 40), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9 * (w/1280), (0, 0, 255), f_thick)
+        f_scale_text = max(0.6, 0.9 * (w / 1280))
+        label_text_str = f"BIEN SO: {plate_text}"
+        (tw, th), baseline = cv2.getTextSize(label_text_str, cv2.FONT_HERSHEY_SIMPLEX, f_scale_text, f_thick)
+        pad = 6
+        cv2.rectangle(evidence_frame, (10, 10), (10 + tw + pad * 2, 10 + th + pad * 2 + baseline), (0, 0, 200), -1)
+        cv2.putText(evidence_frame, label_text_str, (10 + pad, 10 + th + pad),
+                    cv2.FONT_HERSHEY_SIMPLEX, f_scale_text, (255, 255, 255), f_thick, cv2.LINE_AA)
         
         # Đường dẫn web (dùng dấu gạch chéo)
         web_path = img_path.replace(os.sep, "/")
