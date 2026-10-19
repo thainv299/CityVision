@@ -35,6 +35,7 @@ class OCRManager:
         self.last_seen_plate = {}
         self.last_comparison_window = None
         self.vehicle_plates = {} # Maps v_track_id -> confirmed_plate_string
+        self.confirmed_plate_logged = set() # Tập biển số đã được ghi DB, tránh ghi đúp
 
     def start_worker(self):
         if not self.worker_running:
@@ -180,8 +181,18 @@ class OCRManager:
                     self.spatial_memory[track_id] = (cx, cy, best, frame_count)
                     if matched_v_id != -1:
                         self.vehicle_plates[matched_v_id] = best
+                    # Guard chống ghi DB đúp: chỉ ghi lần đầu tiên biển số này được confirm.
+                    # Nếu alpr_logger xác định đây là session mới (xe biến mất lâu rồi quay lại),
+                    # thì xóa guard để cho phép ghi lại.
                     if self.alpr_logger:
-                        self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2], v_track_id=matched_v_id, vehicle_bbox=vehicle_bbox)
+                        alpr_session = self.alpr_logger.plate_sessions.get(best)
+                        if alpr_session is not None:
+                            frames_missing = frame_count - alpr_session["last_seen"]
+                            if frames_missing > self.alpr_logger.disappear_threshold:
+                                self.confirmed_plate_logged.discard(best)
+                        if best not in self.confirmed_plate_logged:
+                            self.confirmed_plate_logged.add(best)
+                            self.alpr_logger.process_plate(best, frame_count, res['img_before'], clean_frame, [x1, y1, x2, y2], v_track_id=matched_v_id, vehicle_bbox=vehicle_bbox)
                 else:
                     display_text = f"[?] {best} ({count}/{self.VOTE_THRESHOLD})"
             else:
