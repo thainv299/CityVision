@@ -29,6 +29,7 @@ class ParkingManager:
         self.violation_end_callback = None
         self.violation_records = {} # track_id -> violation_id
         self.telegram_enabled = True
+        self.tts_enabled = True  # Bật/tắt thông báo âm thanh TTS
         self.save_violation_frames = True
         self.io_worker = None  # AsyncIOWorker (inject từ bên ngoài)
         self.telegram_bot_token = ""
@@ -193,7 +194,15 @@ class ParkingManager:
             else:
                 final_caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
 
-            # 5. Gửi cảnh báo
+            # 5. Phát thông báo âm thanh TTS
+            if self.tts_enabled:
+                try:
+                    from modules.utils.tts_announcer import announce_plate_violation
+                    announce_plate_violation(current_plate or "")
+                except Exception as tts_err:
+                    print(f"[ParkingManager] Lỗi TTS: {tts_err}")
+
+            # 6. Gửi cảnh báo Telegram
             threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
 
         t = threading.Timer(5.0, fire)

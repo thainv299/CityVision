@@ -30,6 +30,7 @@ class TrafficAlertManager:
         # Quyền lưu DB và camera ID
         self.save_to_db = True
         self.camera_id = 1
+        self.tts_enabled = True
         
         # Đảm bảo thư mục lưu log tồn tại
         os.makedirs("logs", exist_ok=True)
@@ -104,13 +105,18 @@ class TrafficAlertManager:
         caption = f"CẢNH BÁO ⚠️: {detail}"
         
         voice_messages = {
-            1: "Giao thông đang bắt đầu đông đúc",
-            2: "Giao thông đang rất đông đúc, phụ huynh nhanh chóng di chuyển",
-            3: "Giao thông đang tắc nghẽn nghiêm trọng, nhắc lại, phụ huynh nhanh chóng di chuyển"
+            1: None,
+            2: "Khu vực cổng trường đang rất đông, kính mời phụ huynh nhanh chóng đón học sinh và di chuyển, tránh gây ùn tắc",
+            3: "Khu vực cổng trường đang ùn tắc,Yêu cầu tất cả phương tiện tuyệt đối không dừng đỗ và nhanh chóng di chuyển"
         }
         speech_text = voice_messages.get(level)
-        # if speech_text:
-        #     self._speak_alert(speech_text)
+        # 3. Phát âm thanh cảnh báo (tạm thời chỉ áp dụng cho Mức 3 - đông nhất)
+        if self.tts_enabled and level == 3 and speech_text:
+            try:
+                from modules.utils.tts_announcer import announce
+                announce(speech_text)
+            except Exception as e:
+                print(f"[TrafficAlertManager] Lỗi phát âm thanh TTS: {e}")
 
         # 4. Gửi thông báo sang Telegram nếu camera đang hoạt động (enable)
         try:
