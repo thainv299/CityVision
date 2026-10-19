@@ -10,10 +10,11 @@ from modules.utils.interactive_telegram_bot import send_alert_with_button
 class TrafficAlertManager:
     def __init__(self):
         # Cấu hình thời gian đếm ngược tĩnh (giây)
-        self.DEBOUNCE_SECONDS = 2
-        self.TRUE_CLEAR_SECONDS = 5.0 # Số giây đường TRỐNG LIÊN TỤC để được coi là hết kẹt xe hoàn toàn
+        self.DEBOUNCE_SECONDS = 5
+        self.TRUE_CLEAR_SECONDS = 25.0 # Số giây đường TRỐNG LIÊN TỤC để được coi là hết kẹt xe hoàn toàn
         self.INTERVAL_UNACK = {1: 300, 2: 60, 3: 30}
         self.SNOOZE_ACK = {1: 900, 2: 600, 3: 300}
+        self.ALERT_COOLDOWN = {1: 180.0, 2: 120.0, 3: 60.0} # Giãn cách tối thiểu giữa 2 lần gửi tin cho cùng 1 mức
         
         # Các biến trạng thái quản lý (Debounce & Tiết chế Cảnh báo)
         self.pending_level = 0
@@ -23,6 +24,7 @@ class TrafficAlertManager:
         self.snooze_until = 0
         self.is_acknowledged = False
         self.clear_start_time = 0
+        self.last_sent_alert_time = {}
         
         # AsyncIOWorker (inject từ bên ngoài, nếu None sẽ fallback gọi đồng bộ)
         self.io_worker = None
@@ -62,9 +64,15 @@ class TrafficAlertManager:
         is_escalation = self.confirmed_level > self.last_alert_level
         timer_expired = current_time >= self.snooze_until
         
-        if is_escalation or timer_expired:
+        # Cooldown bảo vệ: nếu cùng mức thì phải giãn cách ít nhất ALERT_COOLDOWN giây
+        last_sent = self.last_sent_alert_time.get(self.confirmed_level, 0.0)
+        min_cooldown = self.ALERT_COOLDOWN.get(self.confirmed_level, 180.0)
+        cooldown_ok = (current_time - last_sent >= min_cooldown)
+        
+        if is_escalation or (timer_expired and cooldown_ok):
             self._trigger_alert(self.confirmed_level, clean_frame)
             self.last_alert_level = self.confirmed_level
+            self.last_sent_alert_time[self.confirmed_level] = current_time
             # Kích hoạt trạng thái Un-Acked với thời gian ngắn
             self.snooze_until = current_time + self.INTERVAL_UNACK.get(self.confirmed_level, 60)
             self.is_acknowledged = False # Đặt lại cờ chưa xác nhận khi có cảnh báo mới phát ra
