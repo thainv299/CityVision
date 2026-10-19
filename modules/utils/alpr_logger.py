@@ -82,7 +82,9 @@ class ALPRLogger:
         
         # Vẽ text biển số ở góc trên cùng bên trái màn hình (top-left) với nền đỏ chữ trắng
         f_scale_text = max(0.6, 0.9 * (w / 1280))
-        label_text_str = f"BIEN SO: {plate_text}"
+        # OpenCV cv2.putText không hỗ trợ ký tự UTF-8 có dấu (sẽ bị lỗi dấu ??) -> dùng text không dấu
+        display_plate = "KHONG PHAT HIEN BIEN SO" if plate_text == "Không phát hiện biển số xe" else plate_text
+        label_text_str = f"BIEN SO: {display_plate}"
         (tw, th), baseline = cv2.getTextSize(label_text_str, cv2.FONT_HERSHEY_SIMPLEX, f_scale_text, f_thick)
         pad = 6
         cv2.rectangle(evidence_frame, (10, 10), (10 + tw + pad * 2, 10 + th + pad * 2 + baseline), (0, 0, 200), -1)
