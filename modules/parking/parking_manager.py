@@ -540,8 +540,6 @@ class ParkingManager:
                 self.track_id_map[track_id] = best_match
                 mapped_id = best_match
                 self.cancel_pending_warning(track_id)
-                print(f"[Re-ID] Nối ghép ID:{track_id} → ID:{best_match} (khoảng cách {min_dist:.0f}px, nguồn: {best_source})")
-                
                 if best_source == 'ghost':
                     ginfo = self.ghost_tracks.pop(best_match)
                     if 'logic_state' in ginfo:
