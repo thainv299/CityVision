@@ -243,6 +243,18 @@
                     </div>
                 </div>
 
+                <!-- Cấu hình thời gian đỗ xe vi phạm mặc định của camera -->
+                <div style="background: var(--bg-dim); padding: 12px; border-radius: 8px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">
+                            <i class="fas fa-stopwatch" style="color: #EF4444; margin-right: 6px;"></i>Thời gian cấm đỗ mặc định (giây)
+                        </span>
+                        <span class="muted" style="font-size: 0.7rem;">Áp dụng cho camera và các vùng cấm không đặt thời gian riêng</span>
+                    </div>
+                    <input type="number" id="parking_violation_time" name="parking_violation_time" min="5" max="3600" value="30"
+                        style="width: 100px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; background: var(--bg-panel); color: var(--text-main); font-weight: 700; text-align: center;">
+                </div>
+
                 <!-- Các nút vẽ ROI và không gian -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                     <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -303,19 +315,43 @@
     <div
         style="background: white; border-radius: 12px; padding: 20px; max-width: 90%; max-height: 90%; display: flex; flex-direction: column; overflow-y: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="margin: 0;">Vẽ Vùng Quan Sát (ROI)</h3>
+            <h3 id="roi-modal-title" style="margin: 0;">Vẽ Vùng Quan Sát (ROI)</h3>
             <button type="button" onclick="roiDrawingTool.closeModal()"
                 style="background: none; border: none; font-size: 24px; cursor: pointer; padding: 0;">✕</button>
         </div>
 
-        <div style="margin-bottom: 12px; font-size: 0.9rem; color: #666;">
-            <p style="margin: 0 0 8px 0;"><strong>Hướng dẫn:</strong></p>
-            <ul style="margin: 0; padding-left: 20px;">
-                <li><strong>Click trái:</strong> Thêm điểm</li>
-                <li><strong>Click phải:</strong> Xóa toàn bộ</li>
-                <li><strong>Ctrl+Z:</strong> Xóa điểm cuối</li>
-                <li><strong>Enter:</strong> Xác nhận (ít nhất 3 điểm)</li>
-                <li><strong>ESC:</strong> Hủy</li>
+        <!-- Toolbar quản lý đa vùng cấm đỗ độc lập -->
+        <div id="roi-multi-zone-toolbar" style="display: none; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                <div id="roi-zone-tabs" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                    <!-- Render tabs bằng JS: [Vùng 1] [Vùng 2] -->
+                </div>
+                <button type="button" onclick="roiDrawingTool.addNewZone()" class="button secondary" style="padding: 5px 12px; font-size: 0.8rem; border-radius: 6px; background: white;">
+                    <i class="fas fa-plus" style="margin-right: 4px; color: #2563EB;"></i>Thêm vùng cấm mới
+                </button>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap; font-size: 0.85rem; background: white; padding: 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label style="font-weight: 600; color: #475569;">Tên vùng:</label>
+                    <input type="text" id="roi-zone-name" style="padding: 5px 8px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 0.85rem; width: 160px;" oninput="roiDrawingTool.onZoneNameChange(this.value)">
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <label style="font-weight: 600; color: #475569;">Giới hạn đỗ (giây):</label>
+                    <input type="number" id="roi-zone-timeout" min="5" max="3600" style="padding: 5px 8px; border: 1px solid #CBD5E1; border-radius: 6px; font-size: 0.85rem; width: 85px;" oninput="roiDrawingTool.onZoneTimeoutChange(this.value)">
+                </div>
+                <button type="button" id="roi-zone-delete-btn" onclick="roiDrawingTool.deleteCurrentZone()" style="background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; margin-left: auto;">
+                    <i class="fas fa-trash" style="margin-right: 4px;"></i>Xóa vùng này
+                </button>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 12px; font-size: 0.85rem; color: #64748B;">
+            <p style="margin: 0 0 6px 0;"><strong>Hướng dẫn thao tác:</strong></p>
+            <ul style="margin: 0; padding-left: 20px; line-height: 1.5;">
+                <li><strong>Click trái:</strong> Thêm điểm vào vùng hiện tại</li>
+                <li><strong>Click phải:</strong> Xóa toàn bộ điểm của vùng hiện tại</li>
+                <li><strong>Ctrl+Z:</strong> Xóa điểm vừa vẽ</li>
+                <li><strong>Enter:</strong> Xác nhận và lưu tọa độ (tối thiểu 3 điểm mỗi vùng)</li>
             </ul>
         </div>
 

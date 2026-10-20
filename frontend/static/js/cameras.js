@@ -37,6 +37,7 @@ document.addEventListener("DOMContentLoaded", () => {
         enableWeaponDetection: document.getElementById("enable_weapon_detection"),
         enableAi: document.getElementById("enable_ai"),
         isActive: document.getElementById("camera_is_active"),
+        parkingViolationTime: document.getElementById("parking_violation_time"),
     };
 
     const state = {
@@ -60,6 +61,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const data = JSON.parse(val);
+            if (data.zones && Array.isArray(data.zones)) {
+                statusDiv.innerHTML = `<span style="color: var(--brand-main); font-weight: 600;">Đã thiết lập (${data.zones.length} vùng cấm)</span>`;
+                return;
+            }
             const pts = Array.isArray(data) ? data : (data.points || []);
             if (Array.isArray(pts)) {
                 statusDiv.innerHTML = `<span style="color: var(--brand-main); font-weight: 600;">Đã thiết lập (${pts.length} điểm)</span>`;
@@ -125,6 +130,10 @@ document.addEventListener("DOMContentLoaded", () => {
             fields.noParkingPoints.value = "";
         }
         fields.noParkingFilePicker.value = "";
+
+        if (fields.parkingViolationTime) {
+            fields.parkingViolationTime.value = camera?.parking_violation_time || 30;
+        }
 
         fields.enableAi.checked = camera ? Boolean(camera.enable_ai) : true;
         fields.enableCongestion.checked = camera ? Boolean(camera.enable_congestion) : true;
@@ -660,6 +669,7 @@ document.addEventListener("DOMContentLoaded", () => {
             enable_weapon_detection: fields.enableWeaponDetection ? fields.enableWeaponDetection.checked : true,
             enable_ai: fields.enableAi.checked,
             is_active: fields.isActive.checked,
+            parking_violation_time: fields.parkingViolationTime ? (parseInt(fields.parkingViolationTime.value) || 30) : 30,
         };
         const isEditing = fields.id.value !== "";
         const editingId = isEditing ? Number(fields.id.value) : null;
