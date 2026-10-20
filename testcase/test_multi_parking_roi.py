@@ -5,6 +5,7 @@ import json
 
 from modules.parking.parking_logic import ViolationLogic, MOVING, WAITING, VIOLATION
 from modules.parking.parking_manager import ParkingManager
+from modules.parking.tracking_stabilizer import StationaryVehicleStabilizer, compute_box_iou
 from backend.infrastructure.ml.detection_bridge import _normalize_parking_zones, _to_polygon
 from backend.application.use_cases.camera_use_cases import CameraUseCases
 
@@ -225,6 +226,117 @@ class TestMultiParkingROI(unittest.TestCase):
         pm.draw_polygon_overlay(test_frame)
         self.assertGreater(test_frame.sum(), 0)
         print("-> [OK] Test 06: draw_polygon_overlay rendered without error and stripped accents cleanly!")
+
+    def test_07_compute_box_iou_and_iom(self):
+        """Kiểm tra tính toán IoU và IoM giữa hai bounding box"""
+        # Trùng khớp hoàn toàn
+        b1 = (100, 100, 200, 200)
+        iou, iom = compute_box_iou(b1, b1)
+        self.assertAlmostEqual(iou, 1.0)
+        self.assertAlmostEqual(iom, 1.0)
+
+        # Rời nhau hoàn toàn
+        b2 = (300, 300, 400, 400)
+        iou_disjoint, iom_disjoint = compute_box_iou(b1, b2)
+        self.assertEqual(iou_disjoint, 0.0)
+        self.assertEqual(iom_disjoint, 0.0)
+
+        # Đè một nửa
+        b3 = (150, 100, 200, 200) # w=50, h=100 -> area=5000, nằm trọn trong b1 (area=10000)
+        iou_half, iom_half = compute_box_iou(b1, b3)
+        self.assertAlmostEqual(iom_half, 1.0) # IoM = 5000 / min(10000, 5000) = 1.0
+        self.assertAlmostEqual(iou_half, 0.5) # IoU = 5000 / 10000 = 0.5
+        print("-> [OK] Test 07: compute_box_iou and compute_box_iom passed!")
+
+    def test_08_stationary_vehicle_stabilizer_id_switch(self):
+        """Kiểm tra StationaryVehicleStabilizer giữ nguyên canonical ID khi ByteTrack nhảy ID (17 -> 23)"""
+        stabilizer = StationaryVehicleStabilizer(iou_thresh=0.35, iom_thresh=0.50, max_ghost_frames=150)
+        
+        # Frame 1: Xe xuất hiện với raw_id = 17
+        bbox_f1 = (100, 100, 250, 300)
+        center_f1 = (175, 200)
+        c1 = stabilizer.get_canonical_id(17, bbox_f1, center_f1, frame_index=1)
+        self.assertEqual(c1, 17)
+
+        # Gọi nhiều lần trong cùng frame 1 (Pass 1, Main loop, OCR): ID không được nhảy!
+        c1_repeat1 = stabilizer.get_canonical_id(17, bbox_f1, center_f1, frame_index=1)
+        c1_repeat2 = stabilizer.get_canonical_id(17, bbox_f1, center_f1, frame_index=1)
+        self.assertEqual(c1_repeat1, 17)
+        self.assertEqual(c1_repeat2, 17)
+
+        # Frame 30: Xe đỗ tại chỗ, raw_id vẫn là 17
+        c2 = stabilizer.get_canonical_id(17, bbox_f1, center_f1, frame_index=30)
+        self.assertEqual(c2, 17)
+
+        # Frame 80: ByteTrack tạm mất dấu và gán raw_id mới = 23 cho cùng vị trí xe đỗ
+        bbox_f80 = (102, 98, 252, 298)
+        center_f80 = (177, 198)
+        c3 = stabilizer.get_canonical_id(23, bbox_f80, center_f80, frame_index=80)
+        # Canonical ID phải được giữ nguyên là 17 thay vì nhảy sang 23
+        self.assertEqual(c3, 17)
+        print("-> [OK] Test 08: StationaryVehicleStabilizer ID retention (ID switch) passed!")
+
+    def test_09_stationary_vehicle_stabilizer_plate_fusion(self):
+        """Kiểm tra StationaryVehicleStabilizer tự động sáp nhập track khi đọc cùng 1 biển số xe"""
+        stabilizer = StationaryVehicleStabilizer()
+
+        # Xe 1 đọc được biển số 15B-33178
+        c1 = stabilizer.get_canonical_id(10, (50, 50, 150, 150), (100, 100), frame_index=1, plate="15B-33178")
+        self.assertEqual(c1, 10)
+
+        # Xe 2 (raw_id = 20) ở frame sau cũng đọc ra biển số 15B-33178
+        c2 = stabilizer.get_canonical_id(20, (55, 52, 155, 152), (105, 102), frame_index=20, plate="15B-33178")
+        # Phải sáp nhập về canonical ID 10
+        self.assertEqual(c2, 10)
+        print("-> [OK] Test 09: StationaryVehicleStabilizer plate-based track fusion passed!")
+
+    def test_10_intra_frame_duplicate_box_suppression(self):
+        """Kiểm tra lọc bỏ box trùng lặp trên cùng 1 xe trong cùng frame (Intra-frame NMS)"""
+        class MockBox:
+            def __init__(self, xyxy, conf):
+                self.xyxy = [np.array(xyxy)]
+                self.conf = [np.array(conf)]
+
+        stabilizer = StationaryVehicleStabilizer()
+        box_main = MockBox((100, 100, 300, 300), 0.90)
+        box_dup = MockBox((104, 102, 298, 302), 0.65)  # Trùng lặp với box_main, conf thấp hơn
+        box_other = MockBox((500, 500, 650, 650), 0.88) # Xe khác hoàn toàn
+
+        boxes = [box_main, box_dup, box_other]
+        suppressed = stabilizer.filter_duplicate_indices(boxes, [0, 1, 2])
+        # Box dup (index 1) phải bị loại bỏ
+        self.assertEqual(suppressed, {1})
+
+        filtered_boxes = stabilizer.filter_duplicate_boxes(boxes)
+        self.assertEqual(len(filtered_boxes), 2)
+        self.assertIn(box_main, filtered_boxes)
+        self.assertIn(box_other, filtered_boxes)
+        self.assertNotIn(box_dup, filtered_boxes)
+        print("-> [OK] Test 10: Intra-frame duplicate box suppression passed!")
+
+    def test_11_parking_manager_plate_track_fusion_and_debounce(self):
+        """Kiểm tra ParkingManager sáp nhập track khi update_plate trùng xe và debounce vi phạm 15 phút"""
+        pm = ParkingManager(None, None)
+        pm.stop_seconds = 5.0
+
+        zone = np.array([[0, 0], [500, 0], [500, 500], [0, 500]], dtype=np.int32)
+        pm.set_parking_zones([{"id": 1, "name": "Vung Cam", "polygon": zone, "timeout": 5.0}])
+
+        # Giả lập xe 10 đang đếm thời gian đỗ, có biển số 15B33178
+        pm.waiting_vehicles[10] = {'first_seen': 1.0, 'plate': "15B33178"}
+
+        # Giả lập xe 20 vô tình được tạo với biển số chưa rõ
+        pm.waiting_vehicles[20] = {'first_seen': 2.0, 'plate': None}
+
+        # OCR đọc ra biển số cho xe 20 là 15B33178
+        pm.update_plate(20, "15B33178")
+
+        # Track 20 phải được map vào Track 10
+        self.assertEqual(pm.track_id_map.get(20), 10)
+        # Bộ đếm trùng lặp cho xe 20 phải bị hủy
+        self.assertNotIn(20, pm.waiting_vehicles)
+
+        print("-> [OK] Test 11: ParkingManager plate track fusion passed!")
 
 
 if __name__ == "__main__":

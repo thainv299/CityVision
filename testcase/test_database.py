@@ -91,7 +91,7 @@ class TestDatabaseAndRepositories(unittest.TestCase):
         self.assertIsNotNone(rec_id)
         
         # Read
-        records = get_weapon_detections(limit=10)
+        records = get_weapon_detections(record_id=rec_id)
         found = any(r['id'] == rec_id and r['weapon_type'] == "pistol" for r in records)
         self.assertTrue(found)
 
