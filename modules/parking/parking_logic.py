@@ -15,20 +15,24 @@ class ViolationLogic:
         self.fps = float(fps)
         self.states: Dict[int, Dict] = {}
 
-    def update(self, track_id: int, center: Tuple[float, float], so_frame: int) -> Tuple[int, bool]:
+    def update(self, track_id: int, center: Tuple[float, float], so_frame: int, stop_seconds: Optional[float] = None) -> Tuple[int, bool]:
         """
         Trả về (trạng_thái_hiện_tại, trạng_thái_vừa_thay_đổi)
+        Hỗ trợ stop_seconds tùy chọn theo từng vùng (nếu None sẽ dùng mặc định của hệ thống)
         """
         if track_id not in self.states:
             self.states[track_id] = {
                 "history": [center],
                 "state": MOVING,
                 "waiting_start_frame": -1,
-                "grace_count": 0
+                "grace_count": 0,
+                "stop_seconds": stop_seconds
             }
             return (MOVING, False)
 
         car_data = self.states[track_id]
+        if stop_seconds is not None:
+            car_data["stop_seconds"] = stop_seconds
         
         # Thêm vào lịch sử và giữ 10 vị trí gần nhất để tính trung bình di chuyển
         car_data["history"].append(center)
@@ -76,7 +80,14 @@ class ViolationLogic:
             else:
                 car_data["grace_count"] = 0 # Đặt lại nếu xe đi chậm lại
                 
-            if next_state == WAITING and frames_waited >= self.stop_frames:
+            # Xác định ngưỡng frames cần chờ (ưu tiên cấu hình riêng của vùng nếu có)
+            effective_stop_seconds = car_data.get("stop_seconds")
+            if effective_stop_seconds is not None:
+                required_frames = int(float(effective_stop_seconds) * self.fps)
+            else:
+                required_frames = self.stop_frames
+
+            if next_state == WAITING and frames_waited >= required_frames:
                 next_state = VIOLATION
                 state_just_changed = True
 

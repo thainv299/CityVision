@@ -22,6 +22,7 @@ class Camera:
     creator_id: Optional[int] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    parking_violation_time: Optional[int] = 30
 
     def to_dict(self) -> dict:
         return {
@@ -43,4 +44,5 @@ class Camera:
             "creator_id": self.creator_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "parking_violation_time": self.parking_violation_time,
         }

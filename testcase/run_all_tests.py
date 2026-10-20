@@ -21,6 +21,7 @@ from testcase.test_imports import TestModuleImports
 from testcase.test_database import TestDatabaseAndRepositories
 from testcase.test_managers import TestBusinessManagers
 from testcase.test_web_api import TestWebAPIEndpoints
+from testcase.test_multi_parking_roi import TestMultiParkingROI
 
 def run_suite():
     print("=" * 75)
@@ -37,6 +38,7 @@ def run_suite():
     suite.addTests(loader.loadTestsFromTestCase(TestModuleImports))
     suite.addTests(loader.loadTestsFromTestCase(TestDatabaseAndRepositories))
     suite.addTests(loader.loadTestsFromTestCase(TestBusinessManagers))
+    suite.addTests(loader.loadTestsFromTestCase(TestMultiParkingROI))
     suite.addTests(loader.loadTestsFromTestCase(TestWebAPIEndpoints))
 
     start_time = time.time()

@@ -22,9 +22,11 @@ class SqliteCameraRepository(CameraRepository):
         if isinstance(data, dict):
             points = data.get("points", [])
             metadata = {k: v for k, v in data.items() if k != "points"}
+            if not points and "zones" in metadata and isinstance(metadata["zones"], list) and len(metadata["zones"]) > 0:
+                points = metadata["zones"][0].get("points", [])
 
         if not isinstance(points, list):
-            return None, {}
+            return None, metadata
             
         normalized: List[List[float]] = []
         for point in points:
@@ -45,6 +47,13 @@ class SqliteCameraRepository(CameraRepository):
         roi_pts, roi_m = self._load_polygon(row["toa_do_vung_chon"])
         no_park_pts, no_park_m = self._load_polygon(row["toa_do_cam_do"])
         
+        p_time = 30
+        try:
+            if "parking_violation_time" in row.keys() and row["parking_violation_time"] is not None:
+                p_time = int(row["parking_violation_time"])
+        except Exception:
+            p_time = 30
+
         return Camera(
             id=row["id"],
             name=row["ten_camera"],
@@ -64,19 +73,30 @@ class SqliteCameraRepository(CameraRepository):
             creator_id=row["nguoi_tao_id"] if "nguoi_tao_id" in row.keys() else None,
             created_at=row["ngay_tao"],
             updated_at=row["ngay_cap_nhat"],
+            parking_violation_time=p_time,
         )
 
     def get_by_id(self, camera_id: int) -> Optional[Camera]:
         with connect() as connection:
             row = connection.execute(
-                "SELECT * FROM camera WHERE id = ?", (camera_id,)
+                """
+                SELECT camera.*, cai_dat_camera.parking_violation_time 
+                FROM camera 
+                LEFT JOIN cai_dat_camera ON camera.id = cai_dat_camera.camera_id 
+                WHERE camera.id = ?
+                """, (camera_id,)
             ).fetchone()
         return self._row_to_camera(row) if row else None
 
     def list_all(self) -> List[Camera]:
         with connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM camera ORDER BY ngay_cap_nhat DESC, id DESC"
+                """
+                SELECT camera.*, cai_dat_camera.parking_violation_time 
+                FROM camera 
+                LEFT JOIN cai_dat_camera ON camera.id = cai_dat_camera.camera_id 
+                ORDER BY camera.ngay_cap_nhat DESC, camera.id DESC
+                """
             ).fetchall()
         return [self._row_to_camera(row) for row in rows]
 
@@ -153,12 +173,13 @@ class SqliteCameraRepository(CameraRepository):
             camera_id = int(cursor.lastrowid)
             
             # Khởi tạo cài đặt mặc định cho camera mới trong cai_dat_camera
+            p_time = int(camera.parking_violation_time) if camera.parking_violation_time is not None else 30
             connection.execute(
                 """
-                INSERT OR IGNORE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
-                VALUES (?, 0.37, 2, 35, 30, '30_days')
+                INSERT OR REPLACE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
+                VALUES (?, 0.37, 2, 35, ?, '30_days')
                 """,
-                (camera_id,)
+                (camera_id, p_time)
             )
             connection.commit()
 
@@ -222,6 +243,19 @@ class SqliteCameraRepository(CameraRepository):
             connection.commit()
             if cursor.rowcount == 0:
                 return None
+
+        # Cập nhật thời gian cấm đỗ trong bảng cai_dat_camera nếu có truyền vào
+        if camera.parking_violation_time is not None:
+            with connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
+                    VALUES (?, 0.37, 2, 35, ?, '30_days')
+                    ON CONFLICT(camera_id) DO UPDATE SET parking_violation_time = excluded.parking_violation_time
+                    """,
+                    (camera.id, int(camera.parking_violation_time))
+                )
+                connection.commit()
 
         return self.get_by_id(camera.id)
 

@@ -606,6 +606,53 @@ def _to_polygon(points: Optional[List[List[int]]]) -> Optional[np.ndarray]:
     return np.array(points, dtype=np.int32)
 
 
+def _normalize_parking_zones(raw_points: Any, width: int, height: int, metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Chuẩn hóa dữ liệu vùng cấm đỗ. Hỗ trợ cả định dạng polygon đơn (legacy) và đa vùng (multi-zone ROI).
+    Trả về danh sách các vùng: [{'id': int, 'name': str, 'polygon': np.ndarray, 'timeout': Optional[float]}]
+    """
+    metadata = metadata or {}
+    zones = metadata.get("zones")
+    
+    # 1. Trường hợp có cấu trúc đa vùng (multi-zone)
+    if zones and isinstance(zones, list) and len(zones) > 0:
+        normalized_zones = []
+        for idx, z in enumerate(zones):
+            if not isinstance(z, dict):
+                continue
+            z_pts = z.get("points")
+            if not z_pts:
+                continue
+            norm_pts = _normalize_points(z_pts, width, height, metadata)
+            poly = _to_polygon(norm_pts)
+            if poly is not None and len(poly) >= 3:
+                z_timeout = z.get("timeout")
+                try:
+                    z_timeout = float(z_timeout) if z_timeout is not None and str(z_timeout).strip() != "" else None
+                except (ValueError, TypeError):
+                    z_timeout = None
+                normalized_zones.append({
+                    "id": z.get("id", idx + 1),
+                    "name": str(z.get("name") or f"Vùng {idx + 1}"),
+                    "polygon": poly,
+                    "timeout": z_timeout
+                })
+        if normalized_zones:
+            return normalized_zones
+
+    # 2. Fallback: Trường hợp polygon đơn lẻ truyền thống
+    single_pts = _normalize_points(raw_points, width, height, metadata)
+    single_poly = _to_polygon(single_pts)
+    if single_poly is not None and len(single_poly) >= 3:
+        return [{
+            "id": 1,
+            "name": "Vùng cấm",
+            "polygon": single_poly,
+            "timeout": None
+        }]
+    return []
+
+
 def _full_frame_polygon(width: int, height: int) -> List[List[int]]:
     """Tạo polygon phủ toàn bộ frame."""
     return [
@@ -764,7 +811,7 @@ def process_video(
 
     roi_polygon = _to_polygon(roi_points)
 
-    no_parking_points = _normalize_points(
+    parking_zones = _normalize_parking_zones(
         settings.get("no_parking_points"), draw_w, draw_h, settings.get("no_park_meta")
     )
 
@@ -808,8 +855,8 @@ def process_video(
     traffic_alert_manager.camera_id = camera_id
 
     parking_manager = ParkingManager(None, None)
-    parking_manager.no_park_polygon = _to_polygon(no_parking_points)
     parking_manager.stop_seconds = stop_seconds
+    parking_manager.set_parking_zones(parking_zones)
     parking_manager.move_thr_px = move_threshold_px
     parking_manager.camera_id = camera_id
     parking_manager.violation_callback = log_parking_violation if save_to_db else None
@@ -1380,11 +1427,8 @@ def process_video(
                 cv2.putText(frame, "VUNG GIAM SAT (ROI)", (int(roi_polygon[0][0]), int(roi_polygon[0][1] - 5)),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale * 0.7, (255, 255, 255), f_thick)
 
-            if show_roi_parking and parking_manager.no_park_polygon is not None and len(parking_manager.no_park_polygon) > 0:
-                no_park_poly = parking_manager.no_park_polygon
-                cv2.polylines(frame, [no_park_poly], True, (0, 0, 255), f_thick)
-                cv2.putText(frame, "VUNG CAM DO", (int(no_park_poly[0][0]), int(no_park_poly[0][1] - 5)),
-                            cv2.FONT_HERSHEY_SIMPLEX, f_scale * 0.7, (255, 255, 255), f_thick)
+            if show_roi_parking and parking_manager is not None:
+                parking_manager.draw_polygon_overlay(frame, f_thick)
 
             # Tính và vẽ FPS
             fps_frame_count += 1
@@ -1509,6 +1553,14 @@ def process_video(
                             if parking_manager is not None:
                                 parking_manager.stop_seconds = stop_seconds
                             print(f"[Dynamic Settings] Parking violation time (stop_seconds) updated to: {stop_seconds}s")
+                    
+                    if "no_parking_points" in new_s or "no_park_meta" in new_s:
+                        new_np = new_s.get("no_parking_points", settings.get("no_parking_points"))
+                        new_meta = new_s.get("no_park_meta", settings.get("no_park_meta"))
+                        updated_zones = _normalize_parking_zones(new_np, draw_w, draw_h, new_meta)
+                        if parking_manager is not None:
+                            parking_manager.set_parking_zones(updated_zones)
+                        print(f"[Dynamic Settings] Parking zones updated: {len(updated_zones)} zone(s)")
                     
                     if "is_admin" in new_s:
                         val = bool(new_s["is_admin"])

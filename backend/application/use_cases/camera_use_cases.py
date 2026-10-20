@@ -68,6 +68,35 @@ class CameraUseCases:
             metadata = {k: v for k, v in data.items() if k != "points"}
             points = data.get("points", [])
 
+        # Kiểm tra và chuẩn hóa cấu trúc đa vùng (zones) nếu có
+        raw_zones = metadata.get("zones") or (data.get("zones") if isinstance(data, dict) else None)
+        if raw_zones and isinstance(raw_zones, list) and len(raw_zones) > 0:
+            parsed_zones = []
+            for idx, z in enumerate(raw_zones):
+                if not isinstance(z, dict):
+                    continue
+                z_pts = z.get("points", [])
+                z_clean_pts = []
+                for pt in z_pts:
+                    if isinstance(pt, (list, tuple)) and len(pt) == 2:
+                        z_clean_pts.append([float(pt[0]), float(pt[1])])
+                if len(z_clean_pts) >= 3:
+                    z_timeout = z.get("timeout")
+                    try:
+                        z_timeout = float(z_timeout) if z_timeout is not None and str(z_timeout).strip() != "" else None
+                    except (ValueError, TypeError):
+                        z_timeout = None
+                    parsed_zones.append({
+                        "id": z.get("id", idx + 1),
+                        "name": str(z.get("name") or f"Vùng {idx + 1}"),
+                        "points": z_clean_pts,
+                        "timeout": z_timeout
+                    })
+            if parsed_zones:
+                metadata["zones"] = parsed_zones
+                if not points:
+                    points = parsed_zones[0]["points"]
+
         if not isinstance(points, list):
             raise ValidationError("Polygon phải là một mảng điểm.")
 
@@ -77,8 +106,17 @@ class CameraUseCases:
                 raise ValidationError("Polygon phải có định dạng [[x,y], ...].")
             parsed_points.append([float(point[0]), float(point[1])])
 
-        if len(parsed_points) < 3:
+        if len(parsed_points) < 3 and not metadata.get("zones"):
             raise ValidationError("Polygon cần tối thiểu 3 điểm.")
+
+        # Tự động đồng bộ zones trong metadata nếu chưa có
+        if parsed_points and "zones" not in metadata:
+            metadata["zones"] = [{
+                "id": 1,
+                "name": "Vùng cấm",
+                "points": parsed_points,
+                "timeout": None
+            }]
 
         return parsed_points, metadata
 
@@ -103,6 +141,12 @@ class CameraUseCases:
         if is_create and not no_parking_points:
             raise ValidationError("Vui lòng vẽ vùng ROI cấm dừng đỗ.")
 
+        p_time = payload.get("parking_violation_time")
+        try:
+            p_time = int(p_time) if p_time is not None and str(p_time).strip() != "" else 30
+        except (ValueError, TypeError):
+            p_time = 30
+
         return Camera(
             id=None,
             name=name,
@@ -117,7 +161,8 @@ class CameraUseCases:
             enable_license_plate=to_bool(payload.get("enable_license_plate"), True),
             enable_ai=to_bool(payload.get("enable_ai"), True),
             is_active=to_bool(payload.get("is_active"), True),
-            model_path=model_path
+            model_path=model_path,
+            parking_violation_time=p_time,
         )
         
     def create_camera(self, payload: Dict[str, Any], creator_id: Optional[int] = None) -> Camera:

@@ -76,7 +76,27 @@ def prepare_snapshot_frame(frame: np.ndarray, camera: Dict[str, Any]) -> np.ndar
     if camera.get("roi_points"):
         roi_polygon = np.array(camera["roi_points"], dtype=np.int32)
         cv2.polylines(display, [roi_polygon], True, (255, 0, 0), 2)
-    if camera.get("no_parking_points"):
+    no_park_meta = camera.get("no_park_meta") or {}
+    zones = no_park_meta.get("zones")
+    if zones and isinstance(zones, list):
+        overlay = display.copy()
+        for z in zones:
+            pts = z.get("points")
+            if pts and len(pts) >= 3:
+                poly = np.array(pts, dtype=np.int32)
+                cv2.fillPoly(overlay, [poly], (0, 0, 160))
+        cv2.addWeighted(overlay, 0.15, display, 0.85, 0, display)
+        for z in zones:
+            pts = z.get("points")
+            if pts and len(pts) >= 3:
+                poly = np.array(pts, dtype=np.int32)
+                cv2.polylines(display, [poly], True, (0, 0, 255), 2)
+                z_name = z.get("name") or "Vung cam"
+                z_time = z.get("timeout")
+                t_str = f" ({int(z_time)}s)" if z_time is not None else ""
+                cv2.putText(display, f"{z_name}{t_str}", (int(poly[0][0]), max(15, int(poly[0][1] - 5))),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+    elif camera.get("no_parking_points"):
         polygon = np.array(camera["no_parking_points"], dtype=np.int32)
         overlay = display.copy()
         cv2.fillPoly(overlay, [polygon], (0, 0, 160))
