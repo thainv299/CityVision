@@ -1,0 +1,8 @@
+# CityVision AI - ByteTrack Tracker Configuration Optimized for Vehicles & Stationary Objects
+tracker_type: bytetrack
+track_high_thresh: 0.35      # Ngưỡng phát hiện tự tin cao cho giai đoạn 1
+track_low_thresh: 0.10       # Ngưỡng phát hiện tự tin thấp cho giai đoạn 2
+new_track_thresh: 0.40       # Ngưỡng bắt đầu track mới (nâng lên 0.40 để loại bỏ track rác / trùng lặp)
+track_buffer: 120            # Duy trì track bị mất dấu trong 120 frame (~4-5 giây) để vượt qua che khuất tạm thời
+match_thresh: 0.70           # Ngưỡng chi phí liên kết IoU phù hợp hơn với chuyển động chậm/tĩnh
+fuse_score: True             # Kết hợp điểm tự tin detection với chuyển động

@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 # Import các manager và database
 from modules.parking.parking_manager import ParkingManager
+from modules.parking.tracking_stabilizer import StationaryVehicleStabilizer, compute_box_iou
 from modules.traffic.traffic_monitor import TrafficMonitor
 from modules.ocr.ocr_manager import OCRManager
 from modules.weapon.weapon_manager import WeaponManager
@@ -868,6 +869,13 @@ def process_video(
     parking_manager.telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     parking_manager.telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
+    # Cấu hình tracker ByteTrack: ưu tiên file tùy chỉnh cho xe tĩnh (bytetrack_parking.yaml)
+    bytetrack_parking_cfg = PROJECT_ROOT / "core" / "bytetrack_parking.yaml"
+    tracker_config_path = str(bytetrack_parking_cfg) if bytetrack_parking_cfg.exists() else "bytetrack.yaml"
+
+    # Khởi tạo Bộ ổn định ID xe tĩnh (chống nhảy ID, trùng lặp ID, gộp cùng biển số/cùng vị trí)
+    stationary_stabilizer = StationaryVehicleStabilizer(iou_thresh=0.35, iom_thresh=0.50, max_ghost_frames=150)
+
     # Không gọi start_bot_thread ở đây để tránh lỗi 409 Conflict từ Telegram
     # (Chỉ duy nhất tiến trình chính mới được phép gọi bot.polling())
 
@@ -1136,10 +1144,24 @@ def process_video(
                 if process_stride > 1 and frame_index % process_stride != 0 and last_results is not None:
                     results = last_results
                 else:
-                    results = model.track(frame, persist=True, tracker="bytetrack.yaml", verbose=False, imgsz=640)
+                    results = model.track(frame, persist=True, tracker=tracker_config_path, verbose=False, imgsz=640)
                     last_results = results
             else:
                 results = []
+
+            # Lọc các box xe trùng lặp trong cùng 1 frame (Intra-frame NMS)
+            suppressed_indices_per_result = {}
+            for r_idx, result in enumerate(results):
+                v_indices = []
+                for b_idx, box in enumerate(result.boxes):
+                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
+                    if _canonical_label(lbl_name) in PARKING_LABELS:
+                        v_indices.append(b_idx)
+                suppressed_indices_per_result[r_idx] = stationary_stabilizer.filter_duplicate_indices(result.boxes, v_indices)
+
+            # Dọn dẹp bộ nhớ xe tĩnh định kỳ mỗi 100 frames
+            if frame_index % 100 == 0:
+                stationary_stabilizer.cleanup_old_tracks(frame_index)
 
             if enable_congestion and traffic_monitor is not None:
                 traffic_monitor.reset_counters()
@@ -1149,18 +1171,26 @@ def process_video(
             frame_snapshot = None  # Lazy copy: chỉ copy clean_frame khi thực sự cần lưu ảnh
 
             # Pass 1: Thu thập valid_vehicles cho OCR (cần hoàn thành trước khi xử lý license plate)
-            for result in results:
-                for box in result.boxes:
+            for r_idx, result in enumerate(results):
+                supp_set = suppressed_indices_per_result.get(r_idx, set())
+                for b_idx, box in enumerate(result.boxes):
+                    if b_idx in supp_set:
+                        continue
                     lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
                     lbl = _canonical_label(lbl_name)
                     if lbl in PARKING_LABELS:
                         vx1, vy1, vx2, vy2 = map(int, box.xyxy[0])
                         v_track_id = int(box.id[0]) if box.id is not None else -1
-                        valid_vehicles.append((vx1, vy1, vx2, vy2, v_track_id))
+                        vcx, vcy = (vx1 + vx2) // 2, (vy1 + vy2) // 2
+                        stable_v_id = stationary_stabilizer.get_canonical_id(v_track_id, (vx1, vy1, vx2, vy2), (vcx, vcy), frame_index) if v_track_id != -1 else v_track_id
+                        valid_vehicles.append((vx1, vy1, vx2, vy2, stable_v_id))
 
             # Vòng lặp chính xử lý detection
-            for result in results:
-                for box in result.boxes:
+            for r_idx, result in enumerate(results):
+                supp_set = suppressed_indices_per_result.get(r_idx, set())
+                for b_idx, box in enumerate(result.boxes):
+                    if b_idx in supp_set:
+                        continue
                     lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
                     label = _canonical_label(lbl_name)
                     if label not in DETECTABLE_LABELS:
@@ -1202,6 +1232,13 @@ def process_video(
                     else:
                         display_label = ""
 
+                    # Chuẩn hóa Stable Track ID cho xe
+                    stable_track_id = track_id
+                    if label in PARKING_LABELS and track_id != -1:
+                        stable_track_id = stationary_stabilizer.get_canonical_id(
+                            track_id, (x1, y1, x2, y2), (center_x, center_y), frame_index
+                        )
+
                     # 1. OCR Biển số
                     if label in LICENSE_PLATE_LABELS:
                         if enable_license_plate and track_id != -1:
@@ -1219,7 +1256,7 @@ def process_video(
                         if traffic_monitor is not None:
                             traffic_monitor.log_person(bbox=(x1, y1, x2, y2))
                     elif label in VEHICLE_LABELS and traffic_monitor is not None:
-                        traffic_monitor.log_vehicle(track_id, center_x, center_y, current_time, (x1, y1, x2, y2))
+                        traffic_monitor.log_vehicle(stable_track_id, center_x, center_y, current_time, (x1, y1, x2, y2))
 
                     # 3. Quản lý Đỗ Xe Trái Phép
                     if label in PARKING_LABELS and enable_illegal_parking:
@@ -1236,9 +1273,17 @@ def process_video(
                                         if p_tid in ocr_manager.plate_confirmed:
                                             license_plate = ocr_manager.plate_confirmed[p_tid]
                                         break
+                        if not license_plate and enable_license_plate and ocr_manager:
+                            license_plate = ocr_manager.vehicle_plates.get(stable_track_id) or ocr_manager.vehicle_plates.get(track_id)
+
+                        # Cập nhật lại canonical ID nếu vừa phát hiện biển số
+                        if license_plate:
+                            stable_track_id = stationary_stabilizer.get_canonical_id(
+                                track_id, (x1, y1, x2, y2), (center_x, center_y), frame_index, plate=license_plate
+                            )
 
                         display_label_p, box_color_p = parking_manager.process_vehicle(
-                            frame, clean_frame, track_id, label, center_x, center_y, frame_index,
+                            frame, clean_frame, stable_track_id, label, center_x, center_y, frame_index,
                             bbox=(x1, y1, x2, y2), license_plate=license_plate,
                             drawing_params=(f_scale, f_thick, f_offset)
                         )
@@ -1246,9 +1291,9 @@ def process_video(
                         if display_label_p:
                             display_label = display_label_p if show_label else ""
                             if license_plate:
-                                parking_manager.update_plate(track_id, license_plate)
-                            if "VIOLATION" in display_label_p and track_id not in logged_violation_track_ids:
-                                logged_violation_track_ids.add(track_id)
+                                parking_manager.update_plate(stable_track_id, license_plate)
+                            if "VIOLATION" in display_label_p and stable_track_id not in logged_violation_track_ids:
+                                logged_violation_track_ids.add(stable_track_id)
 
                         if box_color_p is not None:
                             box_color = box_color_p
@@ -1266,10 +1311,11 @@ def process_video(
                             box_color = box_color_w
 
                     # 4. Quản lý theo dõi ALPR và Log phương tiện (Đợi xe ổn định mới lưu)
-                    if track_id != -1 and label in VEHICLE_LOG_LABELS:
-                        if track_id not in pending_alpr_tracks:
+                    alpr_tid = stable_track_id if (label in PARKING_LABELS and track_id != -1) else track_id
+                    if alpr_tid != -1 and label in VEHICLE_LOG_LABELS:
+                        if alpr_tid not in pending_alpr_tracks:
                             # Khởi tạo theo dõi cho xe mới
-                            pending_alpr_tracks[track_id] = {
+                            pending_alpr_tracks[alpr_tid] = {
                                 "last_seen": frame_index,
                                 "best_image": None,  # Lazy: sẽ gán khi cần (bỏ qua xe máy/xe đạp)
                                 "seen_count": 1,
@@ -1282,33 +1328,33 @@ def process_video(
                             if label not in VEHICLE_NO_IMAGE_LABELS:
                                 if frame_snapshot is None:
                                     frame_snapshot = clean_frame.copy()
-                                pending_alpr_tracks[track_id]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
+                                pending_alpr_tracks[alpr_tid]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
                         else:
                             # Cập nhật thông tin xe đang theo dõi
-                            pending_alpr_tracks[track_id]["last_seen"] = frame_index
-                            pending_alpr_tracks[track_id]["seen_count"] += 1
-                            pending_alpr_tracks[track_id]["missing_frames"] = 0
+                            pending_alpr_tracks[alpr_tid]["last_seen"] = frame_index
+                            pending_alpr_tracks[alpr_tid]["seen_count"] += 1
+                            pending_alpr_tracks[alpr_tid]["missing_frames"] = 0
                             
                             # Cập nhật ảnh tốt nhất (Lấy lúc xe to nhất) - Bỏ qua xe máy/xe đạp
                             if label not in VEHICLE_NO_IMAGE_LABELS:
-                                if (x2 - x1) > pending_alpr_tracks[track_id]["best_w"]:
+                                if (x2 - x1) > pending_alpr_tracks[alpr_tid]["best_w"]:
                                     if frame_snapshot is None:
                                         frame_snapshot = clean_frame.copy()
-                                    pending_alpr_tracks[track_id]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
-                                    pending_alpr_tracks[track_id]["best_w"] = (x2 - x1)
+                                    pending_alpr_tracks[alpr_tid]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
+                                    pending_alpr_tracks[alpr_tid]["best_w"] = (x2 - x1)
                             
                             # XÁC MINH XE MỚI: Chỉ lưu vào DB sau khi đã thấy xe ổn định (> 30 frames ~ 1s)
-                            if not pending_alpr_tracks[track_id]["is_passed_logged"] and pending_alpr_tracks[track_id]["seen_count"] > 30:
+                            if not pending_alpr_tracks[alpr_tid]["is_passed_logged"] and pending_alpr_tracks[alpr_tid]["seen_count"] > 30:
                                 # 1. Ghi vào bảng lịch sử phương tiện
                                 if save_to_db:
-                                    io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{track_id}", label))
+                                    io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{alpr_tid}", label))
                                     
                                     # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
                                     io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, 1))
                                 
-                                logged_vehicle_ids.add(track_id)
+                                logged_vehicle_ids.add(alpr_tid)
                                 unique_passed_count += 1
-                                pending_alpr_tracks[track_id]["is_passed_logged"] = True
+                                pending_alpr_tracks[alpr_tid]["is_passed_logged"] = True
 
                     # 5. Vẽ nhãn lên frame nếu được bật (hoặc nếu là person khi bật phát hiện tụ tập/ùn tắc)
                     if label == "person" and enable_congestion:
@@ -1340,7 +1386,14 @@ def process_video(
                             cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
 
             # --- LOGIC DỌN DẸP VÀ CHỐT LOG (VỚI THỜI GIAN ĐỢI RE-ID) ---
-            current_track_ids = {int(box.id[0]) for res in last_results for box in res.boxes if box.id is not None} if last_results else set()
+            current_track_ids = set()
+            if last_results:
+                for res in last_results:
+                    for box in res.boxes:
+                        if box.id is not None:
+                            r_id = int(box.id[0])
+                            current_track_ids.add(r_id)
+                            current_track_ids.add(stationary_stabilizer.raw_to_canonical.get(r_id, r_id))
             
             for tid in list(pending_alpr_tracks.keys()):
                 if tid not in current_track_ids:
