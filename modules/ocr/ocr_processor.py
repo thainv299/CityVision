@@ -118,7 +118,15 @@ def run_ocr(ocr_reader, img_bgr):
 
     # 1. Khử góc nghiêng (Perspective Warp)
     if use_perspective:
-        img_plate_color, status_text, dst_w, dst_h = get_plate_perspective(img_bgr)
+        # Thêm viền trắng xung quanh ảnh crop trước khi chạy perspective.
+        # Mục đích: khi YOLO bbox cắt sát biển số, viền trắng giúp Canny+minAreaRect
+        # tìm được đầy đủ viền biển số, tránh perspective warp bị sai.
+        border = max(6, int(min(img_bgr.shape[0], img_bgr.shape[1]) * 0.08))
+        img_padded = cv2.copyMakeBorder(
+            img_bgr, border, border, border, border,
+            cv2.BORDER_CONSTANT, value=(255, 255, 255)
+        )
+        img_plate_color, status_text, dst_w, dst_h = get_plate_perspective(img_padded)
     else:
         h_orig, w_orig = img_bgr.shape[:2]
         ratio = w_orig / h_orig if h_orig > 0 else 1.0

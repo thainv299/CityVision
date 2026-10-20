@@ -210,9 +210,15 @@ class OCRManager:
 
         # Gửi ảnh mới vào Queue để đọc (Chỉ gửi nếu chưa confirm)
         if track_id not in self.plate_confirmed and frame_count % self.OCR_INTERVAL == 0:
-            pad = 2
-            x1_p, y1_p = max(0, x1 - pad), max(0, y1 - pad)
-            x2_p, y2_p = min(clean_frame.shape[1], x2 + pad), min(clean_frame.shape[0], y2 + pad)
+            # Adaptive padding: ~15% kích thước bbox, tối thiểu 8px, tối đa 30px
+            # Giúp tránh bị cắt mất nét biển số khi YOLO detect hơi lệch hoặc sát biên
+            box_w, box_h = x2 - x1, y2 - y1
+            pad_x = max(8, min(30, int(box_w * 0.15)))
+            pad_y = max(8, min(30, int(box_h * 0.15)))
+            x1_p = max(0, x1 - pad_x)
+            y1_p = max(0, y1 - pad_y)
+            x2_p = min(clean_frame.shape[1], x2 + pad_x)
+            y2_p = min(clean_frame.shape[0], y2 + pad_y)
             img_crop = clean_frame[y1_p:y2_p, x1_p:x2_p].copy()
             try:
                 self.queue.put_nowait((track_id, img_crop))
