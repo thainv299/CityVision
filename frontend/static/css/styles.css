@@ -85,6 +85,46 @@ body {
     min-height: 100vh;
 }
 
+/* Universal Typography Synchronization for Form Controls */
+button, input, select, textarea, optgroup {
+    font-family: var(--font-main);
+    color: var(--text-primary);
+}
+
+button, .button {
+    font-family: var(--font-display);
+}
+
+/* ROI Modal & Multi-zone Harmonization */
+#roi-drawing-modal {
+    font-family: var(--font-main);
+}
+#roi-drawing-modal h3 {
+    font-family: var(--font-display);
+}
+#roi-multi-zone-toolbar input {
+    font-family: var(--font-main);
+}
+#roi-zone-tabs button {
+    font-family: var(--font-main);
+}
+
+/* Settings Page Typography & Form Harmonization */
+.settings-container, #settings-form-container, .ds-chart-card {
+    font-family: var(--font-main);
+    color: var(--text-primary);
+}
+.ds-chart-card h3, .ds-chart-card h4, .page-title {
+    font-family: var(--font-display);
+}
+.ds-chart-card input, .ds-chart-card select, #camera-select {
+    font-family: var(--font-main);
+}
+.ds-chart-card button, #save-btn, #restart-system-btn, #create-backup-btn {
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+
 a { color: inherit; text-decoration: none; }
 h1, h2, h3, h4, h5 {
     font-family: var(--font-display);

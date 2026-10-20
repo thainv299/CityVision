@@ -142,13 +142,15 @@ window.roiDrawingTool = {
         tabsContainer.innerHTML = this.zones.map((z, idx) => {
             const isActive = idx === this.currentZoneIndex;
             const ptsCount = z.points.length;
-            const bg = isActive ? "#2563EB" : "#F1F5F9";
-            const color = isActive ? "#FFFFFF" : "#475569";
-            const border = isActive ? "1px solid #1D4ED8" : "1px solid #CBD5E1";
+            const bg = isActive ? "var(--brand-blue, #2563EB)" : "#F1F5F9";
+            const color = isActive ? "#FFFFFF" : "var(--text-muted, #475569)";
+            const border = isActive ? "1px solid var(--brand-blue, #1D4ED8)" : "1px solid var(--border, #CBD5E1)";
+            const shadow = isActive ? "0 2px 6px rgba(37,99,235,0.25)" : "none";
             return `
-                <button type="button" onclick="roiDrawingTool.switchZone(${idx})"
-                    style="background: ${bg}; color: ${color}; border: ${border}; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.15s;">
-                    ${z.name} (${ptsCount}đ)
+                <button type="button" id="roi-zone-tab-${idx}" onclick="roiDrawingTool.switchZone(${idx})"
+                    style="font-family: var(--font-main, Inter, sans-serif); background: ${bg}; color: ${color}; border: ${border}; box-shadow: ${shadow}; padding: 6px 12px; border-radius: var(--r-sm, 8px); font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px;">
+                    <span>${z.name || `Vùng ${idx + 1}`}</span>
+                    <span style="font-size: 0.75rem; opacity: 0.85;">(${ptsCount}đ)</span>
                 </button>
             `;
         }).join("");
@@ -199,9 +201,42 @@ window.roiDrawingTool = {
     },
 
     onZoneNameChange(val) {
-        if (this.zones[this.currentZoneIndex]) {
-            this.zones[this.currentZoneIndex].name = val.trim() || `Vùng cấm ${this.currentZoneIndex + 1}`;
-            this.updateZoneToolbar();
+        const curZone = this.zones[this.currentZoneIndex];
+        if (curZone) {
+            // Cho phép người dùng xoá hết chữ hoặc sửa tự do mà KHÔNG bị nhảy về default tức thì
+            curZone.name = val;
+            
+            // Cập nhật nhãn nút tab đang active mà KHÔNG render lại toàn bộ DOM tabs
+            const tabBtn = document.getElementById(`roi-zone-tab-${this.currentZoneIndex}`);
+            if (tabBtn) {
+                const ptsCount = curZone.points.length;
+                const display = val.trim() || `(Chưa đặt tên)`;
+                tabBtn.innerHTML = `<span>${display}</span><span style="font-size: 0.75rem; opacity: 0.85;">(${ptsCount}đ)</span>`;
+            }
+            
+            // Vẽ lại canvas để cập nhật nhãn polygon ngay lập tức
+            this.drawCanvas();
+        }
+    },
+
+    onZoneNameBlur() {
+        const curZone = this.zones[this.currentZoneIndex];
+        if (curZone) {
+            // Khi người dùng bấm ra ngoài (blur), nếu để ô trống thì mới đặt lại tên mặc định
+            if (!curZone.name || !curZone.name.trim()) {
+                curZone.name = `Vùng cấm ${this.currentZoneIndex + 1}`;
+            } else {
+                curZone.name = curZone.name.trim();
+            }
+            const nameInput = document.getElementById("roi-zone-name");
+            if (nameInput) nameInput.value = curZone.name;
+
+            const tabBtn = document.getElementById(`roi-zone-tab-${this.currentZoneIndex}`);
+            if (tabBtn) {
+                const ptsCount = curZone.points.length;
+                tabBtn.innerHTML = `<span>${curZone.name}</span><span style="font-size: 0.75rem; opacity: 0.85;">(${ptsCount}đ)</span>`;
+            }
+            this.drawCanvas();
         }
     },
 
@@ -209,6 +244,7 @@ window.roiDrawingTool = {
         if (this.zones[this.currentZoneIndex]) {
             const num = parseInt(val);
             this.zones[this.currentZoneIndex].timeout = !isNaN(num) && num > 0 ? num : 30;
+            this.drawCanvas();
         }
     },
 
@@ -229,6 +265,11 @@ window.roiDrawingTool = {
                 alert("Cần vẽ ít nhất một vùng cấm có tối thiểu 3 điểm!");
                 return;
             }
+
+            // Chuẩn hóa tên vùng trước khi lưu
+            validZones.forEach((z, idx) => {
+                z.name = (z.name && z.name.trim()) ? z.name.trim() : `Vùng cấm ${idx + 1}`;
+            });
 
             resultData = {
                 units: "reference",
@@ -394,9 +435,17 @@ window.roiDrawingTool = {
         }
 
         // Draw point count
-        ctx.fillStyle = "#fff";
-        ctx.font = "14px Arial";
-        ctx.fillText("Điểm: " + this.points.length, 10, 25);
+        ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(8, 8, 100, 26, 4);
+        } else {
+            ctx.rect(8, 8, 100, 26);
+        }
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "600 12px Inter, system-ui, sans-serif";
+        ctx.fillText("Điểm: " + this.points.length, 16, 25);
     },
 
     drawMultiZoneOverlay(ctx) {
@@ -433,15 +482,24 @@ window.roiDrawingTool = {
                 ctx.fill();
             }
 
-            // Nhãn vùng
+            // Nhãn vùng có nền pill sắc nét
             if (pts.length >= 1) {
                 const lx = pts[0][0];
-                const ly = Math.max(16, pts[0][1] - 8);
-                ctx.font = isCurrent ? "bold 13px Arial" : "11px Arial";
-                ctx.fillStyle = "#000000";
-                const label = `${zone.name} (${zone.timeout || 30}s)`;
-                ctx.fillText(label, lx + 1, ly + 1);
-                ctx.fillStyle = isCurrent ? "#22C55E" : "#EF4444";
+                const ly = Math.max(20, pts[0][1] - 8);
+                const label = `${zone.name || ('Vùng ' + (idx + 1))} (${zone.timeout || 30}s)`;
+                ctx.font = isCurrent ? "600 12px Inter, system-ui, sans-serif" : "500 11px Inter, system-ui, sans-serif";
+                
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = isCurrent ? "rgba(22, 101, 52, 0.9)" : "rgba(185, 28, 28, 0.9)";
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(lx - 4, ly - 13, textWidth + 8, 18, 4);
+                } else {
+                    ctx.rect(lx - 4, ly - 13, textWidth + 8, 18);
+                }
+                ctx.fill();
+
+                ctx.fillStyle = "#FFFFFF";
                 ctx.fillText(label, lx, ly);
             }
         });
@@ -449,10 +507,16 @@ window.roiDrawingTool = {
         // Info box
         const curZone = this.zones[this.currentZoneIndex];
         const curPts = curZone ? curZone.points.length : 0;
-        ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-        ctx.fillRect(8, 8, 220, 30);
+        ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(8, 8, 250, 32, 6);
+        } else {
+            ctx.rect(8, 8, 250, 32);
+        }
+        ctx.fill();
         ctx.fillStyle = "#FFFFFF";
-        ctx.font = "13px Arial";
+        ctx.font = "500 12px Inter, system-ui, sans-serif";
         ctx.fillText(`Đang vẽ: ${curZone ? curZone.name : ''} (${curPts} điểm)`, 16, 28);
     }
 };
