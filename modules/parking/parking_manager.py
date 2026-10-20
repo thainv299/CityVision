@@ -9,9 +9,19 @@ import threading
 import datetime
 import time
 import math
+import unicodedata
 from .parking_logic import ViolationLogic, MOVING, WAITING, VIOLATION, RECORDING_DONE
 from modules.utils.telegram_bot import send_telegram_image, send_telegram_video
 from modules.utils.common_utils import ensure_dir, now_ts
+
+def strip_vietnamese_accents(text: str) -> str:
+    """Loại bỏ dấu tiếng Việt để hiển thị an toàn với cv2.putText (chỉ hỗ trợ ASCII)."""
+    if not text:
+        return ""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    return unicodedata.normalize('NFC', text)
 
 class ParkingManager:
     def __init__(self, root, app_instance):
@@ -749,13 +759,18 @@ class ParkingManager:
             poly = z.get("polygon")
             if poly is not None and len(poly) >= 3:
                 cv2.polylines(frame, [poly], True, (0, 0, 255), f_thick)
-                # Vẽ nhãn vùng cấm và giới hạn thời gian
-                z_name = z.get("name") or "VUNG CAM"
+                # Vẽ nhãn vùng cấm và giới hạn thời gian (loại bỏ dấu tiếng Việt để cv2.putText không bị lỗi ??)
+                raw_name = z.get("name") or "VUNG CAM"
+                z_name = strip_vietnamese_accents(raw_name).upper()
                 z_time = z.get("timeout")
                 time_str = f" ({int(z_time)}s)" if z_time is not None else f" ({int(self.stop_seconds)}s)"
                 label_text = f"{z_name}{time_str}"
                 
                 # Tọa độ góc trên bên trái của polygon
                 pt = poly[0]
-                lx, ly = int(pt[0]), max(15, int(pt[1] - 6))
-                cv2.putText(frame, label_text, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), max(1, f_thick - 1))
+                lx, ly = int(pt[0]), max(20, int(pt[1] - 6))
+
+                # Vẽ nền pill đỏ đậm cho chữ giúp hiển thị sắc nét trên video
+                (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame, (lx - 2, ly - th - 3), (lx + tw + 4, ly + baseline + 1), (0, 0, 180), -1)
+                cv2.putText(frame, label_text, (lx, ly - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
