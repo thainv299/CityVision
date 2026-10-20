@@ -207,20 +207,24 @@ class TestMultiParkingROI(unittest.TestCase):
         print("-> [OK] Test 05: CameraUseCases polygon parsing passed!")
 
     def test_06_draw_polygon_overlay(self):
-        """Kiểm tra hàm draw_polygon_overlay vẽ đầy đủ các vùng cấm và text nhãn"""
+        """Kiểm tra hàm draw_polygon_overlay vẽ đầy đủ các vùng cấm, khử dấu tiếng Việt và vẽ nhãn"""
+        from modules.parking.parking_manager import strip_vietnamese_accents
+        self.assertEqual(strip_vietnamese_accents("Vùng cấm (30s)"), "Vung cam (30s)")
+        self.assertEqual(strip_vietnamese_accents("Đỗ xe trái phép"), "Do xe trai phep")
+
         pm = ParkingManager(None, None)
         zone1_poly = np.array([[10, 10], [100, 10], [100, 100], [10, 100]], dtype=np.int32)
         zone2_poly = np.array([[200, 200], [300, 200], [300, 300], [200, 300]], dtype=np.int32)
         pm.set_parking_zones([
-            {"id": 1, "name": "Zone A", "polygon": zone1_poly, "timeout": 15},
-            {"id": 2, "name": "Zone B", "polygon": zone2_poly, "timeout": 30}
+            {"id": 1, "name": "Vùng cấm 1", "polygon": zone1_poly, "timeout": 15},
+            {"id": 2, "name": "Khu vực đỗ xe khẩn cấp", "polygon": zone2_poly, "timeout": 30}
         ])
 
         test_frame = np.zeros((400, 400, 3), dtype=np.uint8)
-        # Không được ném Exception khi vẽ
+        # Không được ném Exception khi vẽ với tên tiếng Việt có dấu
         pm.draw_polygon_overlay(test_frame)
         self.assertGreater(test_frame.sum(), 0)
-        print("-> [OK] Test 06: draw_polygon_overlay rendered without error!")
+        print("-> [OK] Test 06: draw_polygon_overlay rendered without error and stripped accents cleanly!")
 
 
 if __name__ == "__main__":

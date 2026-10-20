@@ -2,6 +2,45 @@
 
 {% block title %}Cấu hình Camera CityVision AI{% endblock %}
 
+{% block head %}
+<style>
+    /* Đồng bộ Typography và Giao diện Hệ thống CityVision AI */
+    .settings-container, #settings-form-container, .ds-chart-card {
+        font-family: var(--font-main, "Inter", system-ui, sans-serif);
+        color: var(--text-primary);
+    }
+    .page-title, .ds-chart-card h3, .ds-chart-card h4 {
+        font-family: var(--font-display, "Outfit", system-ui, sans-serif);
+        letter-spacing: -0.01em;
+    }
+    .ds-chart-card input[type="text"],
+    .ds-chart-card input[type="number"],
+    .ds-chart-card select,
+    #camera-select {
+        font-family: var(--font-main, "Inter", system-ui, sans-serif) !important;
+        border: 1px solid var(--border, #CBD5E1) !important;
+        border-radius: var(--r-sm, 8px) !important;
+        color: var(--text-primary, #0F172A) !important;
+        transition: all 0.2s ease !important;
+    }
+    .ds-chart-card input[type="text"]:focus,
+    .ds-chart-card input[type="number"]:focus,
+    .ds-chart-card select:focus,
+    #camera-select:focus {
+        border-color: var(--brand-light, #3B82F6) !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+        outline: none !important;
+    }
+    .ds-chart-card button, #save-btn, #restart-system-btn, #create-backup-btn {
+        font-family: var(--font-display, "Outfit", system-ui, sans-serif) !important;
+        font-weight: 600 !important;
+    }
+    .camera-zone-timeout-input {
+        font-family: var(--font-mono, "Fira Code", monospace) !important;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end;">
     <div>

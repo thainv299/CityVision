@@ -1,4 +1,5 @@
 import textwrap
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -6,6 +7,16 @@ import cv2
 import numpy as np
 
 from core.config import PROJECT_ROOT
+
+
+def strip_vietnamese_accents(text: str) -> str:
+    """Loại bỏ dấu tiếng Việt để hiển thị an toàn với cv2.putText (chỉ hỗ trợ ASCII)."""
+    if not text:
+        return ""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    return unicodedata.normalize('NFC', text)
 
 
 def resolve_path(path_text: str) -> Path:
@@ -91,11 +102,15 @@ def prepare_snapshot_frame(frame: np.ndarray, camera: Dict[str, Any]) -> np.ndar
             if pts and len(pts) >= 3:
                 poly = np.array(pts, dtype=np.int32)
                 cv2.polylines(display, [poly], True, (0, 0, 255), 2)
-                z_name = z.get("name") or "Vung cam"
+                raw_name = z.get("name") or "Vung cam"
+                clean_name = strip_vietnamese_accents(raw_name).upper()
                 z_time = z.get("timeout")
                 t_str = f" ({int(z_time)}s)" if z_time is not None else ""
-                cv2.putText(display, f"{z_name}{t_str}", (int(poly[0][0]), max(15, int(poly[0][1] - 5))),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+                label_text = f"{clean_name}{t_str}"
+                (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                lx, ly = int(poly[0][0]), max(20, int(poly[0][1] - 5))
+                cv2.rectangle(display, (lx - 2, ly - th - 3), (lx + tw + 4, ly + baseline + 1), (0, 0, 160), -1)
+                cv2.putText(display, label_text, (lx, ly - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
     elif camera.get("no_parking_points"):
         polygon = np.array(camera["no_parking_points"], dtype=np.int32)
         overlay = display.copy()
@@ -104,9 +119,10 @@ def prepare_snapshot_frame(frame: np.ndarray, camera: Dict[str, Any]) -> np.ndar
         cv2.polylines(display, [polygon], True, (0, 0, 255), 2)
 
     cv2.rectangle(display, (0, 0), (display.shape[1], 68), (11, 20, 26), -1)
+    clean_cam_name = strip_vietnamese_accents(camera["name"])
     cv2.putText(
         display,
-        camera["name"],
+        clean_cam_name,
         (18, 28),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
