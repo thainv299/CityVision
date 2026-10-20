@@ -351,6 +351,19 @@ def api_get_camera_settings(camera_id: int, user=Depends(login_required)):
         # Đính kèm mo_hinh_yolo vào settings để UI nạp lên dropdown
         settings["mo_hinh_yolo"] = camera.model_path
         settings["can_edit"] = container.camera_use_cases.can_user_edit_camera(user, camera_id)
+        
+        # Đính kèm danh sách parking_zones của camera để hiển thị trên Settings
+        zones = []
+        if camera.no_park_meta and "zones" in camera.no_park_meta:
+            zones = camera.no_park_meta["zones"]
+        elif camera.no_parking_points:
+            zones = [{
+                "id": 1,
+                "name": "Vùng cấm",
+                "points": camera.no_parking_points,
+                "timeout": settings.get("parking_violation_time", 30)
+            }]
+        settings["parking_zones"] = zones
         return {"ok": True, "settings": settings}
     except NotFoundError:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Camera không tồn tại."})
@@ -368,6 +381,20 @@ def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Dep
         camera = container.camera_use_cases.get_camera(camera_id)
         update_camera_settings(camera_id, payload)
         
+        # Cập nhật thông số zones nếu người dùng chỉnh sửa timeout của từng vùng từ settings
+        new_zones = payload.get("parking_zones")
+        if new_zones and isinstance(new_zones, list):
+            meta = camera.no_park_meta or {}
+            existing_zones = meta.get("zones", [])
+            zone_timeout_map = {z.get("id"): z.get("timeout") for z in new_zones if isinstance(z, dict)}
+            for ez in existing_zones:
+                if ez.get("id") in zone_timeout_map:
+                    ez["timeout"] = zone_timeout_map[ez.get("id")]
+            meta["zones"] = existing_zones
+            camera.no_park_meta = meta
+            container.camera_repo.update(camera)
+            payload["no_park_meta"] = meta
+
         # Kiểm tra sự thay đổi mô hình YOLO
         new_model = payload.get("mo_hinh_yolo")
         model_changed = False

@@ -35,9 +35,13 @@ def _parse_polygon(value: Any) -> Optional[list]:
             metadata["ref_width"] = data["ref_width"]
         if "ref_height" in data:
             metadata["ref_height"] = data["ref_height"]
+        if "zones" in data:
+            metadata["zones"] = data["zones"]
             
         if "points" in data:
             data = data["points"]
+        elif "zones" in data and isinstance(data["zones"], list) and len(data["zones"]) > 0:
+            data = data["zones"][0].get("points", [])
         
     if not isinstance(data, list):
         raise ValidationError("Polygon phải là một mảng điểm.")
@@ -46,7 +50,7 @@ def _parse_polygon(value: Any) -> Optional[list]:
     for point in data:
         points.append([float(point[0]), float(point[1])])
         
-    if points and len(points) < 3:
+    if points and len(points) < 3 and not metadata.get("zones"):
         raise ValidationError("Polygon cần tối thiểu 3 điểm.")
         
     return points or None, metadata

@@ -2,6 +2,45 @@
 
 {% block title %}Cấu hình Camera CityVision AI{% endblock %}
 
+{% block head %}
+<style>
+    /* Đồng bộ Typography và Giao diện Hệ thống CityVision AI */
+    .settings-container, #settings-form-container, .ds-chart-card {
+        font-family: var(--font-main, "Inter", system-ui, sans-serif);
+        color: var(--text-primary);
+    }
+    .page-title, .ds-chart-card h3, .ds-chart-card h4 {
+        font-family: var(--font-display, "Outfit", system-ui, sans-serif);
+        letter-spacing: -0.01em;
+    }
+    .ds-chart-card input[type="text"],
+    .ds-chart-card input[type="number"],
+    .ds-chart-card select,
+    #camera-select {
+        font-family: var(--font-main, "Inter", system-ui, sans-serif) !important;
+        border: 1px solid var(--border, #CBD5E1) !important;
+        border-radius: var(--r-sm, 8px) !important;
+        color: var(--text-primary, #0F172A) !important;
+        transition: all 0.2s ease !important;
+    }
+    .ds-chart-card input[type="text"]:focus,
+    .ds-chart-card input[type="number"]:focus,
+    .ds-chart-card select:focus,
+    #camera-select:focus {
+        border-color: var(--brand-light, #3B82F6) !important;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+        outline: none !important;
+    }
+    .ds-chart-card button, #save-btn, #restart-system-btn, #create-backup-btn {
+        font-family: var(--font-display, "Outfit", system-ui, sans-serif) !important;
+        font-weight: 600 !important;
+    }
+    .camera-zone-timeout-input {
+        font-family: var(--font-mono, "Fira Code", monospace) !important;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div style="margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-end;">
     <div>
@@ -110,10 +149,27 @@
 
         <div style="margin-bottom: 20px;">
             <label for="setting-parking-violation-time"
-                style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">Thời gian
-                xác định đỗ xe sai quy định (giây)</label>
+                style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #2D3748;">
+                <i class="fas fa-stopwatch" style="color: #EF4444; margin-right: 6px;"></i>Thời gian cấm đỗ mặc định (giây)
+            </label>
             <input type="number" id="setting-parking-violation-time" min="5" max="3600" value="30"
                 style="width: 100%; padding: 10px; border: 1px solid #E2E8F0; border-radius: 8px; font-size: 13px; color: #4A5568; outline: none;">
+            <div style="font-size: 11px; color: #94A3B8; margin-top: 4px;">
+                Thời gian tối đa được phép dừng trước khi tính vi phạm (áp dụng cho camera hoặc các vùng không đặt thời gian riêng).
+            </div>
+        </div>
+
+        <!-- Cấu hình chi tiết các vùng cấm đỗ độc lập của Camera -->
+        <div id="camera-parking-zones-container" style="display: none; margin-bottom: 20px; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 13px; font-weight: 700; color: #1E293B;">
+                    <i class="fas fa-layer-group" style="color: #2563EB; margin-right: 6px;"></i>Thời gian giới hạn từng vùng cấm
+                </span>
+                <span id="camera-zones-count" style="background: #EFF6FF; color: #2563EB; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; border: 1px solid #BFDBFE;">0 vùng</span>
+            </div>
+            <div id="camera-zones-list" style="display: flex; flex-direction: column; gap: 8px;">
+                <!-- Nạp danh sách các vùng bằng JS -->
+            </div>
         </div>
 
         <div style="margin-bottom: 20px;">
@@ -442,6 +498,35 @@
                 // Parking violation time
                 document.getElementById('setting-parking-violation-time').value = s.parking_violation_time;
 
+                // Parking zones theo camera
+                const zonesContainer = document.getElementById('camera-parking-zones-container');
+                const zonesList = document.getElementById('camera-zones-list');
+                const zonesCountBadge = document.getElementById('camera-zones-count');
+                
+                window.currentCameraZones = s.parking_zones || [];
+                if (window.currentCameraZones.length > 0) {
+                    zonesContainer.style.display = 'block';
+                    zonesCountBadge.textContent = `${window.currentCameraZones.length} vùng cấm`;
+                    zonesList.innerHTML = window.currentCameraZones.map((z, idx) => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: white; padding: 8px 12px; border-radius: 6px; border: 1px solid #E2E8F0; font-size: 12px;">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #EF4444;"></span>
+                                <span style="font-weight: 600; color: #334155;">${z.name || ('Vùng ' + (idx + 1))}</span>
+                                <span style="color: #94A3B8;">(${z.points ? z.points.length : 0} điểm)</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <input type="number" min="5" max="3600" value="${z.timeout !== null && z.timeout !== undefined ? z.timeout : (s.parking_violation_time || 30)}" 
+                                    data-zone-id="${z.id}" class="camera-zone-timeout-input"
+                                    style="width: 70px; padding: 4px 6px; border: 1px solid #CBD5E1; border-radius: 4px; font-size: 12px; font-weight: 700; text-align: center;">
+                                <span style="color: #64748B;">giây</span>
+                            </div>
+                        </div>
+                    `).join("");
+                } else {
+                    zonesContainer.style.display = 'none';
+                    zonesList.innerHTML = '';
+                }
+
                 // Enable weapon detection
                 if (s.enable_weapon_detection !== undefined) {
                     document.getElementById('setting-enable-weapon-detection').value = String(s.enable_weapon_detection);
@@ -477,6 +562,20 @@
         const feedback = document.getElementById('settings-feedback');
         const saveBtn = document.getElementById('save-btn');
 
+        // Lấy danh sách timeout từng vùng đã chỉnh sửa
+        const zoneTimeoutInputs = document.querySelectorAll('.camera-zone-timeout-input');
+        const updatedZones = [];
+        if (window.currentCameraZones && window.currentCameraZones.length > 0) {
+            window.currentCameraZones.forEach(z => {
+                const input = Array.from(zoneTimeoutInputs).find(inp => inp.dataset.zoneId == z.id);
+                const timeoutVal = input ? parseInt(input.value) : (z.timeout || 30);
+                updatedZones.push({
+                    ...z,
+                    timeout: !isNaN(timeoutVal) && timeoutVal > 0 ? timeoutVal : 30
+                });
+            });
+        }
+
         const payload = {
             confidence: parseFloat(document.getElementById('setting-confidence').value) / 100,
             frame_skip: parseInt(document.getElementById('setting-frame-skip').value),
@@ -484,7 +583,8 @@
             parking_violation_time: parseInt(document.getElementById('setting-parking-violation-time').value),
             mo_hinh_yolo: document.getElementById('setting-model-path').value,
             enable_weapon_detection: document.getElementById('setting-enable-weapon-detection').value === 'true',
-            enabled_detect_labels: getSelectedDetectLabels()
+            enabled_detect_labels: getSelectedDetectLabels(),
+            parking_zones: updatedZones
         };
 
         saveBtn.disabled = true;

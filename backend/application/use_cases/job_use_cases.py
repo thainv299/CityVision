@@ -201,7 +201,7 @@ class JobUseCases:
                         phase = data.get("phase")
                         processed_frames = data.get("processed_frames")
                         if phase == "loading_model":
-                            job.message = "Đang tải model YOLO..."
+                            job.message = "Đang tải..."
                         elif phase == "finalizing_output":
                             job.message = "Đang hoàn tất video kết quả..."
                         elif processed_frames is not None:
@@ -456,7 +456,7 @@ class JobUseCases:
         job = self.set_job(
             job_id,
             status="running",
-            message="Đang khởi tạo tiến trình AI độc lập...",
+            message="Đang tải...",
             error=None,
             output_filename=None,
             summary=None,
@@ -469,7 +469,7 @@ class JobUseCases:
                 "source_total_frames": None,
                 "progress_percent": 0.0,
                 "elapsed_seconds": 0.0,
-                "latest_status": "Đang khởi tạo tiến trình AI...",
+                "latest_status": "Đang tải...",
             },
         )
 

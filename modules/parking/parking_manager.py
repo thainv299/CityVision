@@ -9,16 +9,28 @@ import threading
 import datetime
 import time
 import math
+import unicodedata
 from .parking_logic import ViolationLogic, MOVING, WAITING, VIOLATION, RECORDING_DONE
+from .tracking_stabilizer import compute_box_iou
 from modules.utils.telegram_bot import send_telegram_image, send_telegram_video
 from modules.utils.common_utils import ensure_dir, now_ts
+
+def strip_vietnamese_accents(text: str) -> str:
+    """Loại bỏ dấu tiếng Việt để hiển thị an toàn với cv2.putText (chỉ hỗ trợ ASCII)."""
+    if not text:
+        return ""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
+    return unicodedata.normalize('NFC', text)
 
 class ParkingManager:
     def __init__(self, root, app_instance):
         self.root = root
         self.app = app_instance
         self.app_instance = app_instance
-        self.no_park_polygon = None
+        self._no_park_polygon = None
+        self.no_park_zones = []
         
         # --- CẤU HÌNH ĐỖ XE TRÁI PHÉP ---
         self.stop_seconds = 30.0
@@ -48,6 +60,51 @@ class ParkingManager:
         self._last_notified_plates = {}
         self._last_notified_positions = []
         self._recent_saved_violations = []
+
+    @property
+    def no_park_polygon(self):
+        """Tương thích ngược: trả về polygon của vùng đầu tiên nếu có nhiều vùng"""
+        if self.no_park_zones:
+            return self.no_park_zones[0].get("polygon")
+        return self._no_park_polygon
+
+    @no_park_polygon.setter
+    def no_park_polygon(self, val):
+        self._no_park_polygon = val
+        if val is not None:
+            self.no_park_zones = [{
+                "id": 1,
+                "name": "Vùng cấm đỗ",
+                "polygon": val,
+                "timeout": self.stop_seconds
+            }]
+        else:
+            self.no_park_zones = []
+
+    def set_parking_zones(self, zones):
+        """
+        Thiết lập danh sách đa vùng cấm đỗ độc lập.
+        zones: list of dicts [{'id': 1, 'name': 'Vùng 1', 'polygon': np.ndarray, 'timeout': float}, ...]
+        """
+        valid_zones = []
+        for idx, z in enumerate(zones or []):
+            if not isinstance(z, dict):
+                continue
+            poly = z.get("polygon")
+            if poly is None and "points" in z:
+                poly = np.array(z["points"], dtype=np.int32)
+            if poly is not None and len(poly) >= 3:
+                valid_zones.append({
+                    "id": z.get("id", idx + 1),
+                    "name": z.get("name", f"Vùng cấm {idx + 1}"),
+                    "polygon": poly,
+                    "timeout": float(z.get("timeout")) if z.get("timeout") is not None else self.stop_seconds
+                })
+        self.no_park_zones = valid_zones
+        if valid_zones:
+            self._no_park_polygon = valid_zones[0]["polygon"]
+        else:
+            self._no_park_polygon = None
 
 
     def init_ui(self):
@@ -151,16 +208,16 @@ class ParkingManager:
 
             now = time.time()
 
-            # 3a. Kiểm tra lọc trùng lặp theo biển số (trong 60 giây gần nhất)
+            # 3a. Kiểm tra lọc trùng lặp theo biển số (trong 600 giây = 10 phút gần nhất)
             if current_plate and not current_plate.startswith("ID_"):
-                # Dọn dẹp entries cũ hơn 5 phút để tránh memory leak
-                stale_plates = [p for p, t in self._last_notified_plates.items() if now - t > 300]
+                # Dọn dẹp entries cũ hơn 15 phút để tránh memory leak
+                stale_plates = [p for p, t in self._last_notified_plates.items() if now - t > 900]
                 for p in stale_plates:
                     del self._last_notified_plates[p]
 
                 last_time = self._last_notified_plates.get(current_plate, 0)
-                if now - last_time < 60.0:
-                    print(f"[ParkingManager] Bỏ qua gửi cảnh báo trùng lặp Telegram cho biển số {current_plate} (debounce {now - last_time:.1f}s).")
+                if now - last_time < 600.0:
+                    print(f"[ParkingManager] Bỏ qua gửi cảnh báo trùng lặp Telegram cho biển số {current_plate} (cooldown {now - last_time:.1f}s).")
                     return
                 self._last_notified_plates[current_plate] = now
 
@@ -180,16 +237,16 @@ class ParkingManager:
                 vehicle_cx, vehicle_cy = center
 
             if vehicle_cx is not None:
-                # Dọn dẹp vị trí cũ hơn 90 giây
+                # Dọn dẹp vị trí cũ hơn 10 phút
                 if not hasattr(self, '_last_notified_positions'):
                     self._last_notified_positions = []
                 self._last_notified_positions = [
-                    (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < 90.0
+                    (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < 600.0
                 ]
-                # Kiểm tra có cảnh báo nào gửi gần đây (< 60s) tại cùng vị trí (< 120px) không
+                # Kiểm tra có cảnh báo nào gửi gần đây (< 600s = 10 phút) tại cùng vị trí (< 120px) không
                 for px, py, pt in self._last_notified_positions:
                     dist = math.hypot(vehicle_cx - px, vehicle_cy - py)
-                    if dist < 120.0 and now - pt < 60.0:
+                    if dist < 120.0 and now - pt < 600.0:
                         print(f"[ParkingManager] Bỏ qua cảnh báo trùng vị trí cho ID:{track_id} "
                               f"(cách vị trí đã cảnh báo {dist:.0f}px, {now - pt:.1f}s trước).")
                         return
@@ -229,17 +286,45 @@ class ParkingManager:
         Cập nhật biển số xe cho một track_id từ OCR bất đồng bộ.
         Nếu xe đang trong active_recordings, cập nhật ngay; nếu chưa, lưu vào pending
         để áp dụng trước khi lưu bằng chứng.
+        Nếu phát hiện biển số đã thuộc về một xe khác đang theo dõi -> tự động sáp nhập track!
         """
         if not plate:
             return
+        clean_plate = str(plate).strip().upper()
+        if clean_plate.startswith("ID_"):
+            return
+
         mapped_id = self.track_id_map.get(track_id, track_id)
+
+        # Kiểm tra xem biển số này đã thuộc về xe nào đang giám sát chưa
+        existing_match = None
+        for oid, odata in list(self.waiting_vehicles.items()):
+            if oid != mapped_id and odata.get('plate') == clean_plate:
+                existing_match = oid
+                break
+        if not existing_match:
+            for oid, odata in list(self.active_recordings.items()):
+                if oid != mapped_id and odata.get('plate') == clean_plate:
+                    existing_match = oid
+                    break
+
+        if existing_match is not None:
+            # Sáp nhập track_id này vào existing_match
+            print(f"[ParkingManager] Trùng biển số {clean_plate} giữa ID:{mapped_id} và ID:{existing_match}. Tự động sáp nhập track!")
+            self.track_id_map[track_id] = existing_match
+            self.track_id_map[mapped_id] = existing_match
+            self.cancel_pending_warning(mapped_id)
+            self.cancel_pending_warning(track_id)
+            self.waiting_vehicles.pop(mapped_id, None)
+            mapped_id = existing_match
+
         if mapped_id in self.active_recordings:
-            self.active_recordings[mapped_id]['plate'] = plate
+            self.active_recordings[mapped_id]['plate'] = clean_plate
         if mapped_id in self.waiting_vehicles:
-            self.waiting_vehicles[mapped_id]['plate'] = plate
+            self.waiting_vehicles[mapped_id]['plate'] = clean_plate
         else:
             # Lưu tạm, update_buffer sẽ áp dụng khi recording bắt đầu
-            self._pending_plate_updates[mapped_id] = plate
+            self._pending_plate_updates[mapped_id] = clean_plate
 
     def update_buffer(self, frame_copy):
         if self.frame_buffer is not None:
@@ -288,24 +373,24 @@ class ParkingManager:
 
         raw_plate = data.get('plate')
 
-        # Dọn dẹp danh sách các vi phạm đã lưu cũ hơn 120 giây
+        # Dọn dẹp danh sách các vi phạm đã lưu cũ hơn 900 giây (15 phút)
         if not hasattr(self, '_recent_saved_violations'):
             self._recent_saved_violations = []
         self._recent_saved_violations = [
-            (vx, vy, vp, vt) for vx, vy, vp, vt in self._recent_saved_violations if now_ts - vt < 120.0
+            (vx, vy, vp, vt) for vx, vy, vp, vt in self._recent_saved_violations if now_ts - vt < 900.0
         ]
 
-        # Kiểm tra chống lưu trùng lặp:
+        # Kiểm tra chống lưu trùng lặp (cooldown 15 phút cho cùng 1 xe đỗ):
         for vx, vy, vp, vt in self._recent_saved_violations:
-            # 1. Trùng biển số hợp lệ trong vòng 60 giây
-            if raw_plate and not raw_plate.startswith("ID_") and vp == raw_plate and now_ts - vt < 60.0:
-                print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} (đã ghi nhận {now_ts - vt:.1f}s trước).")
+            # 1. Trùng biển số hợp lệ trong vòng 900 giây (15 phút)
+            if raw_plate and not raw_plate.startswith("ID_") and vp == raw_plate and now_ts - vt < 900.0:
+                print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} (đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
                 return
-            # 2. Trùng vị trí trong vòng 60 giây (bán kính < 120px)
+            # 2. Trùng vị trí trong vòng 900 giây (bán kính < 120px)
             if cx is not None and vx is not None:
                 dist = math.hypot(cx - vx, cy - vy)
-                if dist < 120.0 and now_ts - vt < 60.0:
-                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí cho ID:{track_id} (cách {dist:.0f}px, đã ghi nhận {now_ts - vt:.1f}s trước).")
+                if dist < 120.0 and now_ts - vt < 900.0:
+                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí cho ID:{track_id} (cách {dist:.0f}px, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
                     return
 
         self._recent_saved_violations.append((cx, cy, raw_plate, now_ts))
@@ -418,11 +503,12 @@ class ParkingManager:
             try:
                 # Đường dẫn ảnh tương đối để web có thể hiển thị
                 db_image_path = os.path.join(save_dir, "combined_alert.jpg").replace("\\", "/")
+                violation_duration = int(data.get('duration') or self.stop_seconds)
                 violation_id = self.violation_callback(
                     camera_id=self.camera_id,
                     license_plate=plate_folder,
                     violation_time=meta['start_time'],
-                    duration=int(self.stop_seconds),
+                    duration=violation_duration,
                     frame_path=db_image_path
                 )
                 if violation_id:
@@ -434,12 +520,14 @@ class ParkingManager:
             
         if self.telegram_enabled and self.save_to_db:
             raw_plate = data.get('plate')
+            zone_desc = data.get('zone_name') or "vùng cấm"
+            zone_time = int(data.get('duration') or self.stop_seconds)
             if raw_plate and not raw_plate.startswith("ID_"):
-                caption_img = f"🚨 VI PHẠM CHỐT: Xe biển số {raw_plate} đỗ sai quy định."
-                caption_vid = f"Bằng chứng Video 15s cho xe biển số {raw_plate}"
+                caption_img = f"🚨 VI PHẠM CHỐT: Xe biển số {raw_plate} đỗ sai quy định tại {zone_desc} (quá {zone_time}s)."
+                caption_vid = f"Bằng chứng Video cho xe biển số {raw_plate} tại {zone_desc}"
             else:
-                caption_img = f"🚨 VI PHẠM CHỐT: Phát hiện xe đỗ sai quy định (Không rõ biển số)."
-                caption_vid = f"Bằng chứng Video 15s phát hiện xe đỗ sai quy định"
+                caption_img = f"🚨 VI PHẠM CHỐT: Phát hiện xe đỗ sai quy định tại {zone_desc} (quá {zone_time}s, Không rõ biển số)."
+                caption_vid = f"Bằng chứng Video phát hiện xe đỗ sai quy định tại {zone_desc}"
             if self.io_worker is not None:
                 # Async mode: đẩy vào queue
                 self.io_worker.enqueue_telegram_image(
@@ -472,8 +560,8 @@ class ParkingManager:
         # Resolution mapping cho Re-ID
         mapped_id = self.track_id_map.get(track_id, track_id)
 
-        # 1. Dọn dẹp Ghost Tracks hết hạn (> 10s)
-        expired_ghosts = [gid for gid, ginfo in self.ghost_tracks.items() if current_time - ginfo['lost_time'] > 10.0]
+        # 1. Dọn dẹp Ghost Tracks hết hạn (> 120s = 2 phút để giữ trí nhớ cho xe đỗ)
+        expired_ghosts = [gid for gid, ginfo in self.ghost_tracks.items() if current_time - ginfo['lost_time'] > 120.0]
         for gid in expired_ghosts:
             if gid in self.violation_records:
                 if self.violation_end_callback:
@@ -493,7 +581,8 @@ class ParkingManager:
             self.ghost_tracks[lid] = {
                 'cx': self.last_seen[lid]['cx'],
                 'cy': self.last_seen[lid]['cy'],
-                'lost_time': current_time
+                'lost_time': current_time,
+                'bbox': self.last_seen[lid].get('bbox')
             }
             if lid in self.logic.states:
                 self.ghost_tracks[lid]['logic_state'] = self.logic.states.pop(lid)
@@ -503,7 +592,7 @@ class ParkingManager:
                 self.ghost_tracks[lid]['recording_data'] = self.active_recordings.pop(lid)
             del self.last_seen[lid]
 
-        # 3. Thuật toán Spatial Re-ID (Sáp nhập Track vỡ nếu xuất hiện ID mới tại cùng vị trí)
+        # 3. Thuật toán Spatial Re-ID (Sáp nhập Track vỡ nếu xuất hiện ID mới tại cùng vị trí hoặc trùng Bounding Box)
         if track_id not in self.last_seen and track_id not in self.track_id_map:
             best_match = None
             best_source = None  # 'ghost' hoặc 'last_seen'
@@ -512,8 +601,13 @@ class ParkingManager:
             
             # 3a. Tìm trong ghost_tracks (xe đã mất dấu > 1 giây)
             for gid, ginfo in self.ghost_tracks.items():
+                is_overlap = False
+                if bbox is not None and ginfo.get('bbox') is not None:
+                    iou, iom = compute_box_iou(bbox, ginfo['bbox'])
+                    if iou >= 0.35 or iom >= 0.50:
+                        is_overlap = True
                 dist = math.hypot(cx - ginfo['cx'], cy - ginfo['cy'])
-                if dist < max_dist_px and dist < min_dist:
+                if (is_overlap or dist < max_dist_px) and dist < min_dist:
                     min_dist = dist
                     best_match = gid
                     best_source = 'ghost'
@@ -529,8 +623,13 @@ class ParkingManager:
                              or sid in self.violation_records)
                 if not has_state:
                     continue
+                is_overlap = False
+                if bbox is not None and sinfo.get('bbox') is not None:
+                    iou, iom = compute_box_iou(bbox, sinfo['bbox'])
+                    if iou >= 0.35 or iom >= 0.50:
+                        is_overlap = True
                 dist = math.hypot(cx - sinfo['cx'], cy - sinfo['cy'])
-                if dist < max_dist_px and dist < min_dist:
+                if (is_overlap or dist < max_dist_px) and dist < min_dist:
                     min_dist = dist
                     best_match = sid
                     best_source = 'last_seen'
@@ -550,15 +649,29 @@ class ParkingManager:
                         self.active_recordings[best_match] = ginfo['recording_data']
                 # Nếu best_source == 'last_seen': trạng thái đã có sẵn, không cần khôi phục
 
-        # Cập nhật vị trí và dấu thời gian hiện tại dưới ID thực (mapped_id)
-        self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time}
+        # Cập nhật vị trí và dấu thời gian hiện tại dưới ID thực (mapped_id) kèm bbox
+        self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time, 'bbox': bbox}
 
-        in_no_park = False
-        if self.no_park_polygon is not None:
-            in_no_park = cv2.pointPolygonTest(self.no_park_polygon, (cx, cy), False) >= 0
+        # Kiểm tra xe có nằm trong bất kỳ vùng cấm đỗ nào không
+        matched_zone = None
+        for z in self.no_park_zones:
+            poly = z.get("polygon")
+            if poly is not None and len(poly) >= 3:
+                if cv2.pointPolygonTest(poly, (cx, cy), False) >= 0:
+                    matched_zone = z
+                    break
+
+        # Fallback kiểm tra polygon đơn nếu danh sách zones rỗng
+        if matched_zone is None and self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
+            if cv2.pointPolygonTest(self._no_park_polygon, (cx, cy), False) >= 0:
+                matched_zone = {"id": 1, "name": "Vùng cấm đỗ", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}
+
+        in_no_park = matched_zone is not None
 
         if in_no_park:
-            state, just_changed = self.logic.update(mapped_id, (cx, cy), frame_count)
+            zone_timeout = float(matched_zone.get("timeout") if matched_zone.get("timeout") is not None else self.stop_seconds)
+            zone_name = str(matched_zone.get("name") or "Vùng cấm đỗ")
+            state, just_changed = self.logic.update(mapped_id, (cx, cy), frame_count, stop_seconds=zone_timeout)
             
             if state == WAITING:
                 box_color = (0, 165, 255) # Orange
@@ -569,7 +682,7 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t0, (x1, y1), (x2, y2), box_color, f_thick + 1)
-                        txt = f"{label.upper()} {mapped_id} - BAT DAU DO"
+                        txt = f"{label.upper()} {mapped_id} - BAT DAU DO ({int(zone_timeout)}s)"
                         (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
                         ty = max(th + 5, y1 - 5)
                         cv2.rectangle(img_t0, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
@@ -578,13 +691,15 @@ class ParkingManager:
                     self.waiting_vehicles[mapped_id] = {
                         'img_t0': img_t0,
                         'start_time': datetime.datetime.now(),
-                        'plate': license_plate
+                        'plate': license_plate,
+                        'zone_name': zone_name,
+                        'duration': int(zone_timeout)
                     }
                     if self.telegram_enabled and self.save_to_db:
                         if license_plate and not license_plate.startswith("ID_"):
-                            caption = f"⚠️ CẢNH BÁO: Xe biển số {license_plate} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                            caption = f"⚠️ CẢNH BÁO: Xe biển số {license_plate} bắt đầu đỗ tại {zone_name} (giới hạn: {int(zone_timeout)}s). Đang đếm giờ..."
                         else:
-                            caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                            caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại {zone_name} (giới hạn: {int(zone_timeout)}s). Đang đếm giờ..."
                         self.schedule_telegram_warning(mapped_id, img_t0, caption, license_plate, center=(cx, cy))
                         
             elif state == VIOLATION:
@@ -594,13 +709,15 @@ class ParkingManager:
                     waiting_data = self.waiting_vehicles.get(mapped_id, {})
                     img_t0 = waiting_data.get('img_t0', clean_frame.copy())
                     start_time = waiting_data.get('start_time', datetime.datetime.now())
+                    active_zone_name = waiting_data.get('zone_name', zone_name)
+                    active_zone_time = waiting_data.get('duration', int(zone_timeout))
                     
                     img_t1 = clean_frame.copy()
                     self.draw_polygon_overlay(img_t1, f_thick)
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t1, (x1, y1), (x2, y2), box_color, f_thick + 2)
-                        txt = f"{label.upper()} {mapped_id} - VI PHAM!"
+                        txt = f"{label.upper()} {mapped_id} - VI PHAM! ({active_zone_name})"
                         (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, f_thick + 1)
                         ty = max(th + 5, y1 - 5)
                         cv2.rectangle(img_t1, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
@@ -615,7 +732,9 @@ class ParkingManager:
                         'start_time': start_time,
                         'label': label,
                         'track_id': mapped_id,  # Lưu track_id gốc làm dự phòng (fallback)
-                        'bbox': bbox
+                        'bbox': bbox,
+                        'zone_name': active_zone_name,
+                        'duration': active_zone_time
                     }
                     
                     h, w = frame.shape[:2]
@@ -658,9 +777,40 @@ class ParkingManager:
 
 
     def draw_polygon_overlay(self, frame, f_thick=2):
-        """Vẽ vùng cấm đỗ màu đỏ lên frame"""
-        if self.no_park_polygon is not None:
-            overlay = frame.copy()
-            cv2.fillPoly(overlay, [self.no_park_polygon], (0, 0, 180))
-            cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
-            cv2.polylines(frame, [self.no_park_polygon], True, (0, 0, 255), f_thick)
+        """Vẽ tất cả các vùng cấm đỗ màu đỏ lên frame kèm nhãn và thời gian giới hạn"""
+        zones_to_draw = []
+        if self.no_park_zones:
+            zones_to_draw = self.no_park_zones
+        elif self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
+            zones_to_draw = [{"name": "Vùng cấm", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}]
+
+        if not zones_to_draw:
+            return
+
+        overlay = frame.copy()
+        for z in zones_to_draw:
+            poly = z.get("polygon")
+            if poly is not None and len(poly) >= 3:
+                cv2.fillPoly(overlay, [poly], (0, 0, 180))
+
+        cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+
+        for z in zones_to_draw:
+            poly = z.get("polygon")
+            if poly is not None and len(poly) >= 3:
+                cv2.polylines(frame, [poly], True, (0, 0, 255), f_thick)
+                # Vẽ nhãn vùng cấm và giới hạn thời gian (loại bỏ dấu tiếng Việt để cv2.putText không bị lỗi ??)
+                raw_name = z.get("name") or "VUNG CAM"
+                z_name = strip_vietnamese_accents(raw_name).upper()
+                z_time = z.get("timeout")
+                time_str = f" ({int(z_time)}s)" if z_time is not None else f" ({int(self.stop_seconds)}s)"
+                label_text = f"{z_name}{time_str}"
+                
+                # Tọa độ góc trên bên trái của polygon
+                pt = poly[0]
+                lx, ly = int(pt[0]), max(20, int(pt[1] - 6))
+
+                # Vẽ nền pill đỏ đậm cho chữ giúp hiển thị sắc nét trên video
+                (tw, th), baseline = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame, (lx - 2, ly - th - 3), (lx + tw + 4, ly + baseline + 1), (0, 0, 180), -1)
+                cv2.putText(frame, label_text, (lx, ly - 1), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
