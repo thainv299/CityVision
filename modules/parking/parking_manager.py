@@ -36,6 +36,7 @@ class ParkingManager:
         self.stop_seconds = 30.0
         self.move_thr_px = 10.0
         self.cooldown_seconds = 30.0
+        self.MIN_NOTIFY_SECONDS = 15.0  # Thời gian đỗ tối thiểu (giây) để kích hoạt thông báo; zone_timeout được đảm bảo >= giá trị này
         self.camera_id = 0
         self.violation_callback = None
         self.violation_end_callback = None
@@ -57,8 +58,10 @@ class ParkingManager:
         self.last_seen = {}
         self.track_id_map = {}
         self.pending_telegram_warnings = {}
-        self._last_notified_plates = {}
-        self._last_notified_positions = []
+        self._last_notified_plates = {}       # Registry dedup cảnh báo sớm (warning)
+        self._last_notified_positions = []     # Registry dedup cảnh báo sớm (vị trí)
+        self._last_violation_plates = {}       # Registry dedup thông báo vi phạm (riêng biệt)
+        self._last_violation_positions = []    # Registry dedup thông báo vi phạm (vị trí)
         self._recent_saved_violations = []
 
     @property
@@ -94,11 +97,15 @@ class ParkingManager:
             if poly is None and "points" in z:
                 poly = np.array(z["points"], dtype=np.int32)
             if poly is not None and len(poly) >= 3:
+                raw_timeout = z.get("timeout")
+                zone_timeout = float(raw_timeout) if raw_timeout is not None else self.stop_seconds
+                # Đảm bảo zone_timeout không nhỏ hơn ngưỡng tối thiểu
+                zone_timeout = max(zone_timeout, self.MIN_NOTIFY_SECONDS)
                 valid_zones.append({
                     "id": z.get("id", idx + 1),
                     "name": z.get("name", f"Vùng cấm {idx + 1}"),
                     "polygon": poly,
-                    "timeout": float(z.get("timeout")) if z.get("timeout") is not None else self.stop_seconds
+                    "timeout": zone_timeout
                 })
         self.no_park_zones = valid_zones
         if valid_zones:
@@ -171,6 +178,8 @@ class ParkingManager:
         self.pending_telegram_warnings = {}
         self._last_notified_plates = {}
         self._last_notified_positions = []  # List of (cx, cy, timestamp) cho spatial cooldown
+        self._last_violation_plates = {}   # Dedup riêng cho thông báo vi phạm
+        self._last_violation_positions = []
         # Dict nhận cập nhật biển số async từ OCR: {track_id: plate_str}
         self._pending_plate_updates: dict = {}
 
@@ -186,80 +195,130 @@ class ParkingManager:
                 pass
 
 
-    def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str, initial_plate: str | None = None, center: tuple | None = None):
-        """Lên lịch gửi cảnh báo Telegram sau 5 giây để debounce và lọc trùng lặp"""
+    def _check_notify_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
+        """
+        Kiểm tra dedup trước khi gửi bất kỳ thông báo nào.
+        Trả về True nếu ĐÃ gửi cảnh báo gần đây (cần bỏ qua), False nếu OK để gửi.
+        Nếu OK, tự động ghi nhận vị trí/biển số vào cooldown registry.
+        Cooldown: 900s (15 phút) cho cả biển số và vị trí.
+        """
+        now = time.time()
+        COOLDOWN = 900.0
+        DIST_PX   = 120.0
+
+        # Dọn entries cũ
+        stale = [p for p, t in self._last_notified_plates.items() if now - t > COOLDOWN]
+        for p in stale:
+            del self._last_notified_plates[p]
+        self._last_notified_positions = [
+            (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < COOLDOWN
+        ]
+
+        # Dedup theo biển số
+        if plate and not plate.startswith("ID_"):
+            last_t = self._last_notified_plates.get(plate, 0)
+            if now - last_t < COOLDOWN:
+                print(f"[ParkingManager] Bỏ qua thông báo trùng biển số {plate} "
+                      f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
+                return True  # đã thông báo
+
+        # Dedup theo vị trí
+        if cx is not None and cy is not None:
+            for px, py, pt in self._last_notified_positions:
+                dist = math.hypot(cx - px, cy - py)
+                if dist < DIST_PX and now - pt < COOLDOWN:
+                    print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí ID:{track_id} "
+                          f"(cách {dist:.0f}px, đã thông báo {now - pt:.0f}s trước).")
+                    return True  # đã thông báo
+
+        # Ghi nhận (chỉ khi sẽ thực sự gửi)
+        if plate and not plate.startswith("ID_"):
+            self._last_notified_plates[plate] = now
+        if cx is not None and cy is not None:
+            self._last_notified_positions.append((cx, cy, now))
+        return False  # chưa thông báo, OK để gửi
+
+    def _check_violation_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
+        """
+        Dedup riêng cho thông báo VI PHẠM (tách biệt với dedup cảnh báo sớm).
+        Đảm bảo cảnh báo vi phạm luôn được gửi dù đã có warning trước đó.
+        Cooldown: 900s cho cả biển số và vị trí.
+        """
+        now = time.time()
+        COOLDOWN = 900.0
+        DIST_PX = 120.0
+
+        stale = [p for p, t in self._last_violation_plates.items() if now - t > COOLDOWN]
+        for p in stale:
+            del self._last_violation_plates[p]
+        self._last_violation_positions = [
+            (px, py, pt) for px, py, pt in self._last_violation_positions if now - pt < COOLDOWN
+        ]
+
+        if plate and not plate.startswith("ID_"):
+            last_t = self._last_violation_plates.get(plate, 0)
+            if now - last_t < COOLDOWN:
+                print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng biển số {plate} "
+                      f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
+                return True
+
+        if cx is not None and cy is not None:
+            for px, py, pt in self._last_violation_positions:
+                dist = math.hypot(cx - px, cy - py)
+                if dist < DIST_PX and now - pt < COOLDOWN:
+                    print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng vị trí ID:{track_id} "
+                          f"(cách {dist:.0f}px, {now - pt:.0f}s trước).")
+                    return True
+
+        if plate and not plate.startswith("ID_"):
+            self._last_violation_plates[plate] = now
+        if cx is not None and cy is not None:
+            self._last_violation_positions.append((cx, cy, now))
+        return False
+
+    def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str,
+                                   initial_plate: str | None = None, center: tuple | None = None,
+                                   delay: float = 15.0):
+        """
+        Lên lịch gửi cảnh báo Telegram sau `delay` giây (mặc định 15s).
+        Trong thời gian chờ, nếu xe rời vùng cấm hoặc được Re-ID thì hủy timer.
+        """
         self.cancel_pending_warning(track_id)
 
         def fire():
-            # 1. Kiểm tra xe còn trong danh sách giám sát (waiting hoặc recording) không
+            # 1. Kiểm tra xe còn trong danh sách giám sát không
             if track_id not in self.waiting_vehicles and track_id not in self.active_recordings:
-                print(f"[ParkingManager] Bỏ qua gửi cảnh báo Telegram cho ID:{track_id} do xe không còn đỗ.")
+                print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn trong vùng cấm.")
                 return
 
-            # 2. Lấy biển số xe mới nhất được cập nhật từ OCR
+            # 2. Lấy biển số mới nhất từ OCR
             current_plate = None
             if track_id in self.waiting_vehicles:
                 current_plate = self.waiting_vehicles[track_id].get('plate')
             elif track_id in self.active_recordings:
                 current_plate = self.active_recordings[track_id].get('plate')
-            
             if not current_plate:
                 current_plate = initial_plate
 
-            now = time.time()
-
-            # 3a. Kiểm tra lọc trùng lặp theo biển số (trong 600 giây = 10 phút gần nhất)
-            if current_plate and not current_plate.startswith("ID_"):
-                # Dọn dẹp entries cũ hơn 15 phút để tránh memory leak
-                stale_plates = [p for p, t in self._last_notified_plates.items() if now - t > 900]
-                for p in stale_plates:
-                    del self._last_notified_plates[p]
-
-                last_time = self._last_notified_plates.get(current_plate, 0)
-                if now - last_time < 600.0:
-                    print(f"[ParkingManager] Bỏ qua gửi cảnh báo trùng lặp Telegram cho biển số {current_plate} (cooldown {now - last_time:.1f}s).")
-                    return
-                self._last_notified_plates[current_plate] = now
-
-            # 3b. Spatial Cooldown: Lọc trùng lặp theo vị trí tọa độ (cho cả xe chưa rõ biển số và xe bị nhảy ID)
-            vehicle_cx, vehicle_cy = None, None
+            # 3. Lấy vị trí hiện tại
+            vcx, vcy = None, None
             if track_id in self.last_seen:
-                vehicle_cx = self.last_seen[track_id]['cx']
-                vehicle_cy = self.last_seen[track_id]['cy']
-            elif track_id in self.track_id_map:
-                mapped = self.track_id_map[track_id]
-                if mapped in self.last_seen:
-                    vehicle_cx = self.last_seen[mapped]['cx']
-                    vehicle_cy = self.last_seen[mapped]['cy']
-            
-            # Fallback về center ban đầu nếu tracker tạm mất dấu
-            if vehicle_cx is None and center is not None:
-                vehicle_cx, vehicle_cy = center
+                vcx = self.last_seen[track_id]['cx']
+                vcy = self.last_seen[track_id]['cy']
+            elif center is not None:
+                vcx, vcy = center
 
-            if vehicle_cx is not None:
-                # Dọn dẹp vị trí cũ hơn 10 phút
-                if not hasattr(self, '_last_notified_positions'):
-                    self._last_notified_positions = []
-                self._last_notified_positions = [
-                    (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < 600.0
-                ]
-                # Kiểm tra có cảnh báo nào gửi gần đây (< 600s = 10 phút) tại cùng vị trí (< 120px) không
-                for px, py, pt in self._last_notified_positions:
-                    dist = math.hypot(vehicle_cx - px, vehicle_cy - py)
-                    if dist < 120.0 and now - pt < 600.0:
-                        print(f"[ParkingManager] Bỏ qua cảnh báo trùng vị trí cho ID:{track_id} "
-                              f"(cách vị trí đã cảnh báo {dist:.0f}px, {now - pt:.1f}s trước).")
-                        return
-                # Ghi nhận vị trí đã gửi cảnh báo
-                self._last_notified_positions.append((vehicle_cx, vehicle_cy, now))
+            # 4. Dedup
+            if self._check_notify_dedup(track_id, vcx, vcy, current_plate):
+                return
 
-            # 4. Tạo lại caption với biển số xe thực tế nếu có
+            # 5. Caption
             if current_plate and not current_plate.startswith("ID_"):
-                final_caption = f"⚠️ CẢNH BÁO: Xe biển số {current_plate} bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                final_caption = caption_template.replace("{PLATE}", current_plate)
             else:
-                final_caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại vùng cấm. Đang đếm giờ..."
+                final_caption = caption_template.replace("{PLATE}", "(chưa rõ biển số)")
 
-            # 5. Phát thông báo âm thanh TTS
+            # 6. TTS
             if self.tts_enabled:
                 try:
                     from modules.utils.tts_announcer import announce_plate_violation
@@ -267,10 +326,11 @@ class ParkingManager:
                 except Exception as tts_err:
                     print(f"[ParkingManager] Lỗi TTS: {tts_err}")
 
-            # 6. Gửi cảnh báo Telegram
+            # 7. Gửi Telegram
             threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
 
-        t = threading.Timer(5.0, fire)
+        eff_delay = max(0.5, float(delay))
+        t = threading.Timer(eff_delay, fire)
         t.daemon = True
         self.pending_telegram_warnings[track_id] = {
             'timer': t,
@@ -278,7 +338,47 @@ class ParkingManager:
             'center': center
         }
         t.start()
-        print(f"[ParkingManager] Đã lên lịch gửi cảnh báo Telegram cho ID:{track_id} sau 5 giây (debounce).")
+        print(f"[ParkingManager] Lên lịch cảnh báo sớm ID:{track_id} sau {eff_delay:.1f}s.")
+
+    def _schedule_violation_alert(self, track_id: int, img_t0, caption: str,
+                                   plate: str | None, cx: float | None, cy: float | None,
+                                   delay: float = 3.0):
+        """
+        Lên lịch gửi thông báo VI PHẠM sau `delay` giây.
+        Dùng registry dedup riêng biệt với cảnh báo sớm.
+        """
+        def fire():
+            if track_id not in self.active_recordings and track_id not in self.waiting_vehicles:
+                return
+            # Lấy biển số/vị trí mới nhất
+            cur_plate = plate
+            if track_id in self.active_recordings:
+                cur_plate = self.active_recordings[track_id].get('plate') or plate
+            vcx, vcy = cx, cy
+            if track_id in self.last_seen:
+                vcx = self.last_seen[track_id]['cx']
+                vcy = self.last_seen[track_id]['cy']
+            # Dedup riêng cho vi phạm
+            if self._check_violation_dedup(track_id, vcx, vcy, cur_plate):
+                return
+            final_cap = caption
+            if cur_plate and not cur_plate.startswith("ID_"):
+                final_cap = caption.replace("{PLATE}", cur_plate)
+            else:
+                final_cap = caption.replace("{PLATE}", "(chưa rõ biển số)")
+            # TTS
+            if self.tts_enabled:
+                try:
+                    from modules.utils.tts_announcer import announce_plate_violation
+                    announce_plate_violation(cur_plate or "")
+                except Exception:
+                    pass
+            threading.Thread(target=self._send_warning_thread, args=(img_t0, final_cap), daemon=True).start()
+
+        t = threading.Timer(max(0.5, delay), fire)
+        t.daemon = True
+        t.start()
+        print(f"[ParkingManager] Lên lịch thông báo vi phạm ID:{track_id} sau {delay:.1f}s.")
 
 
     def update_plate(self, track_id: int, plate: str):
@@ -380,17 +480,17 @@ class ParkingManager:
             (vx, vy, vp, vt) for vx, vy, vp, vt in self._recent_saved_violations if now_ts - vt < 900.0
         ]
 
-        # Kiểm tra chống lưu trùng lặp (cooldown 15 phút cho cùng 1 xe đỗ):
+        # Kiểm tra chống lưu trùng lặp (cooldown 15 phút)
         for vx, vy, vp, vt in self._recent_saved_violations:
-            # 1. Trùng biển số hợp lệ trong vòng 900 giây (15 phút)
             if raw_plate and not raw_plate.startswith("ID_") and vp == raw_plate and now_ts - vt < 900.0:
-                print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} (đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
+                print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} "
+                      f"(đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
                 return
-            # 2. Trùng vị trí trong vòng 900 giây (bán kính < 120px)
             if cx is not None and vx is not None:
                 dist = math.hypot(cx - vx, cy - vy)
                 if dist < 120.0 and now_ts - vt < 900.0:
-                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí cho ID:{track_id} (cách {dist:.0f}px, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
+                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí ID:{track_id} "
+                          f"(cách {dist:.0f}px, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
                     return
 
         self._recent_saved_violations.append((cx, cy, raw_plate, now_ts))
@@ -695,12 +795,19 @@ class ParkingManager:
                         'zone_name': zone_name,
                         'duration': int(zone_timeout)
                     }
+                    # Tầng 1: Gửi cảnh báo sớm sau 15s — xe đang đỗ nhưng chưa vi phạm
                     if self.telegram_enabled and self.save_to_db:
                         if license_plate and not license_plate.startswith("ID_"):
-                            caption = f"⚠️ CẢNH BÁO: Xe biển số {license_plate} bắt đầu đỗ tại {zone_name} (giới hạn: {int(zone_timeout)}s). Đang đếm giờ..."
+                            w_caption = (f"⚠️ CẢNH BÁO: Xe biển số {{PLATE}} đang đỗ tại {zone_name} "
+                                         f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
                         else:
-                            caption = f"⚠️ CẢNH BÁO: Phát hiện xe bắt đầu đỗ tại {zone_name} (giới hạn: {int(zone_timeout)}s). Đang đếm giờ..."
-                        self.schedule_telegram_warning(mapped_id, img_t0, caption, license_plate, center=(cx, cy))
+                            w_caption = (f"⚠️ CẢNH BÁO: Phát hiện xe đang đỗ tại {zone_name} "
+                                         f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
+                        self.schedule_telegram_warning(
+                            mapped_id, img_t0, w_caption,
+                            initial_plate=license_plate, center=(cx, cy),
+                            delay=15.0  # Gửi sau 15s đỗ, lọc xe lướt qua nhanh
+                        )
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
@@ -711,6 +818,8 @@ class ParkingManager:
                     start_time = waiting_data.get('start_time', datetime.datetime.now())
                     active_zone_name = waiting_data.get('zone_name', zone_name)
                     active_zone_time = waiting_data.get('duration', int(zone_timeout))
+                    # Lấy biển số đã cập nhật từ waiting_vehicles (OCR có thể đã điền vào)
+                    active_plate = waiting_data.get('plate') or license_plate
                     
                     img_t1 = clean_frame.copy()
                     self.draw_polygon_overlay(img_t1, f_thick)
@@ -728,10 +837,10 @@ class ParkingManager:
                         'frames_needed': int(10 * self.fps),
                         'img_t0': img_t0,
                         'img_t1': img_t1,
-                        'plate': license_plate,  # Lưu biển số thực tế hoặc None - sẽ cập nhật khi OCR xác nhận
+                        'plate': active_plate,
                         'start_time': start_time,
                         'label': label,
-                        'track_id': mapped_id,  # Lưu track_id gốc làm dự phòng (fallback)
+                        'track_id': mapped_id,
                         'bbox': bbox,
                         'zone_name': active_zone_name,
                         'duration': active_zone_time
@@ -741,6 +850,21 @@ class ParkingManager:
                     banner_h = int(80 * (h / 720))
                     cv2.rectangle(frame, (0, 0), (w, banner_h), (0, 0, 0), -1)
                     cv2.putText(frame, "VI PHAM: DO XE SAI QUY DINH!", (int(20 * (w/1280)), int(55 * (h/720))), cv2.FONT_HERSHEY_SIMPLEX, 1.1 * (w/1280), (0, 0, 255), f_thick + 1)
+
+                    # Tầng 2: Gửi thông báo VI PHẠM khi xác nhận đỗ quá thời gian
+                    if self.telegram_enabled and self.save_to_db:
+                        if active_plate and not str(active_plate).startswith("ID_"):
+                            v_caption = (f"🚨 VI PHẠM ĐỖ XE: Xe biển số {{PLATE}} đã đỗ quá {active_zone_time}s "
+                                         f"tại {active_zone_name}. Đang thu thập bằng chứng...")
+                        else:
+                            v_caption = (f"🚨 VI PHẠM ĐỖ XE: Phát hiện xe đỗ quá {active_zone_time}s "
+                                         f"tại {active_zone_name} (chưa rõ biển số). "
+                                         f"Đang thu thập bằng chứng...")
+                        self._schedule_violation_alert(
+                            mapped_id, img_t0, v_caption,
+                            plate=active_plate, cx=cx, cy=cy,
+                            delay=3.0  # Debounce nhỏ để lọc ID nhảy tức thì
+                        )
                     
             elif state == 3: # RECORDING_DONE
                 box_color = (0, 0, 255)
