@@ -63,6 +63,7 @@ class TestMultiParkingROI(unittest.TestCase):
         pm.save_to_db = False
         pm.telegram_enabled = False
         pm.stop_seconds = 8.0  # Mặc định camera
+        pm.MIN_NOTIFY_SECONDS = 0.0  # Tắt guard tối thiểu trong unit test per-zone logic
 
         # Thiết lập 2 vùng cấm độc lập:
         # Vùng 1: Cổng trường (10, 10) -> (100, 100), timeout = 2s
@@ -338,6 +339,108 @@ class TestMultiParkingROI(unittest.TestCase):
 
         print("-> [OK] Test 11: ParkingManager plate track fusion passed!")
 
+    def test_12_two_stage_notification_logic(self):
+        """
+        Kiểm tra logic thông báo 2 tầng:
+        - Tầng 1: Xe đỗ 15s -> cảnh báo sớm "xe đang đỗ" (schedule_telegram_warning, delay=15s)
+        - Tầng 2: Xe đỗ đủ zone_timeout -> thông báo vi phạm (_schedule_violation_alert, dedup riêng)
+        - _check_notify_dedup và _check_violation_dedup là 2 registry riêng biệt
+        """
+        import time as _time
+
+        fps = 10.0
+        pm = ParkingManager(None, None)
+        pm.save_to_db = True
+        pm.telegram_enabled = True
+        pm.tts_enabled = False
+        pm.MIN_NOTIFY_SECONDS = 0.0  # Tắt guard tối thiểu để test với zone_timeout nhỏ
+        pm.stop_seconds = 2.0
+
+        zone_poly = np.array([[0, 0], [200, 0], [200, 200], [0, 200]], dtype=np.int32)
+        pm.set_parking_zones([{"id": 1, "name": "Zone A", "polygon": zone_poly, "timeout": 2.0}])
+        pm.setup_detection(fps)
+
+        frame = np.zeros((400, 400, 3), dtype=np.uint8)
+        clean_frame = frame.copy()
+
+        # --- Bước 1: Frame 0 (MOVING)
+        pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
+                           cx=100, cy=100, frame_count=0, bbox=(90, 90, 110, 110),
+                           license_plate="51A-00001")
+
+        # --- Bước 2: Frame 1 (chuyển sang WAITING) -> Tầng 1: phải lên lịch cảnh báo sớm 15s
+        pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
+                           cx=100, cy=100, frame_count=1, bbox=(90, 90, 110, 110),
+                           license_plate="51A-00001")
+
+        self.assertIn(1, pm.waiting_vehicles, "Xe phải vào waiting_vehicles")
+        # Tầng 1: phải có pending_telegram_warnings (timer 15s đã được đặt)
+        self.assertIn(1, pm.pending_telegram_warnings,
+                      "Phải lên lịch cảnh báo sớm (15s) khi xe chuyển sang WAITING")
+        # Delay của timer phải là 15s
+        warning_timer = pm.pending_telegram_warnings[1]['timer']
+        self.assertAlmostEqual(warning_timer.interval, 15.0, places=1,
+                               msg="Timer cảnh báo sớm phải là 15s")
+
+        # --- Bước 3: Xe đỗ đủ zone_timeout -> VIOLATION -> Tầng 2
+        for f in range(2, 25):
+            label, color = pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
+                                              cx=100, cy=100, frame_count=f,
+                                              bbox=(90, 90, 110, 110), license_plate="51A-00001")
+
+        self.assertIn("VIOLATION", str(label), "Xe phải chuyển sang VIOLATION sau 2s")
+        # pending_telegram_warnings có thể vẫn còn (timer 15s chưa fire) hoặc đã cancel khi VIOLATION
+        # Quan trọng hơn: active_recordings phải có data
+        self.assertIn(1, pm.active_recordings, "Xe vi phạm phải vào active_recordings")
+
+        # Hủy timer cảnh báo sớm (nếu còn) để tránh thread leak trong test
+        pm.cancel_pending_warning(1)
+
+
+        # --- Bước 4: Kiểm tra 2 registry dedup RIÊNG BIỆT ---
+        pm2 = ParkingManager(None, None)
+        pm2.MIN_NOTIFY_SECONDS = 0.0
+
+        # 4a. Gửi cảnh báo sớm (warning) cho biển "51A-00001" -> OK, ghi vào _last_notified_plates
+        dup_w1 = pm2._check_notify_dedup(1, cx=100.0, cy=100.0, plate="51A-00001")
+        self.assertFalse(dup_w1, "Lần đầu warning không được bị block")
+
+        # 4b. Warning lần 2 cùng biển số -> bị block bởi warning registry
+        dup_w2 = pm2._check_notify_dedup(1, cx=100.0, cy=100.0, plate="51A-00001")
+        self.assertTrue(dup_w2, "Warning lần 2 cùng biển số phải bị block")
+
+        # 4c. VI PHẠM cùng biển số -> KHÔNG bị block vì dùng registry riêng (violation registry)
+        dup_v1 = pm2._check_violation_dedup(1, cx=100.0, cy=100.0, plate="51A-00001")
+        self.assertFalse(dup_v1,
+                         "Violation dedup KHÔNG bị block bởi warning dedup (registry riêng biệt)")
+
+        # 4d. Vi phạm lần 2 cùng biển số -> bị block bởi violation registry
+        dup_v2 = pm2._check_violation_dedup(1, cx=100.0, cy=100.0, plate="51A-00001")
+        self.assertTrue(dup_v2, "Violation lần 2 cùng biển số phải bị block")
+
+        # 4e. Vị trí khác hoàn toàn, biển số mới -> cả 2 registry đều OK
+        dup_new_w = pm2._check_notify_dedup(2, cx=350.0, cy=350.0, plate="33B-99999")
+        dup_new_v = pm2._check_violation_dedup(2, cx=350.0, cy=350.0, plate="33B-99999")
+        self.assertFalse(dup_new_w, "Vị trí/biển số mới: warning không bị block")
+        self.assertFalse(dup_new_v, "Vị trí/biển số mới: violation không bị block")
+
+        # --- Bước 5: MIN_NOTIFY_SECONDS là ngưỡng tối thiểu của zone_timeout
+        pm3 = ParkingManager(None, None)
+        pm3.MIN_NOTIFY_SECONDS = 15.0
+
+        short_zone_poly = np.array([[0, 0], [100, 0], [100, 100], [0, 100]], dtype=np.int32)
+        pm3.set_parking_zones([
+            {"id": 1, "name": "Zone B", "polygon": short_zone_poly, "timeout": 5.0},   # < 15s -> clamp
+            {"id": 2, "name": "Zone C", "polygon": short_zone_poly, "timeout": 30.0},  # >= 15s -> giữ nguyên
+        ])
+        self.assertAlmostEqual(pm3.no_park_zones[0]["timeout"], 15.0, places=1,
+                               msg="zone_timeout < MIN_NOTIFY_SECONDS phải được clamp lên 15s")
+        self.assertAlmostEqual(pm3.no_park_zones[1]["timeout"], 30.0, places=1,
+                               msg="zone_timeout >= MIN_NOTIFY_SECONDS giữ nguyên")
+
+        print("-> [OK] Test 12: Two-stage notification (Warning@15s + Violation@zone_timeout); separate dedup registries; MIN_NOTIFY_SECONDS zone floor!")
+
 
 if __name__ == "__main__":
     unittest.main()
+
