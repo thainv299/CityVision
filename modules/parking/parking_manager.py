@@ -237,6 +237,20 @@ class ParkingManager:
         if cx is not None and cy is not None:
             self._last_notified_positions.append((cx, cy, now))
         return False  # chưa thông báo, OK để gửi
+    def _is_in_any_zone(self, cx: float, cy: float) -> bool:
+        """
+        Kiểm tra tọa độ (cx, cy) có nằm trong bất kỳ vùng cấm nào không.
+        Dùng để verify xe thực sự vẫn còn trong vùng trước khi gửi thông báo.
+        """
+        for z in self.no_park_zones:
+            poly = z.get("polygon")
+            if poly is not None and len(poly) >= 3:
+                if cv2.pointPolygonTest(poly, (float(cx), float(cy)), False) >= 0:
+                    return True
+        if self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
+            if cv2.pointPolygonTest(self._no_park_polygon, (float(cx), float(cy)), False) >= 0:
+                return True
+        return False
 
     def _check_violation_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
         """
@@ -308,6 +322,13 @@ class ParkingManager:
             elif center is not None:
                 vcx, vcy = center
 
+            # 3b. ✅ Kiểm tra vị trí cuối cùng có thực sự còn trong vùng cấm không
+            # (tránh gửi thông báo khi xe đã rời khỏi vùng nhưng timer chưa bị hủy)
+            if vcx is not None and vcy is not None:
+                if not self._is_in_any_zone(vcx, vcy):
+                    print(f"[ParkingManager] Hủy cảnh báo sớm ID:{track_id} – xe đã rời khỏi vùng cấm.")
+                    return
+
             # 4. Dedup
             if self._check_notify_dedup(track_id, vcx, vcy, current_plate):
                 return
@@ -358,9 +379,15 @@ class ParkingManager:
             if track_id in self.last_seen:
                 vcx = self.last_seen[track_id]['cx']
                 vcy = self.last_seen[track_id]['cy']
+            # ✅ Kiểm tra xe còn trong vùng cấm tại thời điểm fire
+            if vcx is not None and vcy is not None:
+                if not self._is_in_any_zone(vcx, vcy):
+                    print(f"[ParkingManager] Hủy thông báo vi phạm ID:{track_id} – xe đã rời khỏi vùng cấm.")
+                    return
             # Dedup riêng cho vi phạm
             if self._check_violation_dedup(track_id, vcx, vcy, cur_plate):
                 return
+
             final_cap = caption
             if cur_plate and not cur_plate.startswith("ID_"):
                 final_cap = caption.replace("{PLATE}", cur_plate)
