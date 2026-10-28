@@ -62,7 +62,10 @@ class ParkingManager:
         self._last_notified_positions = []     # Registry dedup cảnh báo sớm (vị trí)
         self._last_violation_plates = {}       # Registry dedup thông báo vi phạm (riêng biệt)
         self._last_violation_positions = []    # Registry dedup thông báo vi phạm (vị trí)
+        self._dedup_lock = threading.Lock()    # Lock ngăn race condition giữa 2 timer thread
         self._recent_saved_violations = []
+        # Số frame tối thiểu xe phải đứng yên trước khi lên lịch cảnh báo sớm
+        self.MIN_STATIONARY_FRAMES = 5
 
     @property
     def no_park_polygon(self):
@@ -180,6 +183,7 @@ class ParkingManager:
         self._last_notified_positions = []  # List of (cx, cy, timestamp) cho spatial cooldown
         self._last_violation_plates = {}   # Dedup riêng cho thông báo vi phạm
         self._last_violation_positions = []
+        self._dedup_lock = threading.Lock()
         # Dict nhận cập nhật biển số async từ OCR: {track_id: plate_str}
         self._pending_plate_updates: dict = {}
 
@@ -202,41 +206,58 @@ class ParkingManager:
         Nếu OK, tự động ghi nhận vị trí/biển số vào cooldown registry.
         Cooldown: 900s (15 phút) cho cả biển số và vị trí.
         """
-        now = time.time()
-        COOLDOWN = 900.0
-        DIST_PX   = 120.0
+        with self._dedup_lock:  # Lock ngăn race condition giữa 2 thread timer
+            now = time.time()
+            COOLDOWN = 900.0
+            DIST_PX   = 120.0
 
-        # Dọn entries cũ
-        stale = [p for p, t in self._last_notified_plates.items() if now - t > COOLDOWN]
-        for p in stale:
-            del self._last_notified_plates[p]
-        self._last_notified_positions = [
-            (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < COOLDOWN
-        ]
+            # Dọn entries cũ
+            stale = [p for p, t in self._last_notified_plates.items() if now - t > COOLDOWN]
+            for p in stale:
+                del self._last_notified_plates[p]
+            self._last_notified_positions = [
+                (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < COOLDOWN
+            ]
 
-        # Dedup theo biển số
-        if plate and not plate.startswith("ID_"):
-            last_t = self._last_notified_plates.get(plate, 0)
-            if now - last_t < COOLDOWN:
-                print(f"[ParkingManager] Bỏ qua thông báo trùng biển số {plate} "
-                      f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
-                return True  # đã thông báo
+            # Dedup theo biển số
+            if plate and not plate.startswith("ID_"):
+                last_t = self._last_notified_plates.get(plate, 0)
+                if now - last_t < COOLDOWN:
+                    print(f"[ParkingManager] Bỏ qua thông báo trùng biển số {plate} "
+                          f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
+                    return True
 
-        # Dedup theo vị trí
-        if cx is not None and cy is not None:
-            for px, py, pt in self._last_notified_positions:
-                dist = math.hypot(cx - px, cy - py)
-                if dist < DIST_PX and now - pt < COOLDOWN:
-                    print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí ID:{track_id} "
-                          f"(cách {dist:.0f}px, đã thông báo {now - pt:.0f}s trước).")
-                    return True  # đã thông báo
+            # Dedup theo vị trí
+            if cx is not None and cy is not None:
+                for px, py, pt in self._last_notified_positions:
+                    dist = math.hypot(cx - px, cy - py)
+                    if dist < DIST_PX and now - pt < COOLDOWN:
+                        print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí ID:{track_id} "
+                              f"(cách {dist:.0f}px, đã thông báo {now - pt:.0f}s trước).")
+                        return True
 
-        # Ghi nhận (chỉ khi sẽ thực sự gửi)
-        if plate and not plate.startswith("ID_"):
-            self._last_notified_plates[plate] = now
-        if cx is not None and cy is not None:
-            self._last_notified_positions.append((cx, cy, now))
-        return False  # chưa thông báo, OK để gửi
+            # Ghi nhận (chỉ khi sẽ thực sự gửi)
+            if plate and not plate.startswith("ID_"):
+                self._last_notified_plates[plate] = now
+            if cx is not None and cy is not None:
+                self._last_notified_positions.append((cx, cy, now))
+            return False  # chưa thông báo, OK để gửi
+
+    def _is_in_any_zone(self, cx: float, cy: float) -> bool:
+
+        """
+        Kiểm tra tọa độ (cx, cy) có nằm trong bất kỳ vùng cấm nào không.
+        Dùng để verify xe thực sự vẫn còn trong vùng trước khi gửi thông báo.
+        """
+        for z in self.no_park_zones:
+            poly = z.get("polygon")
+            if poly is not None and len(poly) >= 3:
+                if cv2.pointPolygonTest(poly, (float(cx), float(cy)), False) >= 0:
+                    return True
+        if self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
+            if cv2.pointPolygonTest(self._no_park_polygon, (float(cx), float(cy)), False) >= 0:
+                return True
+        return False
 
     def _check_violation_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
         """
@@ -244,37 +265,38 @@ class ParkingManager:
         Đảm bảo cảnh báo vi phạm luôn được gửi dù đã có warning trước đó.
         Cooldown: 900s cho cả biển số và vị trí.
         """
-        now = time.time()
-        COOLDOWN = 900.0
-        DIST_PX = 120.0
+        with self._dedup_lock:  # Lock ngăn race condition
+            now = time.time()
+            COOLDOWN = 900.0
+            DIST_PX = 120.0
 
-        stale = [p for p, t in self._last_violation_plates.items() if now - t > COOLDOWN]
-        for p in stale:
-            del self._last_violation_plates[p]
-        self._last_violation_positions = [
-            (px, py, pt) for px, py, pt in self._last_violation_positions if now - pt < COOLDOWN
-        ]
+            stale = [p for p, t in self._last_violation_plates.items() if now - t > COOLDOWN]
+            for p in stale:
+                del self._last_violation_plates[p]
+            self._last_violation_positions = [
+                (px, py, pt) for px, py, pt in self._last_violation_positions if now - pt < COOLDOWN
+            ]
 
-        if plate and not plate.startswith("ID_"):
-            last_t = self._last_violation_plates.get(plate, 0)
-            if now - last_t < COOLDOWN:
-                print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng biển số {plate} "
-                      f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
-                return True
-
-        if cx is not None and cy is not None:
-            for px, py, pt in self._last_violation_positions:
-                dist = math.hypot(cx - px, cy - py)
-                if dist < DIST_PX and now - pt < COOLDOWN:
-                    print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng vị trí ID:{track_id} "
-                          f"(cách {dist:.0f}px, {now - pt:.0f}s trước).")
+            if plate and not plate.startswith("ID_"):
+                last_t = self._last_violation_plates.get(plate, 0)
+                if now - last_t < COOLDOWN:
+                    print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng biển số {plate} "
+                          f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
                     return True
 
-        if plate and not plate.startswith("ID_"):
-            self._last_violation_plates[plate] = now
-        if cx is not None and cy is not None:
-            self._last_violation_positions.append((cx, cy, now))
-        return False
+            if cx is not None and cy is not None:
+                for px, py, pt in self._last_violation_positions:
+                    dist = math.hypot(cx - px, cy - py)
+                    if dist < DIST_PX and now - pt < COOLDOWN:
+                        print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng vị trí ID:{track_id} "
+                              f"(cách {dist:.0f}px, {now - pt:.0f}s trước).")
+                        return True
+
+            if plate and not plate.startswith("ID_"):
+                self._last_violation_plates[plate] = now
+            if cx is not None and cy is not None:
+                self._last_violation_positions.append((cx, cy, now))
+            return False
 
     def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str,
                                    initial_plate: str | None = None, center: tuple | None = None,
@@ -288,10 +310,20 @@ class ParkingManager:
         def fire():
             # 1. Kiểm tra xe còn trong danh sách giám sát không
             if track_id not in self.waiting_vehicles and track_id not in self.active_recordings:
-                print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn trong vùng cấm.")
+                print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn được theo dõi.")
                 return
 
-            # 2. Lấy biển số mới nhất từ OCR
+            # 2. Kiểm tra xe còn được phát hiện gần đây (staleness check)
+            # Nếu ByteTrack mất track (xe đã ra khỏi ảnh/vùng), last_seen sẽ cũ và không cập nhật
+            STALENESS_THRESHOLD = 4.0  # giây
+            if track_id in self.last_seen:
+                time_since_seen = time.time() - self.last_seen[track_id].get('last_time', 0)
+                if time_since_seen > STALENESS_THRESHOLD:
+                    print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn được phát hiện ({time_since_seen:.1f}s).")
+                    self.waiting_vehicles.pop(track_id, None)
+                    return
+
+            # 3. Lấy biển số mới nhất từ OCR
             current_plate = None
             if track_id in self.waiting_vehicles:
                 current_plate = self.waiting_vehicles[track_id].get('plate')
@@ -300,7 +332,7 @@ class ParkingManager:
             if not current_plate:
                 current_plate = initial_plate
 
-            # 3. Lấy vị trí hiện tại
+            # 4. Lấy vị trí hiện tại
             vcx, vcy = None, None
             if track_id in self.last_seen:
                 vcx = self.last_seen[track_id]['cx']
@@ -308,7 +340,13 @@ class ParkingManager:
             elif center is not None:
                 vcx, vcy = center
 
-            # 4. Dedup
+            # 5.Kiểm tra vị trí cuối cùng có thực sự còn trong vùng cấm không
+            if vcx is not None and vcy is not None:
+                if not self._is_in_any_zone(vcx, vcy):
+                    print(f"[ParkingManager] Hủy cảnh báo sớm ID:{track_id} – xe đã rời khỏi vùng cấm.")
+                    return
+
+            # 6. Dedup (có lock bên trong)
             if self._check_notify_dedup(track_id, vcx, vcy, current_plate):
                 return
 
@@ -350,6 +388,13 @@ class ParkingManager:
         def fire():
             if track_id not in self.active_recordings and track_id not in self.waiting_vehicles:
                 return
+            # Staleness check cho violation
+            STALENESS_THRESHOLD = 4.0
+            if track_id in self.last_seen:
+                time_since_seen = time.time() - self.last_seen[track_id].get('last_time', 0)
+                if time_since_seen > STALENESS_THRESHOLD:
+                    print(f"[ParkingManager] Hủy vi phạm ID:{track_id} – xe không còn được phát hiện ({time_since_seen:.1f}s).")
+                    return
             # Lấy biển số/vị trí mới nhất
             cur_plate = plate
             if track_id in self.active_recordings:
@@ -358,9 +403,15 @@ class ParkingManager:
             if track_id in self.last_seen:
                 vcx = self.last_seen[track_id]['cx']
                 vcy = self.last_seen[track_id]['cy']
+            # ✅ Kiểm tra xe còn trong vùng cấm
+            if vcx is not None and vcy is not None:
+                if not self._is_in_any_zone(vcx, vcy):
+                    print(f"[ParkingManager] Hủy thông báo vi phạm ID:{track_id} – xe đã rời khỏi vùng cấm.")
+                    return
             # Dedup riêng cho vi phạm
             if self._check_violation_dedup(track_id, vcx, vcy, cur_plate):
                 return
+
             final_cap = caption
             if cur_plate and not cur_plate.startswith("ID_"):
                 final_cap = caption.replace("{PLATE}", cur_plate)
