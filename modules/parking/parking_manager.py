@@ -877,7 +877,8 @@ class ParkingManager:
                     if bbox is not None:
                         x1, y1, x2, y2 = bbox
                         cv2.rectangle(img_t1, (x1, y1), (x2, y2), box_color, f_thick + 2)
-                        txt = f"{label.upper()} {mapped_id} - VI PHAM! ({active_zone_name})"
+                        clean_active_zone_name = strip_vietnamese_accents(str(active_zone_name)).upper()
+                        txt = f"{label.upper()} {mapped_id} - VI PHAM! ({clean_active_zone_name})"
                         (tw, th), bl = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, f_scale + 0.1, f_thick + 1)
                         ty = max(th + 5, y1 - 5)
                         cv2.rectangle(img_t1, (x1, ty - th - 5), (x1 + tw + 5, ty + bl + 2), box_color, -1)
