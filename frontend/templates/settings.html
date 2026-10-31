@@ -600,7 +600,7 @@
                 body: JSON.stringify(payload)
             });
 
-            // 2. Lưu cấu hình hệ thống (Log retention, Telegram, WAN, OCR)
+            // 2. Lưu cấu hình hệ thống (Log retention, Telegram, WAN, OCR, Labels)
             const systemPayload = {
                 log_retention: document.getElementById('setting-log-retention').value,
                 telegram_notifications: document.getElementById('setting-telegram-notifications').value,
@@ -609,7 +609,7 @@
                 ocr_interval: parseInt(document.getElementById('setting-ocr-interval').value),
                 ocr_preprocess_perspective: document.getElementById('setting-ocr-preprocess-perspective').checked,
                 ocr_preprocess_grayscale: document.getElementById('setting-ocr-preprocess-grayscale').checked,
-                ocr_preprocess_magnify: document.getElementById('setting-ocr-preprocess-magnify').checked
+                ocr_preprocess_magnify: document.getElementById('setting-ocr-preprocess-magnify').checked,
             };
             const sysResponse = await fetch('/api/system/settings', {
                 method: 'PUT',
@@ -624,13 +624,21 @@
                 feedback.style.color = '#166534';
                 feedback.innerHTML = '<i class="fas fa-check" style="margin-right: 4px;"></i> Cấu hình đã được áp dụng động thành công';
 
-                // Hiệu ứng micro-animation
+                // Hiển thị Popup Toast nổi bật ngay góc màn hình (không cần lăn lên đầu trang)
+                if (window.portalApi && typeof window.portalApi.showToast === 'function') {
+                    window.portalApi.showToast('Đã lưu cấu hình và áp dụng thành công!', 'success', 'Thành công');
+                }
+
+                // Hiệu ứng micro-animation tại thanh tiêu đề
                 feedback.style.opacity = '1';
                 setTimeout(() => {
                     feedback.style.opacity = '0';
                     setTimeout(() => { feedback.textContent = ''; feedback.style.opacity = '1'; }, 300);
                 }, 4000);
             } else {
+                if (window.portalApi && typeof window.portalApi.showToast === 'function') {
+                    window.portalApi.showToast(result.error || result.message || 'Lỗi khi lưu cấu hình', 'error', 'Thất bại');
+                }
                 alert('Lỗi khi lưu cấu hình: ' + (result.error || result.message || 'Lỗi không xác định'));
             }
         } catch (error) {
