@@ -1126,7 +1126,21 @@ def process_video(
                     if not success:
                         break
                 else:
-                    break
+                    # Doi voi RTSP / Live camera: Thu doc lai lien tuc khi mang bi giat/lag thay vi thoat ngay
+                    retry_success = False
+                    for _ in range(15):  # Cho toi da ~15s cho luong RTSP reconnect tu dong
+                        time.sleep(1.0)
+                        if pause_event and pause_event.is_set():
+                            break
+                        success_retry, frame_retry = capture.read()
+                        if success_retry and frame_retry is not None:
+                            frame = frame_retry
+                            retry_success = True
+                            print(f'[AI - Camera {camera_id}] Luong RTSP da tu dong phuc hoi ket noi thanh cong.')
+                            break
+                    if not retry_success:
+                        print(f'[AI - Camera {camera_id}] Mat ket noi luong RTSP qua 15 giay. Ket thuc phien de bo tu dong phuc hoi khoi dong lai.')
+                        break
 
             clean_frame = frame.copy()
 

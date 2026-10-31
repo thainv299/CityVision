@@ -159,6 +159,7 @@ class JobUseCases:
         """Luồng đón dữ liệu tiến độ từ các tiến trình con để cập nhật vào RAM tiến trình chính FastAPI."""
         import queue
         last_check_time = time.time()
+        last_auto_heal_time = time.time()
         while True:
             # Kiểm tra timeout cho các job tạm thời cứ sau mỗi 3 giây
             now = time.time()
@@ -168,6 +169,14 @@ class JobUseCases:
                     self._check_temporary_jobs_timeouts()
                 except Exception as e:
                     print(f"[System] Lỗi khi quét timeout: {e}")
+
+            # Tự động phục hồi (Auto-healing) cho camera nền active mỗi 20 giây
+            if now - last_auto_heal_time >= 20.0:
+                last_auto_heal_time = now
+                try:
+                    self._auto_heal_active_cameras()
+                except Exception as e:
+                    print(f"[System] Lỗi khi auto-heal camera nền: {e}")
 
             try:
                 msg = self.progress_queue.get(timeout=1.0)
@@ -571,8 +580,26 @@ class JobUseCases:
                         job.message = "Stream bị ngắt kết nối."
                         self._cleanup_process(job_id)
 
+    def _auto_heal_active_cameras(self):
+        """Tự động khôi phục các job background_ bị dừng hoặc mất kết nối RTSP bất thường."""
+        if not hasattr(self, '_camera_use_cases') or self._camera_use_cases is None:
+            return
+        active_cameras = self._camera_use_cases.list_cameras()
+        for cam in active_cameras:
+            if not cam.is_active:
+                continue
+            job_id = f"background_{cam.id}"
+            with self.job_lock:
+                job = self.jobs.get(job_id)
+                is_dead = (job is None) or (job.status in {"completed", "failed", "aborted"})
+            if is_dead:
+                print(f"[Auto-Heal] Phát hiện camera active {cam.name} (ID: {cam.id}) bị dừng/ngắt. Đang tự động kết nối lại...")
+                self.start_active_cameras(self._camera_use_cases)
+                break
+
     def start_active_cameras(self, camera_use_cases: Any):
         """Khởi động tất cả các camera đang hoạt động (is_active=True)"""
+        self._camera_use_cases = camera_use_cases
         try:
             active_cameras = camera_use_cases.list_cameras()
             for cam in active_cameras:
