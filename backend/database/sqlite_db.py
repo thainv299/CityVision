@@ -242,6 +242,7 @@ def init_db() -> None:
                 congestion_threshold INTEGER NOT NULL DEFAULT 35,
                 parking_violation_time INTEGER NOT NULL DEFAULT 30,
                 log_retention TEXT NOT NULL DEFAULT '30_days',
+                enabled_detect_labels TEXT,
                 FOREIGN KEY (camera_id) REFERENCES camera(id) ON DELETE CASCADE
             );
 
@@ -392,6 +393,16 @@ def init_db() -> None:
         if "bat_phat_hien_vu_khi" not in camera_columns:
             connection.execute(
                 "ALTER TABLE camera ADD COLUMN bat_phat_hien_vu_khi INTEGER NOT NULL DEFAULT 1"
+            )
+
+        # Cột enabled_detect_labels trong cai_dat_camera
+        cai_dat_cam_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(cai_dat_camera)").fetchall()
+        }
+        if "enabled_detect_labels" not in cai_dat_cam_columns:
+            connection.execute(
+                "ALTER TABLE cai_dat_camera ADD COLUMN enabled_detect_labels TEXT"
             )
 
 
@@ -1339,20 +1350,30 @@ def get_dashboard_stats_data() -> dict:
 
 def get_camera_settings(camera_id: int) -> dict:
     """Lấy cấu hình riêng biệt của một camera"""
+    import json
     with connect() as connection:
         row = connection.execute(
-            "SELECT confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention FROM cai_dat_camera WHERE camera_id = ?",
+            "SELECT confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention, enabled_detect_labels FROM cai_dat_camera WHERE camera_id = ?",
             (camera_id,)
         ).fetchone()
         
         if row:
+            raw_labels = row["enabled_detect_labels"]
+            labels_list = None
+            if raw_labels:
+                try:
+                    labels_list = json.loads(raw_labels)
+                except Exception:
+                    labels_list = None
+
             return {
                 "camera_id": camera_id,
                 "confidence": float(row["confidence"]),
                 "frame_skip": int(row["frame_skip"]),
                 "congestion_threshold": int(row["congestion_threshold"]),
                 "parking_violation_time": int(row["parking_violation_time"]),
-                "log_retention": row["log_retention"]
+                "log_retention": row["log_retention"],
+                "enabled_detect_labels": labels_list
             }
         
         # Fallback về mặc định
@@ -1362,16 +1383,34 @@ def get_camera_settings(camera_id: int) -> dict:
             "frame_skip": 2,
             "congestion_threshold": 35,
             "parking_violation_time": 30,
-            "log_retention": "30_days"
+            "log_retention": "30_days",
+            "enabled_detect_labels": None
         }
 
 def update_camera_settings(camera_id: int, settings: dict) -> None:
     """Cập nhật cấu hình riêng biệt của một camera"""
+    import json
+    raw_labels = settings.get("enabled_detect_labels")
+    if raw_labels is not None and isinstance(raw_labels, list):
+        labels_json = json.dumps(raw_labels)
+    elif isinstance(raw_labels, str):
+        labels_json = raw_labels
+    else:
+        labels_json = None
+
     with connect() as connection:
+        # Nếu đã có cấu hình nhưng không truyền enabled_detect_labels thì giữ nguyên
+        existing = connection.execute(
+            "SELECT enabled_detect_labels FROM cai_dat_camera WHERE camera_id = ?",
+            (camera_id,)
+        ).fetchone()
+        if labels_json is None and existing:
+            labels_json = existing["enabled_detect_labels"]
+
         connection.execute(
             """
-            INSERT OR REPLACE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO cai_dat_camera (camera_id, confidence, frame_skip, congestion_threshold, parking_violation_time, log_retention, enabled_detect_labels)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 camera_id,
@@ -1379,7 +1418,8 @@ def update_camera_settings(camera_id: int, settings: dict) -> None:
                 int(settings.get("frame_skip", 2)),
                 int(settings.get("congestion_threshold", 35)),
                 int(settings.get("parking_violation_time", 30)),
-                settings.get("log_retention", "30_days")
+                settings.get("log_retention", "30_days"),
+                labels_json
             )
         )
         connection.commit()

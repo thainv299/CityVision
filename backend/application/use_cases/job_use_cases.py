@@ -629,6 +629,7 @@ class JobUseCases:
                         "process_every_n_frames": cam_settings.get("frame_skip", 2),
                         "congestion_threshold": cam_settings.get("congestion_threshold", 35),
                         "stop_seconds": cam_settings.get("parking_violation_time", 30),
+                        "enabled_detect_labels": cam_settings.get("enabled_detect_labels", None),
                         "save_to_db": True
                     }
                     

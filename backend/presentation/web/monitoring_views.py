@@ -168,6 +168,7 @@ def _build_test_settings(form_data: Dict[str, Any], camera: Any) -> Dict[str, An
         "show_box_mask": _parse_bool(form_data.get("show_box_mask"), True),
         "show_box_backpack": _parse_bool(form_data.get("show_box_backpack"), True),
         "show_label": _parse_bool(form_data.get("show_label"), True),
+        "enabled_detect_labels": cam_settings.get("enabled_detect_labels", None),
     }
 
 
