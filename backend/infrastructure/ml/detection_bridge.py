@@ -679,6 +679,48 @@ def _get_drawing_params(width: int) -> Tuple[float, int, int]:
     return font_scale, thickness, offset
 
 
+def _is_frame_valid(frame) -> bool:
+    """
+    Check if an RTSP frame is valid (not corrupted by packet loss).
+    Returns False when frame:
+    - Is None or wrong shape
+    - Is mostly white (overexposed) or black (underexposed)
+    - Shows H.264 green/pink corruption artifact (high green channel, low R+B)
+    - Has near-zero std (blank frame)
+    """
+    import numpy as np
+    if frame is None:
+        return False
+    if not isinstance(frame, np.ndarray) or frame.ndim < 3 or frame.shape[2] < 3:
+        return False
+    h, w = frame.shape[:2]
+    if h < 4 or w < 4:
+        return False
+
+    # 1. Mostly white or black
+    gray = frame.mean(axis=2)
+    white_ratio = float((gray >= 250).mean())
+    black_ratio = float((gray <= 5).mean())
+    if white_ratio > 0.75 or black_ratio > 0.85:
+        return False
+
+    # 2. H.264 corrupt green artifact: G channel dominant, R+B very low
+    b_mean = float(frame[:, :, 0].mean())
+    g_mean = float(frame[:, :, 1].mean())
+    r_mean = float(frame[:, :, 2].mean())
+    if g_mean > 140 and (r_mean + b_mean) / 2.0 < 90 and g_mean > (r_mean + b_mean):
+        return False
+    # Pink artifact: R and B both high, G low
+    if r_mean > 150 and b_mean > 150 and g_mean < 60:
+        return False
+
+    # 3. Std too low => blank/single-color frame
+    if float(frame.std()) < 3.0:
+        return False
+
+    return True
+
+
 def _load_model(model_path: Path) -> YOLO:
     """Tải model YOLO, hỗ trợ TensorRT .engine."""
     model_str = str(model_path)
@@ -894,6 +936,8 @@ def process_video(
     pending_alpr_tracks = {} # track_id -> { "last_seen": frame_idx, "best_image": (frame, bbox) | None, "seen_count": int, "label": str }
 
     frame_index = 0
+    consecutive_invalid_frames = 0  # Count consecutive corrupt frames
+    MAX_INVALID_FRAMES = 30  # If >30 corrupt frames in a row -> treat as dead stream
     last_results = None
     started_at = time.time()
     latest_status = ""
@@ -1141,6 +1185,15 @@ def process_video(
                     if not retry_success:
                         print(f'[AI - Camera {camera_id}] Mat ket noi luong RTSP qua 15 giay. Ket thuc phien de bo tu dong phuc hoi khoi dong lai.')
                         break
+
+            # Skip frames corrupted by RTSP packet loss
+            if not _is_frame_valid(frame):
+                consecutive_invalid_frames += 1
+                if consecutive_invalid_frames > MAX_INVALID_FRAMES:
+                    print(f'[AI - Cam {camera_id}] Too many consecutive corrupt frames ({consecutive_invalid_frames}). Breaking to trigger auto-heal restart.')
+                    break
+                continue
+            consecutive_invalid_frames = 0
 
             clean_frame = frame.copy()
 
