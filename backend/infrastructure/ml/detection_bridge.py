@@ -1190,8 +1190,8 @@ def process_video(
             if not _is_frame_valid(frame):
                 consecutive_invalid_frames += 1
                 if consecutive_invalid_frames > MAX_INVALID_FRAMES:
-                    print(f'[AI - Cam {camera_id}] Too many consecutive corrupt frames ({consecutive_invalid_frames}), stream may be dead.')
-                    consecutive_invalid_frames = 0
+                    print(f'[AI - Cam {camera_id}] Too many consecutive corrupt frames ({consecutive_invalid_frames}). Breaking to trigger auto-heal restart.')
+                    break
                 continue
             consecutive_invalid_frames = 0
 
