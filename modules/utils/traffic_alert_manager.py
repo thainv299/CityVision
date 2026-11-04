@@ -2,31 +2,41 @@ import datetime
 import time
 import os
 import cv2
-# import pyttsx3
-# import threading
 from backend.core.config import DATABASE_PATH
-from modules.utils.interactive_telegram_bot import send_alert_with_button
+from modules.utils.interactive_telegram_bot import send_alert_with_button, send_clear_alert
 
 class TrafficAlertManager:
+    """
+    Quản lý cảnh báo tắc nghẽn giao thông thông minh:
+    - Debounce 15 giây chống nhiễu tức thời
+    - Quản lý cảnh báo theo Phiên (Incident / Session State):
+        + Trong cùng 1 phiên, chỉ cảnh báo 1 lần cho mỗi cấp độ.
+        + Dao động lùi (ví dụ 2 -> 1 -> 2) KHÔNG gửi lại Mức 2.
+        + Chỉ gửi ngay khi mức độ tăng vọt nghiêm trọng hơn (ví dụ 2 -> 3).
+    - Nhắc nhở định kỳ sau 5 phút (300 giây) nếu tình trạng >= Mức 2 kéo dài liên tục và chưa bấm Xác nhận.
+    - Tự động gửi thông báo "Đã thông thoáng trở lại" khi đường vắng liên tục >= 30 giây để khép lại phiên.
+    """
     def __init__(self):
-        # Cấu hình thời gian đếm ngược tĩnh (giây)
-        self.DEBOUNCE_SECONDS = 5
-        self.TRUE_CLEAR_SECONDS = 25.0 # Số giây đường TRỐNG LIÊN TỤC để được coi là hết kẹt xe hoàn toàn
-        self.INTERVAL_UNACK = {1: 300, 2: 60, 3: 30}
-        self.SNOOZE_ACK = {1: 900, 2: 600, 3: 300}
-        self.ALERT_COOLDOWN = {1: 180.0, 2: 120.0, 3: 60.0} # Giãn cách tối thiểu giữa 2 lần gửi tin cho cùng 1 mức
+        # Cấu hình thời gian (giây)
+        self.DEBOUNCE_SECONDS = 15.0       # Cần 15s trạng thái ổn định để xác nhận mức mới
+        self.TRUE_CLEAR_SECONDS = 30.0      # Đường trống liên tục 30s để khép lại phiên hoàn toàn
+        self.REMINDER_INTERVAL = 300.0      # Nhắc lại sau 5 phút (300s) nếu vẫn đông và chưa xác nhận
+        self.SNOOZE_AFTER_ACK = 600.0       # Tạm ngưng 10 phút sau khi người dùng bấm Xác nhận trên Telegram
         
-        # Các biến trạng thái quản lý (Debounce & Tiết chế Cảnh báo)
+        # Các biến quản lý Debounce
         self.pending_level = 0
-        self.pending_start_time = 0
+        self.pending_start_time = 0.0
         self.confirmed_level = 0
-        self.last_alert_level = 0
-        self.snooze_until = 0
-        self.is_acknowledged = False
-        self.clear_start_time = 0
-        self.last_sent_alert_time = {}
         
-        # AsyncIOWorker (inject từ bên ngoài, nếu None sẽ fallback gọi đồng bộ)
+        # Quản lý theo Phiên (Session / Incident State)
+        self.session_active = False         # Cờ đánh dấu đang có 1 sự cố đông đúc diễn ra
+        self.session_max_level = 0          # Mức cao nhất đã phát cảnh báo trong phiên hiện tại
+        self.last_alert_time = 0.0          # Thời điểm gửi tin nhắn cảnh báo gần nhất
+        self.clear_start_time = 0.0         # Thời điểm bắt đầu vắng đường (Mức 0)
+        self.is_acknowledged = False        # Người dùng đã bấm Xác nhận chưa
+        self.snooze_until = 0.0             # Thời điểm hết hạn tạm ngưng
+        
+        # AsyncIOWorker (inject từ bên ngoài)
         self.io_worker = None
         
         # Quyền lưu DB và camera ID
@@ -34,13 +44,12 @@ class TrafficAlertManager:
         self.camera_id = 1
         self.tts_enabled = True
         
-        # Đảm bảo thư mục lưu log tồn tại
         os.makedirs("logs", exist_ok=True)
 
     def update_traffic_state(self, raw_level, clean_frame):
         current_time = time.time()
         
-        # --- BƯỚC A: Lọc nhiễu (Debounce Logic) ---
+        # --- BƯỚC A: Lọc nhiễu (Debounce Logic 15s) ---
         if raw_level != self.pending_level:
             self.pending_level = raw_level
             self.pending_start_time = current_time
@@ -48,78 +57,94 @@ class TrafficAlertManager:
         if current_time - self.pending_start_time >= self.DEBOUNCE_SECONDS:
             self.confirmed_level = self.pending_level
             
-        # --- BƯỚC B: Cảnh báo (Alert Logic) ---
+        # --- BƯỚC B: Xử lý khi đường Thông Thoáng (Mức 0) ---
         if self.confirmed_level == 0:
-            if self.clear_start_time == 0:
+            if self.clear_start_time == 0.0:
                 self.clear_start_time = current_time
             elif current_time - self.clear_start_time >= self.TRUE_CLEAR_SECONDS:
-                # Đường thật sự vắng trong liên tục -> Hết kẹt xe dứt điểm!
-                # Reset lại toàn bộ bộ nhớ cũ và huỷ bỏ mọi Snooze còn tồn đọng.
-                self.last_alert_level = 0
-                self.snooze_until = 0
+                # Đường thật sự vắng liên tục 30s -> Kết thúc phiên đông đúc!
+                if self.session_active:
+                    if self.session_max_level >= 2:
+                        # Từng phát cảnh báo Mức 2 hoặc Mức 3 -> Gửi thông báo đã thông thoáng
+                        self._trigger_clear_notification()
+                    print(f"[TrafficAlertManager] Phiên đông đúc (Max Level {self.session_max_level}) đã kết thúc. Giao thông thông thoáng.")
+                    self.session_active = False
+                    self.session_max_level = 0
+                    self.last_alert_time = 0.0
+                    self.snooze_until = 0.0
+                    self.is_acknowledged = False
             return
         else:
-            self.clear_start_time = 0 # Đang có xe thì reset bộ đếm vắng đường
-            
-        is_escalation = self.confirmed_level > self.last_alert_level
-        timer_expired = current_time >= self.snooze_until
-        
-        # Cooldown bảo vệ: nếu cùng mức thì phải giãn cách ít nhất ALERT_COOLDOWN giây
-        last_sent = self.last_sent_alert_time.get(self.confirmed_level, 0.0)
-        min_cooldown = self.ALERT_COOLDOWN.get(self.confirmed_level, 180.0)
-        cooldown_ok = (current_time - last_sent >= min_cooldown)
-        
-        if is_escalation or (timer_expired and cooldown_ok):
-            self._trigger_alert(self.confirmed_level, clean_frame)
-            self.last_alert_level = self.confirmed_level
-            self.last_sent_alert_time[self.confirmed_level] = current_time
-            # Kích hoạt trạng thái Un-Acked với thời gian ngắn
-            self.snooze_until = current_time + self.INTERVAL_UNACK.get(self.confirmed_level, 60)
-            self.is_acknowledged = False # Đặt lại cờ chưa xác nhận khi có cảnh báo mới phát ra
+            self.clear_start_time = 0.0 # Đang có xe thì reset bộ đếm vắng đường
+
+        # --- BƯỚC C: Cảnh báo theo Phiên (Incident / Session State) ---
+        # Kiểm tra chế độ Ngủ đông (Snooze) khi người dùng đã bấm Xác nhận
+        if current_time < self.snooze_until:
+            # Nếu mức độ nghiêm trọng hơn mức cao nhất trong phiên (ví dụ nhảy lên Mức 3) -> Vẫn phá snooze để báo khẩn
+            if self.confirmed_level <= self.session_max_level:
+                return
+
+        if not self.session_active:
+            # 1. BẮT ĐẦU PHIÊN ĐÔNG ĐÚC MỚI
+            self.session_active = True
+            self.session_max_level = self.confirmed_level
+            self._trigger_alert(self.confirmed_level, clean_frame, is_reminder=False)
+            self.last_alert_time = current_time
+            self.is_acknowledged = False
+            print(f"[TrafficAlertManager] Khởi động phiên cảnh báo mới: Mức {self.confirmed_level}.")
+        else:
+            # 2. ĐANG TRONG PHIÊN CẢNH BÁO
+            if self.confirmed_level > self.session_max_level:
+                # Mức độ nghiêm trọng tăng lên (ví dụ từ Mức 2 vọt lên Mức 3: Tắc nghẽn) -> Báo ngay!
+                self.session_max_level = self.confirmed_level
+                self._trigger_alert(self.confirmed_level, clean_frame, is_reminder=False)
+                self.last_alert_time = current_time
+                self.is_acknowledged = False
+                print(f"[TrafficAlertManager] Tăng cấp độ nghiêm trọng lên Mức {self.confirmed_level}. Đã phát cảnh báo mới.")
+            elif (not self.is_acknowledged) and (self.confirmed_level >= 2) and (current_time - self.last_alert_time >= self.REMINDER_INTERVAL):
+                # Giải pháp D: Nếu tình trạng đông đúc (>= Mức 2) kéo dài liên tục > 5 phút và chưa bấm Xác nhận -> Nhắc lại
+                self._trigger_alert(self.confirmed_level, clean_frame, is_reminder=True)
+                self.last_alert_time = current_time
+                print(f"[TrafficAlertManager] Nhắc lại cảnh báo Mức {self.confirmed_level} sau 5 phút do tình trạng vẫn tiếp diễn.")
+            else:
+                # Dao động lùi hoặc mức bằng mức cũ (ví dụ 2 -> 1 -> 2): BỎ QUA, KHÔNG GỬI LẠI TRÁNH SPAM!
+                pass
 
     def acknowledge_alert(self):
-        """User pressed 'A' on keyboard"""
-        self.snooze_until = time.time() + self.SNOOZE_ACK.get(self.confirmed_level, 300)
+        """User bấm phím A trên desktop"""
+        self.snooze_until = time.time() + self.SNOOZE_AFTER_ACK
         self.is_acknowledged = True
-        print(f"[INFO] Bấm phím 'A': Hệ thống tạm chuyển sang chế độ Ngủ đông (Snooze) cho mức độ <= {self.confirmed_level}.")
+        print(f"[INFO] Bấm phím 'A': Đã tạm hoãn cảnh báo 10 phút cho mức <= {self.confirmed_level}.")
 
     def user_feedback_received(self, acked_level, message_send_time):
-        """User clicked ACK button on Telegram."""
-        # Calculate the snooze end time relative to when the alert was ACTUALLY sent
-        snooze_duration = self.SNOOZE_ACK.get(acked_level, 300)
-        calculated_snooze_end = message_send_time + snooze_duration
-        
-        current_time = time.time()
+        """User bấm nút 'Xác nhận ✅' trên Telegram."""
         self.is_acknowledged = True
-        
-        if calculated_snooze_end > current_time:
-            self.snooze_until = max(self.snooze_until, calculated_snooze_end)
-            print(f"[INFO] Telegram ACK Mức {acked_level}. Snoozing until {time.strftime('%H:%M:%S', time.localtime(self.snooze_until))}.")
-        else:
-            print(f"[INFO] Telegram ACK Mức {acked_level}, nhưng {snooze_duration}s đã hết hạn. Không kích hoạt Snooze.")
+        self.snooze_until = time.time() + self.SNOOZE_AFTER_ACK
+        print(f"[INFO] Telegram ACK Mức {acked_level}. Tạm dừng nhắc nhở 10 phút (Snooze đến {time.strftime('%H:%M:%S', time.localtime(self.snooze_until))}).")
 
-    def _trigger_alert(self, level, frame):
-        # 1. Lưu ảnh để hiển thị
+    def _trigger_alert(self, level, frame, is_reminder=False):
+        # 1. Lưu ảnh bằng chứng để gửi Telegram
         img_path = "logs/traffic_alert.jpg"
         cv2.imwrite(img_path, frame)
         
         # 2. Định nghĩa nội dung chi tiết theo mức độ
         messages = {
-            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông ",
+            1: "Mức độ 1: Giao thông đang Bắt Đầu Đông",
             2: "Mức độ 2: Giao thông đang Rất Đông Đúc",
             3: "Mức độ 3: Tắc nghẽn nghiêm trọng"
         }
         detail = messages.get(level, f"Mức độ {level}")
-        caption = f"CẢNH BÁO ⚠️: {detail}"
+        prefix = "CẢNH BÁO TIẾP TỤC ⚠️ (Kéo dài > 5 phút): " if is_reminder else "CẢNH BÁO ⚠️: "
+        caption = f"{prefix}{detail}"
         
         voice_messages = {
             1: None,
             2: "Khu vực cổng trường đang rất đông, kính mời phụ huynh nhanh chóng đón học sinh và di chuyển, tránh gây ùn tắc",
-            3: "Khu vực cổng trường đang ùn tắc,Yêu cầu tất cả phương tiện tuyệt đối không dừng đỗ và nhanh chóng di chuyển"
+            3: "Khu vực cổng trường đang ùn tắc, Yêu cầu tất cả phương tiện tuyệt đối không dừng đỗ và nhanh chóng di chuyển"
         }
         speech_text = voice_messages.get(level)
-        # 3. Phát âm thanh cảnh báo (tạm thời chỉ áp dụng cho Mức 3 - đông nhất)
-        if self.tts_enabled and level == 3 and speech_text:
+        # 3. Phát âm thanh cảnh báo (áp dụng cho Mức 3)
+        if self.tts_enabled and level == 3 and speech_text and (not is_reminder):
             try:
                 from modules.utils.tts_announcer import announce
                 announce(speech_text)
@@ -136,6 +161,18 @@ class TrafficAlertManager:
             print(f"[TrafficAlertManager] Lỗi kiểm tra trạng thái hoạt động của camera: {e}")
 
         send_alert_with_button(img_path, caption, level)
+
+    def _trigger_clear_notification(self):
+        """Gửi thông báo nhẹ khi đường đã thông thoáng trở lại"""
+        try:
+            from backend.database.sqlite_db import is_camera_enabled
+            if not is_camera_enabled(self.camera_id):
+                return
+        except Exception:
+            pass
+        msg = f"✅ THÔNG BÁO: Giao thông khu vực (Camera {self.camera_id}) đã THÔNG THOÁNG trở lại."
+        send_clear_alert(msg)
+
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):
         if not self.save_to_db:
@@ -154,33 +191,3 @@ class TrafficAlertManager:
             log_parking_violation(camera_id=self.camera_id, license_plate=plate_number, frame_path=img_path)
         except Exception as e:
             print("Lỗi lưu dừng đỗ:", e)
-    
-    # def _speak_alert(self, text):
-    #     """"""
-    #     return
-    #     def run_tts():
-    #         try:
-    #             engine = pyttsx3.init()
-                
-    #             # --- TÌM GIỌNG TIẾNG VIỆT TRONG MÁY ---
-    #             voices = engine.getProperty('voices')
-    #             vietnamese_voice_id = None
-    #             for voice in voices:
-    #                 # Tìm giọng nào có chữ "vietnamese" hoặc "vi-vn"
-    #                 if "vietnamese" in voice.name.lower() or "vi-vn" in voice.id.lower():
-    #                     vietnamese_voice_id = voice.id
-    #                     break
-                
-    #             if vietnamese_voice_id:
-    #                 engine.setProperty('voice', vietnamese_voice_id)
-    #             else:
-    #                 print("[CẢNH BÁO] Máy chưa cài giọng Tiếng Việt, sẽ dùng giọng mặc định.")
-
-    #             engine.setProperty('rate', 150) # Tốc độ nói chậm lại tí cho dễ nghe
-    #             engine.say(text)
-    #             engine.runAndWait()
-    #         except Exception as e:
-    #             print(f"[Lỗi Loa] {e}")
-
-    #     threading.Thread(target=run_tts, daemon=True).start()
-

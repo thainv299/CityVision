@@ -42,6 +42,25 @@ def send_alert_with_button(img_path, caption, level):
     except Exception as e:
         print(f"[Telegram Bot] Lỗi khi gửi ảnh lên Telegram: {e}")
 
+
+
+def send_clear_alert(caption: str):
+    """Gửi thông báo văn bản khi giao thông khu vực đã thông thoáng trở lại."""
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        if get_system_setting("telegram_notifications", "true") == "false":
+            return
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra cấu hình hệ thống: {e}")
+
+    if not bot or not TELEGRAM_CHAT_ID:
+        return
+        
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, caption)
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi gửi thông báo thông thoáng: {e}")
+
 def _dummy_decorator(f):
     return f
 
