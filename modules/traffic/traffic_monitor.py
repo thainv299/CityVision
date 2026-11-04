@@ -2,11 +2,10 @@ import numpy as np
 import cv2
 
 # --- NGƯỠNG CẢNH BÁO GIAO THÔNG (CONGESTION THRESHOLDS) ---
-CONG_COUNT_THR = 15              # Cấp 1: Số xe tối thiểu để được coi là "Đông đúc L1"
-CONG_PEOPLE_THR = 15             # Cấp 1: Số người tối thiểu để được coi là "Đông đúc L1"
-CONG_AREA_PERCENT_THR = 35.0     # Cấp 2: % Diện tích vùng giám sát tối thiểu bị lấp đầy để coi là "Rất đông L2"
+CONG_COUNT_THR = 30              # Cấp 1: Tổng xe + người >= 30 để coi là "Đông đúc L1"
 CONG_SPEED_THR = 10.0            # Cấp 3: Vận tốc di chuyển tối đa (px/s) để bị coi là "Tắc nghẽn L3"
 MAX_VEHICLE_AREA_RATIO = 0.3     # Bỏ qua những hộp Box nhiễu có diện tích lớn hơn 30% vùng giám sát (Tránh lỗi YOLO)
+HYSTERESIS_DROP_RATIO = 0.2      # Tỷ lệ sụt giảm (20%) so với ngưỡng ban đầu để tụt mức (chống nhảy cóc)
 
 class TrafficMonitor:
     def __init__(self, roi_polygon=None, congestion_threshold=35.0):
@@ -21,6 +20,7 @@ class TrafficMonitor:
         # Biến mới để lưu danh sách Bounding Box thay vì cộng dồn diện tích
         self.current_bboxes = [] 
         self.last_occupancy = 0.0
+        self.current_level = 0 # Lưu mức trạng thái gần nhất để áp dụng Hysteresis
         
         # Cache cho Masking (Tối ưu hiệu năng)
         self._cached_roi_mask = None
@@ -30,7 +30,7 @@ class TrafficMonitor:
         self.vehicle_count = 0
         self.people_count = 0
         self.current_ids_in_roi = []
-        self.current_bboxes = [] # Reset list - LƯU TRỪ BOX CỦA CẢ XE VÀ NGƯỜI
+        self.current_bboxes = [] # Reset list - LƯU TRỮ BOX CỦA CẢ XE VÀ NGƯỜI
 
     def log_person(self, bbox=None):
         """Log người → thêm bounding box vào list (cho tính occupancy)
@@ -119,35 +119,93 @@ class TrafficMonitor:
 
         self.last_occupancy = occupancy_percent # Lưu lại để vẽ lên màn hình
 
-        # 3. ĐÁNH GIÁ MỨC ĐỘ (RAW)
-        is_high_count = (self.vehicle_count >= CONG_COUNT_THR) or (self.people_count >= CONG_PEOPLE_THR) or (self.vehicle_count + self.people_count >= 25)
+        # 3. ĐÁNH GIÁ MỨC ĐỘ VỚI HYSTERESIS (CHỐNG DAO ĐỘNG RANH GIỚI)
+        total_count = self.vehicle_count + self.people_count
 
-        if not is_high_count:
-            traffic_level = 0
-        else:
-            # Nếu đã đạt mức 1 (Đông đúc), xét tiếp diện tích lấp đầy để lên mức 2 hoặc 3
-            if occupancy_percent < self.congestion_threshold:
-                traffic_level = 1
+        # Các ngưỡng tăng bậc (Upward Thresholds)
+        l1_count_up = float(CONG_COUNT_THR)                              # 30 xe + người
+        l2_occ_up = float(self.congestion_threshold)                     # % diện tích cài đặt (ví dụ 35%)
+        l3_occ_extreme_up = l2_occ_up + 30.0                             # Ngưỡng diện tích cực hạn (ví dụ 35% + 30% = 65%)
+        l3_speed_up = float(CONG_SPEED_THR)                              # 10.0 px/s
+
+        # Các ngưỡng hạ bậc (Downward Thresholds với 20% Hysteresis margin)
+        l1_count_down = l1_count_up * (1.0 - HYSTERESIS_DROP_RATIO)      # 30 * 0.8 = 24
+        l2_occ_down = l2_occ_up * (1.0 - HYSTERESIS_DROP_RATIO)          # 35% * 0.8 = 28%
+        l3_occ_extreme_down = l3_occ_extreme_up * (1.0 - HYSTERESIS_DROP_RATIO) # 65% * 0.8 = 52%
+        l3_speed_down = l3_speed_up * 1.3                                # 13.0 px/s (hồi phục vận tốc)
+
+        # Điều kiện đạt Mức 3 (Tắc nghẽn)
+        cond_l3_extreme = (occupancy_percent >= l3_occ_extreme_up)
+        cond_l3_speed = (occupancy_percent >= l2_occ_up) and (avg_speed <= l3_speed_up)
+        is_l3_candidate = cond_l3_extreme or cond_l3_speed
+
+        # Điều kiện đạt Mức 2 (Rất đông đúc theo diện tích)
+        is_l2_candidate = (occupancy_percent >= l2_occ_up)
+
+        # Điều kiện đạt Mức 1 (Đông đúc theo số lượng người + xe)
+        is_l1_candidate = (total_count >= l1_count_up)
+
+        # Đánh giá chuyển trạng thái dựa trên mức hiện tại (Hysteresis state machine)
+        prev_level = self.current_level
+
+        if prev_level == 3:
+            # Muốn giữ Mức 3: Diện tích cực hạn vẫn cao, HOẶC (diện tích vẫn trên mức hạ và tốc độ chưa hồi phục)
+            still_l3_extreme = (occupancy_percent >= l3_occ_extreme_down)
+            still_l3_speed = (occupancy_percent >= l2_occ_down) and (avg_speed <= l3_speed_down)
+            if still_l3_extreme or still_l3_speed:
+                new_level = 3
+            elif occupancy_percent >= l2_occ_down:
+                new_level = 2
+            elif total_count >= l1_count_down:
+                new_level = 1
             else:
-                if avg_speed > CONG_SPEED_THR:
-                    traffic_level = 2
-                else:
-                    traffic_level = 3
-            
+                new_level = 0
+
+        elif prev_level == 2:
+            if is_l3_candidate:
+                new_level = 3
+            elif occupancy_percent >= l2_occ_down:
+                new_level = 2
+            elif total_count >= l1_count_down:
+                new_level = 1
+            else:
+                new_level = 0
+
+        elif prev_level == 1:
+            if is_l3_candidate:
+                new_level = 3
+            elif is_l2_candidate:
+                new_level = 2
+            elif total_count >= l1_count_down:
+                new_level = 1
+            else:
+                new_level = 0
+
+        else: # prev_level == 0
+            if is_l3_candidate:
+                new_level = 3
+            elif is_l2_candidate:
+                new_level = 2
+            elif is_l1_candidate:
+                new_level = 1
+            else:
+                new_level = 0
+
+        self.current_level = new_level
+        traffic_level = new_level
+
         status_text, status_color = self.get_status_for_level(traffic_level, avg_speed)
         return avg_speed, status_text, status_color, traffic_level
 
     def get_status_for_level(self, level, avg_speed=0.0):
         """Chuyển đổi từ level số sang text và màu sắc hiển thị"""
+        total = self.vehicle_count + self.people_count
         if level == 1:
-            if self.vehicle_count >= CONG_COUNT_THR:
-                return f"Trang thai: Dong duc (MUC 1) - {self.vehicle_count} xe", (0, 165, 255)
-            else:
-                return f"Trang thai: Dong duc (MUC 1) - {self.people_count} nguoi", (0, 165, 255)
+            return f"Trang thai: Dong duc (MUC 1) - {total} phuong tien & nguoi", (0, 165, 255)
         elif level == 2:
             return f"Trang thai: Rat dong (MUC 2) - {self.last_occupancy:.1f}% dien tich", (0, 100, 255)
         elif level == 3:
-            return f"Trang thai: TAC NGHEN (MUC 3) - {avg_speed:.1f} px/s", (0, 0, 255)
+            return f"Trang thai: TAC NGHEN (MUC 3) - {self.last_occupancy:.1f}% | {avg_speed:.1f} px/s", (0, 0, 255)
         else:
             return "Trang thai: Thong thoang (MUC 0)", (0, 255, 0)
 
@@ -155,12 +213,11 @@ class TrafficMonitor:
         # Tính toán offset dọc dựa trên font_scale để các dòng không bị đè lên nhau trên 4K
         line_height = int(40 * (f_scale / 0.7))
         start_y = int(40 * (f_scale / 0.7))
-        margin = 10
         
         if is_admin:
             texts = [
-                (f"Vehicles: {self.vehicle_count} | People: {self.people_count}", (255, 255, 0), f_scale),
-                (f"Occupancy: {self.last_occupancy:.1f}%", (255, 255, 0), f_scale),
+                (f"Vehicles: {self.vehicle_count} | People: {self.people_count} (Total: {self.vehicle_count + self.people_count})", (255, 255, 0), f_scale),
+                (f"Occupancy: {self.last_occupancy:.1f}% (Threshold: {self.congestion_threshold:.0f}%)", (255, 255, 0), f_scale),
                 (f"Avg Speed: {int(avg_speed)} px/s", (255, 255, 0), f_scale),
                 (status_text, status_color, f_scale * 1.1)
             ]
