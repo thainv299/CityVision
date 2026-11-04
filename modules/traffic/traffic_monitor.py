@@ -119,7 +119,7 @@ class TrafficMonitor:
 
         self.last_occupancy = occupancy_percent # Lưu lại để vẽ lên màn hình
 
-        # 3. ĐÁNH GIÁ MỨC ĐỘ VỚI HYSTERESIS (CHỐNG DAO ĐỘNG RANH GIỚI)
+        # 3. ĐÁNH GIÁ MỨC ĐỘ VỚI HYSTERESIS (TIÊN QUYẾT: PHẢI KÍCH HOẠT MỨC 1 TRƯỚC)
         total_count = self.vehicle_count + self.people_count
 
         # Các ngưỡng tăng bậc (Upward Thresholds)
@@ -134,62 +134,51 @@ class TrafficMonitor:
         l3_occ_extreme_down = l3_occ_extreme_up * (1.0 - HYSTERESIS_DROP_RATIO) # 65% * 0.8 = 52%
         l3_speed_down = l3_speed_up * 1.3                                # 13.0 px/s (hồi phục vận tốc)
 
-        # Điều kiện đạt Mức 3 (Tắc nghẽn)
-        cond_l3_extreme = (occupancy_percent >= l3_occ_extreme_up)
-        cond_l3_speed = (occupancy_percent >= l2_occ_up) and (avg_speed <= l3_speed_up)
-        is_l3_candidate = cond_l3_extreme or cond_l3_speed
-
-        # Điều kiện đạt Mức 2 (Rất đông đúc theo diện tích)
-        is_l2_candidate = (occupancy_percent >= l2_occ_up)
-
-        # Điều kiện đạt Mức 1 (Đông đúc theo số lượng người + xe)
-        is_l1_candidate = (total_count >= l1_count_up)
-
-        # Đánh giá chuyển trạng thái dựa trên mức hiện tại (Hysteresis state machine)
         prev_level = self.current_level
 
-        if prev_level == 3:
-            # Muốn giữ Mức 3: Diện tích cực hạn vẫn cao, HOẶC (diện tích vẫn trên mức hạ và tốc độ chưa hồi phục)
-            still_l3_extreme = (occupancy_percent >= l3_occ_extreme_down)
-            still_l3_speed = (occupancy_percent >= l2_occ_down) and (avg_speed <= l3_speed_down)
-            if still_l3_extreme or still_l3_speed:
-                new_level = 3
-            elif occupancy_percent >= l2_occ_down:
-                new_level = 2
-            elif total_count >= l1_count_down:
-                new_level = 1
-            else:
-                new_level = 0
+        # --- BƯỚC 1: ĐIỀU KIỆN TIÊN QUYẾT: PHẢI ĐỦ SỐ LƯỢNG XE/NGƯỜI KÍCH HOẠT MỨC 1 TRƯỚC ---
+        # Nếu đang ở Mức 0: Phải có tổng xe + người >= 30 mới bắt đầu kích hoạt cảnh báo đông đúc
+        # Nếu đang ở Mức >= 1: Phải duy trì tổng xe + người >= 24 (Hysteresis) để không bị tụt về Mức 0
+        min_count_needed = l1_count_down if prev_level > 0 else l1_count_up
 
-        elif prev_level == 2:
-            if is_l3_candidate:
-                new_level = 3
-            elif occupancy_percent >= l2_occ_down:
-                new_level = 2
-            elif total_count >= l1_count_down:
-                new_level = 1
-            else:
-                new_level = 0
+        if total_count < min_count_needed:
+            # Chưa đủ số lượng xe/người để kích hoạt Mức 1 -> Thông thoáng (Mức 0)
+            new_level = 0
+        else:
+            # --- BƯỚC 2: ĐÃ ĐẠT ĐIỀU KIỆN MỨC 1 -> XÉT TIẾP % DIỆN TÍCH CHO MỨC 2 & MỨC 3 ---
+            cond_l3_extreme = (occupancy_percent >= l3_occ_extreme_up)
+            cond_l3_speed = (occupancy_percent >= l2_occ_up) and (avg_speed <= l3_speed_up)
+            is_l3_candidate = cond_l3_extreme or cond_l3_speed
+            is_l2_candidate = (occupancy_percent >= l2_occ_up)
 
-        elif prev_level == 1:
-            if is_l3_candidate:
-                new_level = 3
-            elif is_l2_candidate:
-                new_level = 2
-            elif total_count >= l1_count_down:
-                new_level = 1
-            else:
-                new_level = 0
+            if prev_level == 3:
+                # Đang ở Mức 3: Xét điều kiện duy trì Mức 3
+                still_l3_extreme = (occupancy_percent >= l3_occ_extreme_down)
+                still_l3_speed = (occupancy_percent >= l2_occ_down) and (avg_speed <= l3_speed_down)
+                if still_l3_extreme or still_l3_speed:
+                    new_level = 3
+                elif occupancy_percent >= l2_occ_down:
+                    new_level = 2
+                else:
+                    new_level = 1
 
-        else: # prev_level == 0
-            if is_l3_candidate:
-                new_level = 3
-            elif is_l2_candidate:
-                new_level = 2
-            elif is_l1_candidate:
-                new_level = 1
+            elif prev_level == 2:
+                # Đang ở Mức 2: Có thể vọt lên Mức 3, hoặc giữ Mức 2, hoặc tụt về Mức 1
+                if is_l3_candidate:
+                    new_level = 3
+                elif occupancy_percent >= l2_occ_down:
+                    new_level = 2
+                else:
+                    new_level = 1
+
             else:
-                new_level = 0
+                # Đang ở Mức 1 hoặc vừa từ Mức 0 chuyển lên (đã thỏa total_count >= 30)
+                if is_l3_candidate:
+                    new_level = 3
+                elif is_l2_candidate:
+                    new_level = 2
+                else:
+                    new_level = 1
 
         self.current_level = new_level
         traffic_level = new_level
