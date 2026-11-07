@@ -1,7 +1,27 @@
 import os
 import csv
+import time
 import cv2
 from datetime import datetime
+
+
+def _levenshtein(s1: str, s2: str) -> int:
+    """Tính khoảng cách Levenshtein giữa 2 chuỗi để phát hiện OCR nhầm 1 ký tự (ví dụ 0 vs 8, 5 vs S)."""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = prev[j + 1] + 1
+            deletions = curr[j] + 1
+            substitutions = prev[j] + (c1 != c2)
+            curr.append(min(insertions, deletions, substitutions))
+        prev = curr
+    return prev[-1]
+
 
 class ALPRLogger:
     def __init__(self, disappear_threshold=1800, db_callback=None, id_camera=0):
@@ -10,7 +30,8 @@ class ALPRLogger:
         self.csv_path = os.path.join(self.logs_dir, "ALPR_log.csv")
         self.disappear_threshold = disappear_threshold
         self.plate_sessions = {}
-        self.logged_v_tracks = set() # Track IDs đã được ghi vào DB
+        self.logged_v_tracks = set() # Track IDs phương tiện đã được ghi vào DB
+        self.recent_logged_plates = [] # List of (plate_text, timestamp) chống duplicate
         self.db_callback = db_callback
         self.id_camera = id_camera
         
@@ -26,11 +47,33 @@ class ALPRLogger:
                 writer.writerow(["Time", "Frame", "Plate", "Full_Frame_Image_Path"])
 
     def process_plate(self, plate_text, current_frame, plate_img, full_frame, plate_coords, v_track_id=None, vehicle_bbox=None):
-        is_new_session = False
-        
-        if v_track_id is not None:
+        now_ts = time.time()
+
+        # 1. BẢO VỆ 1: CHỐNG GHI ĐÚP THEO VEHICLE TRACK ID (CÙNG 1 XE ĐANG DI CHUYỂN TRONG KHUNG HÌNH)
+        if v_track_id is not None and v_track_id != -1:
+            if v_track_id in self.logged_v_tracks:
+                # Xe này đã được ghi nhận trong khung hình rồi -> Bỏ qua, không ghi lần 2
+                self.plate_sessions[plate_text] = {"last_seen": current_frame}
+                return
             self.logged_v_tracks.add(v_track_id)
 
+        # 2. BẢO VỆ 2: CHỐNG GHI ĐÚP THEO THỜI GIAN & ĐỘ TƯƠNG ĐỒNG BIỂN SỐ (FUZZY SIMILARITY)
+        # Dọn dẹp danh sách cũ hơn 30 giây
+        self.recent_logged_plates = [(p, t) for p, t in self.recent_logged_plates if now_ts - t < 30.0]
+
+        for prev_p, prev_t in self.recent_logged_plates:
+            # Nếu trùng 100% biển số trong vòng 30s -> Bỏ qua
+            if prev_p == plate_text:
+                self.plate_sessions[plate_text] = {"last_seen": current_frame}
+                return
+            # Nếu biển số gần giống nhau (sai lệch <= 1 ký tự do OCR nhầm 0/8, 5/S...) trong vòng 15s -> Cùng 1 xe, bỏ qua
+            if plate_text != "Không phát hiện biển số xe" and prev_p != "Không phát hiện biển số xe":
+                if now_ts - prev_t < 15.0 and _levenshtein(prev_p, plate_text) <= 1:
+                    print(f"[ALPRLogger] Phát hiện biển số tương đồng '{plate_text}' với '{prev_p}' trong vòng 15s. Bỏ qua ghi đúp.")
+                    self.plate_sessions[plate_text] = {"last_seen": current_frame}
+                    return
+
+        is_new_session = False
         if plate_text not in self.plate_sessions:
             is_new_session = True
         else:
@@ -42,6 +85,7 @@ class ALPRLogger:
         self.plate_sessions[plate_text] = {"last_seen": current_frame}
         
         if is_new_session:
+            self.recent_logged_plates.append((plate_text, now_ts))
             if self.save_to_db:
                 self._save_log(plate_text, current_frame, full_frame, plate_coords, vehicle_bbox=vehicle_bbox)
             
@@ -50,6 +94,13 @@ class ALPRLogger:
         if not self.save_to_db:
             return
         plate_text = "Không phát hiện biển số xe"
+        now_ts = time.time()
+        self.recent_logged_plates = [(p, t) for p, t in self.recent_logged_plates if now_ts - t < 30.0]
+        # Không ghi đúp "Không phát hiện biển số xe" liên tục trong 15s
+        for prev_p, prev_t in self.recent_logged_plates:
+            if prev_p == plate_text and now_ts - prev_t < 15.0:
+                return
+        self.recent_logged_plates.append((plate_text, now_ts))
         self._save_log(plate_text, current_frame, full_frame, vehicle_coords)
 
     def _save_log(self, plate_text, current_frame, full_frame, plate_coords, vehicle_bbox=None):
@@ -146,4 +197,3 @@ class ALPRLogger:
                     )
                 except Exception as e:
                     print(f"[ALPR Database] Lỗi khi ghi vào database: {e}")
-

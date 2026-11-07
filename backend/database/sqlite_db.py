@@ -1243,8 +1243,27 @@ def log_passed_vehicle(camera_id: int, bien_so_xe: str, loai_xe: str, thoi_gian_
         connection.commit()
 
 
+
+def _levenshtein_distance(s1: str, s2: str) -> int:
+    """Tính khoảng cách Levenshtein giữa 2 chuỗi để phát hiện biến thể biển số đọc sai 1 ký tự."""
+    if len(s1) < len(s2):
+        return _levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = prev[j + 1] + 1
+            deletions = curr[j] + 1
+            substitutions = prev[j] + (c1 != c2)
+            curr.append(min(insertions, deletions, substitutions))
+        prev = curr
+    return prev[-1]
+
+
 def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: str = None, detection_count: int = 1, avg_confidence: float = 0.0, image_paths: str = None, camera_id: int = 0) -> None:
-    """Lưu biển số được phát hiện (Nhật ký từng lần)"""
+    """Lưu biển số được phát hiện (Nhật ký từng lần) với bảo vệ chống ghi đúp tuyệt đối"""
     from datetime import datetime
     now = datetime.now()
     if ngay is None:
@@ -1255,11 +1274,41 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
     if thoi_gian is None:
         thoi_gian = now.strftime("%H:%M:%S")
     
-    # Đàm bảo đường dẫn đúng cho web
+    # Đảm bảo đường dẫn đúng cho web
     if image_paths:
         image_paths = image_paths.replace("\\", "/").replace("runtime/license_plates/", "logs/plates/")
     
     with connect() as connection:
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp biển số trên cùng camera trong khoảng thời gian ngắn (<= 8 giây)
+        if license_plate and license_plate != "Không phát hiện biển số xe":
+            cursor = connection.execute(
+                """
+                SELECT id, bien_so, thoi_gian_phat_hien FROM bien_so_phat_hien
+                WHERE id_camera = ? AND ngay_phat_hien = ?
+                ORDER BY id DESC LIMIT 5
+                """,
+                (camera_id, detected_date)
+            )
+            recent_rows = cursor.fetchall()
+            for row in recent_rows:
+                prev_plate = row["bien_so"]
+                prev_time_str = row["thoi_gian_phat_hien"]
+                try:
+                    t1 = datetime.strptime(thoi_gian, "%H:%M:%S")
+                    t2 = datetime.strptime(prev_time_str, "%H:%M:%S")
+                    diff_sec = abs((t1 - t2).total_seconds())
+                    if diff_sec <= 8.0:
+                        # 1. Trùng 100% biển số trong vòng 8 giây -> Bỏ qua
+                        if prev_plate == license_plate:
+                            print(f"[ALPR DB Guard] Bỏ qua ghi đúp biển số '{license_plate}' (vừa ghi cách đây {diff_sec:.1f}s)")
+                            return
+                        # 2. Sai khác <= 1 ký tự (ví dụ 15C13863 vs 15C13063) trong vòng 8 giây -> Bỏ qua
+                        if _levenshtein_distance(prev_plate, license_plate) <= 1:
+                            print(f"[ALPR DB Guard] Bỏ qua ghi đúp biến thể OCR '{license_plate}' (tương đồng với '{prev_plate}', cách đây {diff_sec:.1f}s)")
+                            return
+                except Exception:
+                    pass
+
         connection.execute(
             """
             INSERT INTO bien_so_phat_hien (bien_so, ngay_phat_hien, thoi_gian_phat_hien, so_lan_phat_hien, do_chinh_xac_tb, duong_dan_anh, id_camera)
