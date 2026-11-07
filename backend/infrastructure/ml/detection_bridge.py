@@ -1204,6 +1204,9 @@ def process_video(
             frame_index += 1
             current_time = time.time()
 
+            if enable_illegal_parking and parking_manager is not None:
+                parking_manager.cleanup_stale_tracks(current_time)
+
 
 
             # Tracking

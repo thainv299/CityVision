@@ -78,7 +78,7 @@ class StationaryVehicleStabilizer:
                     continue
                 b2 = list(map(int, boxes[idx_j].xyxy[0]))
                 iou, iom = compute_box_iou(b1, b2)
-                if iou >= 0.45 or iom >= 0.60:
+                if iou >= 0.35 or iom >= 0.50:
                     suppressed.add(idx_j)
 
         return suppressed
@@ -110,7 +110,7 @@ class StationaryVehicleStabilizer:
                     continue
                 b2 = list(map(int, sorted_boxes[j].xyxy[0]))
                 iou, iom = compute_box_iou(b1, b2)
-                if iou >= 0.45 or iom >= 0.60:
+                if iou >= 0.35 or iom >= 0.50:
                     suppressed.add(j)
 
         return filtered
@@ -157,9 +157,15 @@ class StationaryVehicleStabilizer:
         best_score = 0.0
 
         for cid, info in list(self.stationary_tracks.items()):
-            # Không cho phép 2 xe khác nhau trong cùng 1 frame tranh chấp cùng 1 ID
+            # Nếu xe này đã có claimer trong frame hiện tại:
             claimer = self._frame_claimed.get(cid)
             if claimer is not None and claimer != raw_id:
+                # Kiểm tra xem raw_id này có phải là detection trùng lặp của cùng 1 xe không
+                iou, iom = compute_box_iou(bbox, info["bbox"])
+                if iou >= self.iou_thresh or iom >= self.iom_thresh:
+                    # Cùng 1 xe bị sinh 2 raw_id song song trong 1 frame -> gộp về cùng canonical ID!
+                    self.raw_to_canonical[raw_id] = cid
+                    return cid
                 continue
 
             if frame_index - info["last_seen"] > self.max_ghost_frames:
