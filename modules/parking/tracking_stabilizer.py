@@ -78,7 +78,8 @@ class StationaryVehicleStabilizer:
                     continue
                 b2 = list(map(int, boxes[idx_j].xyxy[0]))
                 iou, iom = compute_box_iou(b1, b2)
-                if iou >= 0.35 or iom >= 0.50:
+                # Đặt ngưỡng 0.20 / 0.30 để loại bỏ triệt để 2 box trên cùng 1 xe (1080p)
+                if iou >= 0.20 or iom >= 0.30:
                     suppressed.add(idx_j)
 
         return suppressed
@@ -110,7 +111,7 @@ class StationaryVehicleStabilizer:
                     continue
                 b2 = list(map(int, sorted_boxes[j].xyxy[0]))
                 iou, iom = compute_box_iou(b1, b2)
-                if iou >= 0.35 or iom >= 0.50:
+                if iou >= 0.20 or iom >= 0.30:
                     suppressed.add(j)
 
         return filtered
@@ -162,7 +163,8 @@ class StationaryVehicleStabilizer:
             if claimer is not None and claimer != raw_id:
                 # Kiểm tra xem raw_id này có phải là detection trùng lặp của cùng 1 xe không
                 iou, iom = compute_box_iou(bbox, info["bbox"])
-                if iou >= self.iou_thresh or iom >= self.iom_thresh:
+                dist = math.hypot(center[0] - info["center"][0], center[1] - info["center"][1])
+                if iou >= 0.20 or iom >= 0.30 or dist < 220.0:
                     # Cùng 1 xe bị sinh 2 raw_id song song trong 1 frame -> gộp về cùng canonical ID!
                     self.raw_to_canonical[raw_id] = cid
                     return cid
@@ -172,9 +174,11 @@ class StationaryVehicleStabilizer:
                 continue
 
             iou, iom = compute_box_iou(bbox, info["bbox"])
+            dist = math.hypot(center[0] - info["center"][0], center[1] - info["center"][1])
             score = max(iou, iom * 0.85)
-
-            if (iou >= self.iou_thresh or iom >= self.iom_thresh) and score > best_score:
+            # Khớp nếu IoU/IoM đạt ngưỡng HOẶC tâm box cách nhau < 220px (cho video 1080p)
+            is_spatial_hit = (iou >= 0.20 or iom >= 0.30 or dist < 220.0)
+            if is_spatial_hit and (score > best_score or best_match_id is None):
                 best_score = score
                 best_match_id = cid
 

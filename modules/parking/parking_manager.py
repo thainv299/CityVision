@@ -199,48 +199,55 @@ class ParkingManager:
                 pass
 
 
-    def _check_notify_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
+    def _check_notify_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None, bbox: tuple | None = None) -> bool:
         """
         Kiểm tra dedup trước khi gửi bất kỳ thông báo nào.
         Trả về True nếu ĐÃ gửi cảnh báo gần đây (cần bỏ qua), False nếu OK để gửi.
         Nếu OK, tự động ghi nhận vị trí/biển số vào cooldown registry.
-        Cooldown: 900s (15 phút) cho cả biển số và vị trí.
+        Cooldown: 300s (5 phút) cho cả biển số và vị trí/bounding box.
         """
         with self._dedup_lock:  # Lock ngăn race condition giữa 2 thread timer
             now = time.time()
-            COOLDOWN = 300.0  # 5 phút (300s) nhắc lại theo yêu cầu của user
-            DIST_PX   = 180.0  # Tăng lên 180px để bao phủ toàn bộ thân xe 1080p
+            COOLDOWN = 300.0  # 5 phút nhắc lại theo yêu cầu của user
+            DIST_PX   = 300.0  # 300px để bao phủ trọn vẹn thân xe trong độ phân giải 1080p
 
             # Dọn entries cũ
             stale = [p for p, t in self._last_notified_plates.items() if now - t > COOLDOWN]
             for p in stale:
                 del self._last_notified_plates[p]
             self._last_notified_positions = [
-                (px, py, pt) for px, py, pt in self._last_notified_positions if now - pt < COOLDOWN
+                entry for entry in self._last_notified_positions if now - entry[2] < COOLDOWN
             ]
 
             # Dedup theo biển số
-            if plate and not plate.startswith("ID_"):
-                last_t = self._last_notified_plates.get(plate, 0)
+            if plate and not str(plate).startswith("ID_"):
+                last_t = self._last_notified_plates.get(str(plate), 0)
                 if now - last_t < COOLDOWN:
                     print(f"[ParkingManager] Bỏ qua thông báo trùng biển số {plate} "
                           f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
                     return True
 
-            # Dedup theo vị trí
+            # Dedup theo vị trí và Bounding Box
             if cx is not None and cy is not None:
-                for px, py, pt in self._last_notified_positions:
+                for entry in self._last_notified_positions:
+                    px, py, pt = entry[0], entry[1], entry[2]
+                    pbbox = entry[3] if len(entry) > 3 else None
+                    is_overlap = False
+                    if bbox is not None and pbbox is not None:
+                        iou, iom = compute_box_iou(bbox, pbbox)
+                        if iou >= 0.15 or iom >= 0.25:
+                            is_overlap = True
                     dist = math.hypot(cx - px, cy - py)
-                    if dist < DIST_PX and now - pt < COOLDOWN:
-                        print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí ID:{track_id} "
-                              f"(cách {dist:.0f}px, đã thông báo {now - pt:.0f}s trước).")
+                    if (is_overlap or dist < DIST_PX) and now - pt < COOLDOWN:
+                        print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí xe ID:{track_id} "
+                              f"(cách {dist:.0f}px, overlap={is_overlap}, đã thông báo {now - pt:.0f}s trước).")
                         return True
 
             # Ghi nhận (chỉ khi sẽ thực sự gửi)
-            if plate and not plate.startswith("ID_"):
-                self._last_notified_plates[plate] = now
+            if plate and not str(plate).startswith("ID_"):
+                self._last_notified_plates[str(plate)] = now
             if cx is not None and cy is not None:
-                self._last_notified_positions.append((cx, cy, now))
+                self._last_notified_positions.append((cx, cy, now, bbox))
             return False  # chưa thông báo, OK để gửi
 
     def _is_in_any_zone(self, cx: float, cy: float) -> bool:
@@ -259,7 +266,7 @@ class ParkingManager:
                 return True
         return False
 
-    def _check_violation_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None) -> bool:
+    def _check_violation_dedup(self, track_id: int, cx: float | None, cy: float | None, plate: str | None, bbox: tuple | None = None) -> bool:
         """
         Dedup riêng cho thông báo VI PHẠM (tách biệt với dedup cảnh báo sớm).
         Đảm bảo cảnh báo vi phạm luôn được gửi dù đã có warning trước đó.
@@ -268,70 +275,85 @@ class ParkingManager:
         with self._dedup_lock:  # Lock ngăn race condition
             now = time.time()
             COOLDOWN = 900.0
-            DIST_PX = 120.0
+            DIST_PX = 300.0
 
             stale = [p for p, t in self._last_violation_plates.items() if now - t > COOLDOWN]
             for p in stale:
                 del self._last_violation_plates[p]
             self._last_violation_positions = [
-                (px, py, pt) for px, py, pt in self._last_violation_positions if now - pt < COOLDOWN
+                entry for entry in self._last_violation_positions if now - entry[2] < COOLDOWN
             ]
 
-            if plate and not plate.startswith("ID_"):
-                last_t = self._last_violation_plates.get(plate, 0)
+            if plate and not str(plate).startswith("ID_"):
+                last_t = self._last_violation_plates.get(str(plate), 0)
                 if now - last_t < COOLDOWN:
                     print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng biển số {plate} "
                           f"(cooldown còn {COOLDOWN - (now - last_t):.0f}s).")
                     return True
 
             if cx is not None and cy is not None:
-                for px, py, pt in self._last_violation_positions:
+                for entry in self._last_violation_positions:
+                    px, py, pt = entry[0], entry[1], entry[2]
+                    pbbox = entry[3] if len(entry) > 3 else None
+                    is_overlap = False
+                    if bbox is not None and pbbox is not None:
+                        iou, iom = compute_box_iou(bbox, pbbox)
+                        if iou >= 0.15 or iom >= 0.25:
+                            is_overlap = True
                     dist = math.hypot(cx - px, cy - py)
-                    if dist < DIST_PX and now - pt < COOLDOWN:
+                    if (is_overlap or dist < DIST_PX) and now - pt < COOLDOWN:
                         print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng vị trí ID:{track_id} "
                               f"(cách {dist:.0f}px, {now - pt:.0f}s trước).")
                         return True
 
-            if plate and not plate.startswith("ID_"):
-                self._last_violation_plates[plate] = now
+            if plate and not str(plate).startswith("ID_"):
+                self._last_violation_plates[str(plate)] = now
             if cx is not None and cy is not None:
-                self._last_violation_positions.append((cx, cy, now))
+                self._last_violation_positions.append((cx, cy, now, bbox))
             return False
 
     def schedule_telegram_warning(self, track_id: int, img_t0, caption_template: str,
                                    initial_plate: str | None = None, center: tuple | None = None,
-                                   delay: float = 15.0):
+                                   delay: float = 15.0, bbox: tuple | None = None):
         """
         Lên lịch gửi cảnh báo Telegram sau `delay` giây (mặc định 15s).
         Trong thời gian chờ, nếu xe rời vùng cấm hoặc được Re-ID thì hủy timer.
         """
-        # Ngăn chặn tạo 2 timer cảnh báo song song cho cùng 1 xe hoặc cùng vị trí
+        # Ngăn chặn tạo 2 timer cảnh báo song song cho cùng 1 xe hoặc cùng vị trí (kiểm tra khoảng cách 300px + IoU)
         if center is not None:
             cx, cy = center
             for pid, pdata in list(self.pending_telegram_warnings.items()):
                 if pid == track_id:
                     continue
                 p_center = pdata.get('center')
+                p_bbox = pdata.get('bbox')
+                is_overlap = False
+                if bbox is not None and p_bbox is not None:
+                    iou, iom = compute_box_iou(bbox, p_bbox)
+                    if iou >= 0.15 or iom >= 0.25:
+                        is_overlap = True
                 if p_center is not None:
                     p_dist = math.hypot(cx - p_center[0], cy - p_center[1])
-                    if p_dist < 150.0:
+                    if is_overlap or p_dist < 300.0:
                         print(f"[ParkingManager] Bỏ qua lên lịch cảnh báo trùng vị trí cho ID:{track_id} (đang có ID:{pid} cách {p_dist:.0f}px chờ gửi).")
                         return
                 p_plate = pdata.get('plate')
-                if initial_plate and not initial_plate.startswith("ID_") and p_plate == initial_plate:
+                if initial_plate and not str(initial_plate).startswith("ID_") and p_plate == initial_plate:
                     print(f"[ParkingManager] Bỏ qua lên lịch cảnh báo trùng biển số cho ID:{track_id} ({initial_plate}).")
                     return
 
         self.cancel_pending_warning(track_id)
 
         def fire():
+            # Tự động gỡ khỏi pending_telegram_warnings khi timer kích hoạt
+            self.pending_telegram_warnings.pop(track_id, None)
+
             # 1. Kiểm tra xe còn trong danh sách giám sát không
             if track_id not in self.waiting_vehicles and track_id not in self.active_recordings:
                 print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn được theo dõi.")
                 return
 
             # 2. Kiểm tra xe còn được phát hiện gần đây (staleness check)
-            # Nếu ByteTrack mất track (xe đã ra khỏi ảnh/vùng), last_seen sẽ cũ và không cập nhật
             STALENESS_THRESHOLD = 4.0  # giây
             if track_id in self.last_seen:
                 time_since_seen = time.time() - self.last_seen[track_id].get('last_time', 0)
@@ -349,31 +371,34 @@ class ParkingManager:
             if not current_plate:
                 current_plate = initial_plate
 
-            # 4. Lấy vị trí hiện tại
+            # 4. Lấy vị trí và bbox hiện tại
             vcx, vcy = None, None
+            vbbox = bbox
             if track_id in self.last_seen:
                 vcx = self.last_seen[track_id]['cx']
                 vcy = self.last_seen[track_id]['cy']
+                if self.last_seen[track_id].get('bbox') is not None:
+                    vbbox = self.last_seen[track_id]['bbox']
             elif center is not None:
                 vcx, vcy = center
 
-            # 5.Kiểm tra vị trí cuối cùng có thực sự còn trong vùng cấm không
+            # 5. Kiểm tra vị trí cuối cùng có thực sự còn trong vùng cấm không
             if vcx is not None and vcy is not None:
                 if not self._is_in_any_zone(vcx, vcy):
                     print(f"[ParkingManager] Hủy cảnh báo sớm ID:{track_id} – xe đã rời khỏi vùng cấm.")
                     return
 
-            # 6. Dedup (có lock bên trong)
-            if self._check_notify_dedup(track_id, vcx, vcy, current_plate):
+            # 6. Dedup (có lock bên trong, so khớp cả vị trí 300px + IoU bbox)
+            if self._check_notify_dedup(track_id, vcx, vcy, current_plate, bbox=vbbox):
                 return
 
-            # 5. Caption
-            if current_plate and not current_plate.startswith("ID_"):
-                final_caption = caption_template.replace("{PLATE}", current_plate)
+            # 7. Caption
+            if current_plate and not str(current_plate).startswith("ID_"):
+                final_caption = caption_template.replace("{PLATE}", str(current_plate))
             else:
                 final_caption = caption_template.replace("{PLATE}", "(chưa rõ biển số)")
 
-            # 6. TTS
+            # 8. TTS
             if self.tts_enabled:
                 try:
                     from modules.utils.tts_announcer import announce_plate_violation
@@ -381,7 +406,7 @@ class ParkingManager:
                 except Exception as tts_err:
                     print(f"[ParkingManager] Lỗi TTS: {tts_err}")
 
-            # 7. Gửi Telegram
+            # 9. Gửi Telegram
             threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
 
         eff_delay = max(0.5, float(delay))
@@ -391,7 +416,8 @@ class ParkingManager:
             'timer': t,
             'caption': caption_template,
             'center': center,
-            'plate': initial_plate
+            'plate': initial_plate,
+            'bbox': bbox
         }
         t.start()
         print(f"[ParkingManager] Lên lịch cảnh báo sớm ID:{track_id} sau {eff_delay:.1f}s.")
@@ -747,7 +773,8 @@ class ParkingManager:
             self._purge_track(lid)
 
         for lid, linfo in to_ghost_from_last_seen:
-            self.cancel_pending_warning(lid)
+            # Lưu ý: KHÔNG hủy pending_warning khi xe chỉ vừa mất dấu 1s (ghost),
+            # vì xe có thể bị che khuất bởi người đi bộ và sẽ Re-ID ngay sau đó!
             self.ghost_tracks[lid] = {
                 'cx': linfo['cx'],
                 'cy': linfo['cy'],
@@ -788,10 +815,9 @@ class ParkingManager:
         # 1. Dọn dẹp các track xe cũ / mất dấu
         self.cleanup_stale_tracks(current_time)
 
-        # 2. Real-Time Position Lock: Phát hiện 2 ID song song cho cùng 1 xe trong cùng 1 burst frame
-        #    Nếu 1 ID mới (chưa có trong last_seen) xuất hiện tại vị trí của 1 ID khác trong vòng 0.5s,
-        #    sáp nhập tức thì thay vì chờ Spatial Re-ID (vốn chỉ kiểm tra ghost/last_seen đơn thuần).
-        REALTIME_DEDUP_WINDOW = 0.5
+        # 2. Real-Time Position Lock: Phát hiện 2 ID song song hoặc chuyển ID do vật cản (người đi bộ che khuất)
+        #    Mở rộng window lên 3.0s và khoảng cách 250px (bao phủ toàn bộ xe trong độ phân giải 1080p).
+        REALTIME_DEDUP_WINDOW = 3.0
         if track_id not in self.last_seen and track_id not in self.track_id_map:
             for oid, oinfo in list(self.last_seen.items()):
                 if oid == mapped_id:
@@ -802,11 +828,11 @@ class ParkingManager:
                 o_overlap = False
                 if bbox is not None and oinfo.get('bbox') is not None:
                     oiou, oiom = compute_box_iou(bbox, oinfo['bbox'])
-                    if oiou >= 0.20 or oiom >= 0.35:
+                    if oiou >= 0.15 or oiom >= 0.25:
                         o_overlap = True
                 odist = math.hypot(cx - oinfo['cx'], cy - oinfo['cy'])
-                if o_overlap or odist < 100.0:
-                    print(f"[ParkingManager] Phát hiện 2 ID song song cho cùng 1 xe: "
+                if o_overlap or odist < 250.0:
+                    print(f"[ParkingManager] Phát hiện 2 ID song song/chuyển ID cho cùng 1 xe: "
                           f"ID:{track_id} -> ID:{oid} (cách {odist:.0f}px, Δt={time_diff:.3f}s).")
                     self.track_id_map[track_id] = oid
                     mapped_id = oid
@@ -818,7 +844,7 @@ class ParkingManager:
             best_match = None
             best_source = None  # 'ghost' hoặc 'last_seen'
             min_dist = float('inf')
-            max_dist_px = max(120.0, self.move_thr_px * 3) # Khoảng cách tối đa cho phép nối ghép (120px)
+            max_dist_px = max(250.0, self.move_thr_px * 5) # 250px cho độ phân giải 1080p
             
             # 3a. Tìm trong ghost_tracks (xe vừa mất dấu nhưng còn trong hạn 120s)
             for gid, ginfo in list(self.ghost_tracks.items()):
@@ -827,7 +853,7 @@ class ParkingManager:
                 is_overlap = False
                 if bbox is not None and ginfo.get('bbox') is not None:
                     iou, iom = compute_box_iou(bbox, ginfo['bbox'])
-                    if iou >= 0.35 or iom >= 0.50:
+                    if iou >= 0.15 or iom >= 0.25:
                         is_overlap = True
                 dist = math.hypot(cx - ginfo['cx'], cy - ginfo['cy'])
                 if (is_overlap or dist < max_dist_px) and dist < min_dist:
@@ -843,7 +869,7 @@ class ParkingManager:
                     is_overlap = False
                     if bbox is not None and sinfo.get('bbox') is not None:
                         iou, iom = compute_box_iou(bbox, sinfo['bbox'])
-                        if iou >= 0.35 or iom >= 0.50:
+                        if iou >= 0.15 or iom >= 0.25:
                             is_overlap = True
                     dist = math.hypot(cx - sinfo['cx'], cy - sinfo['cy'])
                     if (is_overlap or dist < max_dist_px) and dist < min_dist:
@@ -893,22 +919,33 @@ class ParkingManager:
                 box_color = (0, 165, 255) # Orange
                 state_str = "WAITING"
                 if just_changed:
-                    # Kiểm tra xem có xe nào khác trong waiting_vehicles đang ở cùng vị trí (< 150px hoặc IoU >= 0.30)
+                    # Kiểm tra xem có xe nào khác trong waiting_vehicles đang ở cùng vị trí (< 300px hoặc IoU >= 0.15)
                     existing_waiting_id = None
                     for wid, wdata in list(self.waiting_vehicles.items()):
                         if wid == mapped_id:
                             continue
-                        w_last = self.last_seen.get(wid)
-                        if w_last:
-                            w_dist = math.hypot(cx - w_last['cx'], cy - w_last['cy'])
-                            w_overlap = False
-                            if bbox is not None and w_last.get('bbox') is not None:
-                                wiou, wiom = compute_box_iou(bbox, w_last['bbox'])
-                                if wiou >= 0.30 or wiom >= 0.45:
-                                    w_overlap = True
-                            if w_overlap or w_dist < 150.0:
+                        w_cx = wdata.get('cx')
+                        w_cy = wdata.get('cy')
+                        w_bbox = wdata.get('bbox')
+                        if w_cx is None and wid in self.last_seen:
+                            w_cx = self.last_seen[wid]['cx']
+                            w_cy = self.last_seen[wid]['cy']
+                            w_bbox = self.last_seen[wid].get('bbox')
+                        w_overlap = False
+                        if bbox is not None and w_bbox is not None:
+                            wiou, wiom = compute_box_iou(bbox, w_bbox)
+                            if wiou >= 0.15 or wiom >= 0.25:
+                                w_overlap = True
+                        if w_cx is not None:
+                            w_dist = math.hypot(cx - w_cx, cy - w_cy)
+                            if w_overlap or w_dist < 300.0:
                                 existing_waiting_id = wid
                                 break
+                        # Khớp theo biển số
+                        w_plate = wdata.get('plate')
+                        if license_plate and not str(license_plate).startswith("ID_") and w_plate == license_plate:
+                            existing_waiting_id = wid
+                            break
 
                     if existing_waiting_id is not None:
                         # Gộp ID này vào xe đã có sẵn trong danh sách chờ
@@ -930,9 +967,13 @@ class ParkingManager:
                         self.waiting_vehicles[mapped_id] = {
                             'img_t0': img_t0,
                             'start_time': datetime.datetime.now(),
+                            'start_time_ts': current_time,
                             'plate': license_plate,
                             'zone_name': zone_name,
-                            'duration': int(zone_timeout)
+                            'duration': int(zone_timeout),
+                            'cx': cx,
+                            'cy': cy,
+                            'bbox': bbox
                         }
                         # Cảnh báo sau 15s đỗ xe — xe đang đỗ nhưng chưa vi phạm
                         if self.telegram_enabled and self.save_to_db:
@@ -945,8 +986,17 @@ class ParkingManager:
                             self.schedule_telegram_warning(
                                 mapped_id, img_t0, w_caption,
                                 initial_plate=license_plate, center=(cx, cy),
-                                delay=15.0  # Gửi sau 15s đỗ, lọc xe dừng tạm thời
+                                delay=15.0, bbox=bbox
                             )
+                else:
+                    # Cập nhật vị trí và bbox cho xe đang chờ
+                    if mapped_id in self.waiting_vehicles:
+                        self.waiting_vehicles[mapped_id]['cx'] = cx
+                        self.waiting_vehicles[mapped_id]['cy'] = cy
+                        if bbox is not None:
+                            self.waiting_vehicles[mapped_id]['bbox'] = bbox
+                        if license_plate and not str(license_plate).startswith("ID_"):
+                            self.waiting_vehicles[mapped_id]['plate'] = license_plate
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
