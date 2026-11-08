@@ -934,8 +934,19 @@ class ParkingManager:
                             'zone_name': zone_name,
                             'duration': int(zone_timeout)
                         }
-                        # Tầng 1 (cảnh báo 15s sớm) đã bị loại bỏ theo yêu cầu.
-                        # Chỉ gửi thông báo khi xe đã vi phạm thực sự (VIOLATION state).
+                        # Cảnh báo sau 15s đỗ xe — xe đang đỗ nhưng chưa vi phạm
+                        if self.telegram_enabled and self.save_to_db:
+                            if license_plate and not license_plate.startswith("ID_"):
+                                w_caption = (f"⚠️ CẢNH BÁO: Xe biển số {{PLATE}} đang đỗ tại {zone_name} "
+                                             f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
+                            else:
+                                w_caption = (f"⚠️ CẢNH BÁO: Phát hiện xe đang đỗ tại {zone_name} "
+                                             f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
+                            self.schedule_telegram_warning(
+                                mapped_id, img_t0, w_caption,
+                                initial_plate=license_plate, center=(cx, cy),
+                                delay=15.0  # Gửi sau 15s đỗ, lọc xe dừng tạm thời
+                            )
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
@@ -980,20 +991,9 @@ class ParkingManager:
                     cv2.rectangle(frame, (0, 0), (w, banner_h), (0, 0, 0), -1)
                     cv2.putText(frame, "VI PHAM: DO XE SAI QUY DINH!", (int(20 * (w/1280)), int(55 * (h/720))), cv2.FONT_HERSHEY_SIMPLEX, 1.1 * (w/1280), (0, 0, 255), f_thick + 1)
 
-                    # Tầng 2: Gửi thông báo VI PHẠM khi xác nhận đỗ quá thời gian
-                    if self.telegram_enabled and self.save_to_db:
-                        if active_plate and not str(active_plate).startswith("ID_"):
-                            v_caption = (f"🚨 VI PHẠM ĐỖ XE: Xe biển số {{PLATE}} đã đỗ quá {active_zone_time}s "
-                                         f"tại {active_zone_name}. Đang thu thập bằng chứng...")
-                        else:
-                            v_caption = (f"🚨 VI PHẠM ĐỖ XE: Phát hiện xe đỗ quá {active_zone_time}s "
-                                         f"tại {active_zone_name} (chưa rõ biển số). "
-                                         f"Đang thu thập bằng chứng...")
-                        self._schedule_violation_alert(
-                            mapped_id, img_t1, v_caption,  # img_t1: frame tại thời điểm vi phạm
-                            plate=active_plate, cx=cx, cy=cy,
-                            delay=3.0  # Debounce nhỏ để lọc ID nhảy tức thì
-                        )
+                    # Khi xe chính thức vi phạm: không gửi tin nhắn trung gian để tránh spam.
+                    # Toàn bộ bằng chứng (ảnh T0+T1 ghép + video) sẽ được gửi tại RECORDING_DONE.
+                    self.cancel_pending_warning(mapped_id)  # Hủy cảnh báo 15s nếu xe đã vi phạm trước khi gửi
                     
             elif state == 3: # RECORDING_DONE
                 box_color = (0, 0, 255)

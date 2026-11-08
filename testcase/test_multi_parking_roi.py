@@ -369,26 +369,29 @@ class TestMultiParkingROI(unittest.TestCase):
                            cx=100, cy=100, frame_count=0, bbox=(90, 90, 110, 110),
                            license_plate="51A-00001")
 
-        # --- Bước 2: Frame 1 (chuyển sang WAITING) -> KHÔNG còn Tầng 1 nữa
+        # --- Bước 2: Frame 1 (chuyển sang WAITING) -> lên lịch cảnh báo sớm 15s
         pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
                            cx=100, cy=100, frame_count=1, bbox=(90, 90, 110, 110),
                            license_plate="51A-00001")
 
         self.assertIn(1, pm.waiting_vehicles, "Xe phải vào waiting_vehicles")
-        # Tầng 1 đã bị loại bỏ: KHÔNG được lên lịch cảnh báo 15s sớm khi vào WAITING
-        self.assertNotIn(1, pm.pending_telegram_warnings,
-                         "Tầng 1 đã bị loại bỏ: không được lên lịch cảnh báo 15s sớm khi xe vào WAITING")
+        # Phải có pending_telegram_warnings (timer 15s đã được đặt)
+        self.assertIn(1, pm.pending_telegram_warnings,
+                      "Phải lên lịch cảnh báo sớm (15s) khi xe chuyển sang WAITING")
+        warning_timer = pm.pending_telegram_warnings[1]['timer']
+        self.assertAlmostEqual(warning_timer.interval, 15.0, places=1,
+                               msg="Timer cảnh báo sớm phải là 15s")
 
-        # --- Bước 3: Xe đỗ đủ zone_timeout -> VIOLATION -> gửi cảnh báo vi phạm
+        # --- Bước 3: Xe đỗ đủ zone_timeout -> VIOLATION -> vào active_recordings
         for f in range(2, 25):
             label, color = pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
                                               cx=100, cy=100, frame_count=f,
                                               bbox=(90, 90, 110, 110), license_plate="51A-00001")
 
         self.assertIn("VIOLATION", str(label), "Xe phải chuyển sang VIOLATION sau 2s")
-        # Khi vi phạm: active_recordings phải có data (chuẩn bị ghi video + gửi tin cuối)
+        # Khi vi phạm: active_recordings phải có data (chuẩn bị ghi video + gửi tin bằng chứng)
         self.assertIn(1, pm.active_recordings, "Xe vi phạm phải vào active_recordings")
-        # Không còn pending_telegram_warnings (Tầng 1 đã loại bỏ, timer đã được cancel khi vào VIOLATION)
+        # Timer cảnh báo sớm 15s đã được cancel khi vào VIOLATION
         self.assertNotIn(1, pm.pending_telegram_warnings,
                          "Không còn timer cảnh báo sớm sau khi vào VIOLATION")
 
