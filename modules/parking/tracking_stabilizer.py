@@ -11,7 +11,7 @@ def compute_box_iou(box1: tuple, box2: tuple) -> Tuple[float, float]:
     xA = max(box1[0], box2[0])
     yA = max(box1[1], box2[1])
     xB = min(box1[2], box2[2])
-    yB = min(box2[3], box2[3])
+    yB = min(box1[3], box2[3])
 
     inter_w = max(0, xB - xA)
     inter_h = max(0, yB - yA)

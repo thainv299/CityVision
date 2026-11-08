@@ -788,6 +788,31 @@ class ParkingManager:
         # 1. Dọn dẹp các track xe cũ / mất dấu
         self.cleanup_stale_tracks(current_time)
 
+        # 2. Real-Time Position Lock: Phát hiện 2 ID song song cho cùng 1 xe trong cùng 1 burst frame
+        #    Nếu 1 ID mới (chưa có trong last_seen) xuất hiện tại vị trí của 1 ID khác trong vòng 0.5s,
+        #    sáp nhập tức thì thay vì chờ Spatial Re-ID (vốn chỉ kiểm tra ghost/last_seen đơn thuần).
+        REALTIME_DEDUP_WINDOW = 0.5
+        if track_id not in self.last_seen and track_id not in self.track_id_map:
+            for oid, oinfo in list(self.last_seen.items()):
+                if oid == mapped_id:
+                    continue
+                time_diff = abs(current_time - oinfo.get('last_time', 0))
+                if time_diff > REALTIME_DEDUP_WINDOW:
+                    continue
+                o_overlap = False
+                if bbox is not None and oinfo.get('bbox') is not None:
+                    oiou, oiom = compute_box_iou(bbox, oinfo['bbox'])
+                    if oiou >= 0.20 or oiom >= 0.35:
+                        o_overlap = True
+                odist = math.hypot(cx - oinfo['cx'], cy - oinfo['cy'])
+                if o_overlap or odist < 100.0:
+                    print(f"[ParkingManager] Phát hiện 2 ID song song cho cùng 1 xe: "
+                          f"ID:{track_id} -> ID:{oid} (cách {odist:.0f}px, Δt={time_diff:.3f}s).")
+                    self.track_id_map[track_id] = oid
+                    mapped_id = oid
+                    self.cancel_pending_warning(track_id)
+                    break
+
         # 3. Thuật toán Spatial Re-ID (Sáp nhập Track vỡ nếu xuất hiện ID mới tại cùng vị trí hoặc trùng Bounding Box)
         if track_id not in self.last_seen and track_id not in self.track_id_map:
             best_match = None
@@ -909,19 +934,8 @@ class ParkingManager:
                             'zone_name': zone_name,
                             'duration': int(zone_timeout)
                         }
-                        # Tầng 1: Gửi cảnh báo sớm sau 15s — xe đang đỗ nhưng chưa vi phạm
-                        if self.telegram_enabled and self.save_to_db:
-                            if license_plate and not license_plate.startswith("ID_"):
-                                w_caption = (f"⚠️ CẢNH BÁO: Xe biển số {{PLATE}} đang đỗ tại {zone_name} "
-                                             f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
-                            else:
-                                w_caption = (f"⚠️ CẢNH BÁO: Phát hiện xe đang đỗ tại {zone_name} "
-                                             f"(giới hạn: {int(zone_timeout)}s). Đang đếm giờ...")
-                            self.schedule_telegram_warning(
-                                mapped_id, img_t0, w_caption,
-                                initial_plate=license_plate, center=(cx, cy),
-                                delay=15.0  # Gửi sau 15s đỗ, lọc xe lướt qua nhanh
-                            )
+                        # Tầng 1 (cảnh báo 15s sớm) đã bị loại bỏ theo yêu cầu.
+                        # Chỉ gửi thông báo khi xe đã vi phạm thực sự (VIOLATION state).
                         
             elif state == VIOLATION:
                 box_color = (0, 0, 255) # Red
@@ -976,7 +990,7 @@ class ParkingManager:
                                          f"tại {active_zone_name} (chưa rõ biển số). "
                                          f"Đang thu thập bằng chứng...")
                         self._schedule_violation_alert(
-                            mapped_id, img_t0, v_caption,
+                            mapped_id, img_t1, v_caption,  # img_t1: frame tại thời điểm vi phạm
                             plate=active_plate, cx=cx, cy=cy,
                             delay=3.0  # Debounce nhỏ để lọc ID nhảy tức thì
                         )

@@ -44,7 +44,11 @@ class TestParkingDedupAndGhost(unittest.TestCase):
         self.assertEqual(len(self.pm.pending_telegram_warnings), 1)
 
     def test_waiting_vehicles_spatial_merge(self):
-        """Kiểm tra: Xe thứ 2 vào WAITING tại cùng vị trí phải gộp vào xe thứ 1, không tạo cảnh báo kép"""
+        """Kiểm tra: Xe thứ 2 vào WAITING tại cùng vị trí phải gộp vào xe thứ 1 (không tạo entry trùng)
+        
+        Lưu ý: Tầng 1 (cảnh báo 15s sớm) đã bị loại bỏ theo yêu cầu.
+        Test này chỉ kiểm tra rằng waiting_vehicles không bị nhân đôi.
+        """
         fake_frame = np.zeros((600, 800, 3), dtype=np.uint8)
         bbox1 = (150, 150, 350, 350)
         cx1, cy1 = 250, 250
@@ -53,7 +57,9 @@ class TestParkingDedupAndGhost(unittest.TestCase):
         self.pm.process_vehicle(fake_frame, fake_frame, 1000, "car", cx1, cy1, 1, bbox=bbox1)
         self.pm.process_vehicle(fake_frame, fake_frame, 1000, "car", cx1, cy1, 2, bbox=bbox1)
         self.assertIn(1000, self.pm.waiting_vehicles)
-        self.assertIn(1000, self.pm.pending_telegram_warnings)
+        # Tầng 1 đã bị loại bỏ: không còn pending_telegram_warnings khi vào WAITING
+        self.assertNotIn(1000, self.pm.pending_telegram_warnings,
+                         "Tầng 1 đã bị loại bỏ: không được lên lịch cảnh báo 15s sớm khi vào WAITING")
 
         # Xe ID 2000 xuất hiện tại cùng vị trí (cách 10px) và dừng lại
         bbox2 = (155, 155, 355, 355)
@@ -63,9 +69,10 @@ class TestParkingDedupAndGhost(unittest.TestCase):
 
         # ID 2000 phải được ánh xạ vào ID 1000
         self.assertEqual(self.pm.track_id_map.get(2000), 1000)
-        # Chỉ có đúng 1 xe trong waiting_vehicles và đúng 1 cảnh báo pending!
+        # Chỉ có đúng 1 xe trong waiting_vehicles (không bị nhân đôi)
         self.assertEqual(len(self.pm.waiting_vehicles), 1)
-        self.assertEqual(len(self.pm.pending_telegram_warnings), 1)
+        # Không có cảnh báo sớm nào được lên lịch (Tầng 1 đã bị loại)
+        self.assertEqual(len(self.pm.pending_telegram_warnings), 0)
 
     def test_ghost_track_purge_after_7_minutes(self):
         """Kiểm tra: Xe rời đi sau 7 phút (420s) phải bị xóa sạch, xe mới không bị gán lại ID cũ!"""
