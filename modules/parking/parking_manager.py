@@ -353,6 +353,13 @@ class ParkingManager:
                 print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn được theo dõi.")
                 return
 
+            # 1b. Kiểm tra thời gian đỗ thực tế: xe phải thực sự duy trì đỗ trong waiting_vehicles đủ thời gian
+            if track_id in self.waiting_vehicles:
+                parked_dur = time.time() - self.waiting_vehicles[track_id].get('start_time_ts', time.time())
+                if parked_dur < (eff_delay - 1.5):
+                    print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – thời gian đỗ thực tế chưa đủ ({parked_dur:.1f}s < {eff_delay:.0f}s).")
+                    return
+
             # 2. Kiểm tra xe còn được phát hiện gần đây (staleness check)
             STALENESS_THRESHOLD = 4.0  # giây
             if track_id in self.last_seen:
@@ -568,27 +575,34 @@ class ParkingManager:
 
         raw_plate = data.get('plate')
 
-        # Dọn dẹp danh sách các vi phạm đã lưu cũ hơn 900 giây (15 phút)
-        if not hasattr(self, '_recent_saved_violations'):
-            self._recent_saved_violations = []
-        self._recent_saved_violations = [
-            (vx, vy, vp, vt) for vx, vy, vp, vt in self._recent_saved_violations if now_ts - vt < 900.0
-        ]
+        # Dọn dẹp và kiểm tra chống lưu trùng lặp (cooldown 15 phút, khóa bằng _dedup_lock chống race condition)
+        with self._dedup_lock:
+            if not hasattr(self, '_recent_saved_violations'):
+                self._recent_saved_violations = []
+            self._recent_saved_violations = [
+                entry for entry in self._recent_saved_violations if now_ts - entry[3] < 900.0
+            ]
 
-        # Kiểm tra chống lưu trùng lặp (cooldown 15 phút)
-        for vx, vy, vp, vt in self._recent_saved_violations:
-            if raw_plate and not raw_plate.startswith("ID_") and vp == raw_plate and now_ts - vt < 900.0:
-                print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} "
-                      f"(đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
-                return
-            if cx is not None and vx is not None:
-                dist = math.hypot(cx - vx, cy - vy)
-                if dist < 120.0 and now_ts - vt < 900.0:
-                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí ID:{track_id} "
-                          f"(cách {dist:.0f}px, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
+            for entry in self._recent_saved_violations:
+                vx, vy, vp, vt = entry[0], entry[1], entry[2], entry[3]
+                pbbox = entry[4] if len(entry) > 4 else None
+                if raw_plate and not str(raw_plate).startswith("ID_") and vp == str(raw_plate) and now_ts - vt < 900.0:
+                    print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng biển số {raw_plate} "
+                          f"(đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
                     return
+                is_overlap = False
+                if bbox is not None and pbbox is not None:
+                    iou, iom = compute_box_iou(bbox, pbbox)
+                    if iou >= 0.15 or iom >= 0.25:
+                        is_overlap = True
+                if cx is not None and vx is not None:
+                    dist = math.hypot(cx - vx, cy - vy)
+                    if (is_overlap or dist < 250.0) and now_ts - vt < 900.0:
+                        print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí ID:{track_id} "
+                              f"(cách {dist:.0f}px, overlap={is_overlap}, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
+                        return
 
-        self._recent_saved_violations.append((cx, cy, raw_plate, now_ts))
+            self._recent_saved_violations.append((cx, cy, str(raw_plate) if raw_plate else None, now_ts, bbox))
 
         now = datetime.datetime.now()
         evt_id = f"EVT_{now.strftime('%Y%m%d_%H%M%S')}_{track_id}"
