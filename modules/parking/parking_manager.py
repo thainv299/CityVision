@@ -743,6 +743,8 @@ class ParkingManager:
                 self.violation_end_callback(self.violation_records[tid])
             del self.violation_records[tid]
         self.cancel_pending_warning(tid)
+        if hasattr(self, '_outside_zone_counters'):
+            self._outside_zone_counters.pop(tid, None)
         self.ghost_tracks.pop(tid, None)
         self.last_seen.pop(tid, None)
         self.waiting_vehicles.pop(tid, None)
@@ -895,20 +897,62 @@ class ParkingManager:
         self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time, 'bbox': bbox}
 
         # Kiểm tra xe có nằm trong bất kỳ vùng cấm đỗ nào không
+        # Dùng đa điểm (multi-point): tâm xe (cx,cy), điểm tiếp đất bánh xe (cx,y2), góc dưới (x1,y2), (x2,y2)
+        # để chống hiện tượng giật ranh giới (boundary flicker) khi xe đỗ nửa trong nửa ngoài vạch đỏ.
+        check_points = [(cx, cy)]
+        if bbox is not None:
+            bx1, by1, bx2, by2 = bbox
+            check_points.extend([
+                (cx, by2),        # Điểm tiếp đất phía dưới (bánh xe/mũi xe)
+                (cx, by1),        # Điểm phía trên
+                (bx1, by2),       # Góc dưới bên trái
+                (bx2, by2),       # Góc dưới bên phải
+                (cx, (cy + by2) // 2) # Nửa dưới thân xe
+            ])
+
         matched_zone = None
         for z in self.no_park_zones:
             poly = z.get("polygon")
             if poly is not None and len(poly) >= 3:
-                if cv2.pointPolygonTest(poly, (cx, cy), False) >= 0:
-                    matched_zone = z
+                for pt in check_points:
+                    if cv2.pointPolygonTest(poly, (float(pt[0]), float(pt[1])), False) >= 0:
+                        matched_zone = z
+                        break
+                if matched_zone is not None:
                     break
 
         # Fallback kiểm tra polygon đơn nếu danh sách zones rỗng
         if matched_zone is None and self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
-            if cv2.pointPolygonTest(self._no_park_polygon, (cx, cy), False) >= 0:
-                matched_zone = {"id": 1, "name": "Vùng cấm đỗ", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}
+            for pt in check_points:
+                if cv2.pointPolygonTest(self._no_park_polygon, (float(pt[0]), float(pt[1])), False) >= 0:
+                    matched_zone = {"id": 1, "name": "Vùng cấm đỗ", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}
+                    break
 
-        in_no_park = matched_zone is not None
+        # Hysteresis / Grace Period khi xe bị lệch ra ngoài ranh giới:
+        # Nếu xe đang được theo dõi đỗ (WAITING / VIOLATION), không xóa sạch ngay ở frame đầu tiên ra ngoài,
+        # mà yêu cầu ra ngoài liên tục >= 30 frames (1.5s) mới coi là xe đã thực sự rời đi.
+        if not hasattr(self, '_outside_zone_counters'):
+            self._outside_zone_counters = {}
+
+        if matched_zone is not None:
+            self._outside_zone_counters[mapped_id] = 0
+            in_no_park = True
+        else:
+            out_count = self._outside_zone_counters.get(mapped_id, 0) + 1
+            self._outside_zone_counters[mapped_id] = out_count
+            is_monitored = (mapped_id in self.waiting_vehicles or mapped_id in self.active_recordings or (self.logic and mapped_id in self.logic.states))
+            # Nếu đang được theo dõi và chưa ra ngoài quá 30 frames -> vẫn giữ trạng thái đỗ trong vùng
+            if is_monitored and out_count < 30:
+                in_no_park = True
+                # Lấy lại zone cũ từ waiting_vehicles nếu có
+                if mapped_id in self.waiting_vehicles:
+                    w_zname = self.waiting_vehicles[mapped_id].get('zone_name')
+                    w_dur = self.waiting_vehicles[mapped_id].get('duration')
+                    matched_zone = {"name": w_zname, "timeout": w_dur}
+                else:
+                    matched_zone = {"name": "Vùng cấm đỗ", "timeout": self.stop_seconds}
+            else:
+                in_no_park = False
 
         if in_no_park:
             zone_timeout = float(matched_zone.get("timeout") if matched_zone.get("timeout") is not None else self.stop_seconds)
