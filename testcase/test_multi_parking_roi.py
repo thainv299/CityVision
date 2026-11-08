@@ -341,9 +341,10 @@ class TestMultiParkingROI(unittest.TestCase):
 
     def test_12_two_stage_notification_logic(self):
         """
-        Kiểm tra logic thông báo 2 tầng:
-        - Tầng 1: Xe đỗ 15s -> cảnh báo sớm "xe đang đỗ" (schedule_telegram_warning, delay=15s)
-        - Tầng 2: Xe đỗ đủ zone_timeout -> thông báo vi phạm (_schedule_violation_alert, dedup riêng)
+        Kiểm tra logic thông báo (đã cập nhật - Tầng 1 đã bị loại bỏ):
+        - Trước đây có 2 tầng: Tầng 1 (15s sớm) + Tầng 2 (khi vi phạm)
+        - Hiện tại chỉ còn 1 cảnh báo khi xe VI PHẠM thực sự (vào VIOLATION state)
+        - Và 1 cảnh báo có ảnh+video khi ghi hình xong (RECORDING_DONE)
         - _check_notify_dedup và _check_violation_dedup là 2 registry riêng biệt
         """
         import time as _time
@@ -368,32 +369,33 @@ class TestMultiParkingROI(unittest.TestCase):
                            cx=100, cy=100, frame_count=0, bbox=(90, 90, 110, 110),
                            license_plate="51A-00001")
 
-        # --- Bước 2: Frame 1 (chuyển sang WAITING) -> Tầng 1: phải lên lịch cảnh báo sớm 15s
+        # --- Bước 2: Frame 1 (chuyển sang WAITING) -> lên lịch cảnh báo sớm 15s
         pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
                            cx=100, cy=100, frame_count=1, bbox=(90, 90, 110, 110),
                            license_plate="51A-00001")
 
         self.assertIn(1, pm.waiting_vehicles, "Xe phải vào waiting_vehicles")
-        # Tầng 1: phải có pending_telegram_warnings (timer 15s đã được đặt)
+        # Phải có pending_telegram_warnings (timer 15s đã được đặt)
         self.assertIn(1, pm.pending_telegram_warnings,
                       "Phải lên lịch cảnh báo sớm (15s) khi xe chuyển sang WAITING")
-        # Delay của timer phải là 15s
         warning_timer = pm.pending_telegram_warnings[1]['timer']
         self.assertAlmostEqual(warning_timer.interval, 15.0, places=1,
                                msg="Timer cảnh báo sớm phải là 15s")
 
-        # --- Bước 3: Xe đỗ đủ zone_timeout -> VIOLATION -> Tầng 2
+        # --- Bước 3: Xe đỗ đủ zone_timeout -> VIOLATION -> vào active_recordings
         for f in range(2, 25):
             label, color = pm.process_vehicle(frame, clean_frame, track_id=1, label="car",
                                               cx=100, cy=100, frame_count=f,
                                               bbox=(90, 90, 110, 110), license_plate="51A-00001")
 
         self.assertIn("VIOLATION", str(label), "Xe phải chuyển sang VIOLATION sau 2s")
-        # pending_telegram_warnings có thể vẫn còn (timer 15s chưa fire) hoặc đã cancel khi VIOLATION
-        # Quan trọng hơn: active_recordings phải có data
+        # Khi vi phạm: active_recordings phải có data (chuẩn bị ghi video + gửi tin bằng chứng)
         self.assertIn(1, pm.active_recordings, "Xe vi phạm phải vào active_recordings")
+        # Timer cảnh báo sớm 15s đã được cancel khi vào VIOLATION
+        self.assertNotIn(1, pm.pending_telegram_warnings,
+                         "Không còn timer cảnh báo sớm sau khi vào VIOLATION")
 
-        # Hủy timer cảnh báo sớm (nếu còn) để tránh thread leak trong test
+        # Dọn dẹp để tránh thread leak trong test
         pm.cancel_pending_warning(1)
 
 
