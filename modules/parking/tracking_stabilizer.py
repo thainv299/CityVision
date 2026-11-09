@@ -38,7 +38,7 @@ class StationaryVehicleStabilizer:
     3. Plate-Based Fusion: Tự động sáp nhập các track đọc ra cùng 1 biển số xe.
     """
 
-    def __init__(self, iou_thresh: float = 0.35, iom_thresh: float = 0.50, max_ghost_frames: int = 150):
+    def __init__(self, iou_thresh: float = 0.35, iom_thresh: float = 0.50, max_ghost_frames: int = 75):
         self.iou_thresh = iou_thresh
         self.iom_thresh = iom_thresh
         self.max_ghost_frames = max_ghost_frames
@@ -164,7 +164,7 @@ class StationaryVehicleStabilizer:
                 # Kiểm tra xem raw_id này có phải là detection trùng lặp của cùng 1 xe không
                 iou, iom = compute_box_iou(bbox, info["bbox"])
                 dist = math.hypot(center[0] - info["center"][0], center[1] - info["center"][1])
-                if iou >= 0.20 or iom >= 0.30 or dist < 220.0:
+                if (iou >= 0.35 or iom >= 0.45) and dist < 60.0:
                     # Cùng 1 xe bị sinh 2 raw_id song song trong 1 frame -> gộp về cùng canonical ID!
                     self.raw_to_canonical[raw_id] = cid
                     return cid
@@ -176,8 +176,8 @@ class StationaryVehicleStabilizer:
             iou, iom = compute_box_iou(bbox, info["bbox"])
             dist = math.hypot(center[0] - info["center"][0], center[1] - info["center"][1])
             score = max(iou, iom * 0.85)
-            # Khớp nếu IoU/IoM đạt ngưỡng HOẶC tâm box cách nhau < 220px (cho video 1080p)
-            is_spatial_hit = (iou >= 0.20 or iom >= 0.30 or dist < 220.0)
+            # Khớp chỉ khi có IoU/IoM cao VÀ tâm box cách nhau < 60px (chứng tỏ cùng 1 xe đỗ tĩnh tại chỗ)
+            is_spatial_hit = (iou >= 0.35 or iom >= 0.45) and dist < 60.0
             if is_spatial_hit and (score > best_score or best_match_id is None):
                 best_score = score
                 best_match_id = cid

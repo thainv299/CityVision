@@ -131,7 +131,8 @@ class AsyncIOWorker:
         self.enqueue("save_video", path=path, frames=frames, fps=fps)
 
     def enqueue_telegram_image(self, path: str, caption: str,
-                                bot_token: str = "", chat_id: str = ""):
+                                bot_token: str = "", chat_id: str = "",
+                                dedup_key: str = "", cooldown_seconds: float = 30.0):
         """Đẩy task gửi ảnh Telegram vào queue."""
         self.enqueue(
             "telegram_image",
@@ -139,10 +140,13 @@ class AsyncIOWorker:
             caption=caption,
             bot_token=bot_token or self.telegram_bot_token,
             chat_id=chat_id or self.telegram_chat_id,
+            dedup_key=dedup_key,
+            cooldown_seconds=cooldown_seconds,
         )
 
     def enqueue_telegram_image_from_frame(self, frame: np.ndarray, caption: str,
-                                           bot_token: str = "", chat_id: str = ""):
+                                           bot_token: str = "", chat_id: str = "",
+                                           dedup_key: str = "", cooldown_seconds: float = 30.0):
         """Đẩy task ghi ảnh tạm rồi gửi Telegram."""
         self.enqueue(
             "telegram_image_from_frame",
@@ -150,10 +154,13 @@ class AsyncIOWorker:
             caption=caption,
             bot_token=bot_token or self.telegram_bot_token,
             chat_id=chat_id or self.telegram_chat_id,
+            dedup_key=dedup_key,
+            cooldown_seconds=cooldown_seconds,
         )
 
     def enqueue_telegram_video(self, path: str, caption: str,
-                                bot_token: str = "", chat_id: str = ""):
+                                bot_token: str = "", chat_id: str = "",
+                                dedup_key: str = "", cooldown_seconds: float = 45.0):
         """Đẩy task gửi video Telegram vào queue."""
         self.enqueue(
             "telegram_video",
@@ -161,6 +168,8 @@ class AsyncIOWorker:
             caption=caption,
             bot_token=bot_token or self.telegram_bot_token,
             chat_id=chat_id or self.telegram_chat_id,
+            dedup_key=dedup_key,
+            cooldown_seconds=cooldown_seconds,
         )
 
     def enqueue_traffic_alert(self, level: int, frame: np.ndarray):
@@ -259,6 +268,8 @@ class AsyncIOWorker:
             task["caption"],
             task.get("bot_token", self.telegram_bot_token),
             task.get("chat_id", self.telegram_chat_id),
+            dedup_key=task.get("dedup_key"),
+            cooldown_seconds=task.get("cooldown_seconds", 30.0),
         )
 
     def _do_telegram_image_from_frame(self, task: Dict[str, Any]):
@@ -275,6 +286,8 @@ class AsyncIOWorker:
             task["caption"],
             task.get("bot_token", self.telegram_bot_token),
             task.get("chat_id", self.telegram_chat_id),
+            dedup_key=task.get("dedup_key"),
+            cooldown_seconds=task.get("cooldown_seconds", 30.0),
         )
         try:
             os.remove(img_path)
@@ -288,6 +301,8 @@ class AsyncIOWorker:
             task["caption"],
             task.get("bot_token", self.telegram_bot_token),
             task.get("chat_id", self.telegram_chat_id),
+            dedup_key=task.get("dedup_key"),
+            cooldown_seconds=task.get("cooldown_seconds", 45.0),
         )
 
     def _do_traffic_alert(self, task: Dict[str, Any]):

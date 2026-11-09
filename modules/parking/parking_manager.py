@@ -322,6 +322,11 @@ class ParkingManager:
         # Ngăn chặn tạo 2 timer cảnh báo song song cho cùng 1 xe hoặc cùng vị trí (kiểm tra khoảng cách 300px + IoU)
         if center is not None:
             cx, cy = center
+            # Kiểm tra dedup vị trí/biển số trước khi lên lịch timer: nếu đã cảnh báo trong cooldown thì không lên lịch mới
+            if self._check_notify_dedup(track_id, cx, cy, initial_plate, bbox=bbox):
+                print(f"[ParkingManager] Bỏ qua lên lịch cảnh báo ID:{track_id} do vị trí/biển số đã được thông báo trước đó.")
+                return
+
             for pid, pdata in list(self.pending_telegram_warnings.items()):
                 if pid == track_id:
                     continue
@@ -334,7 +339,7 @@ class ParkingManager:
                         is_overlap = True
                 if p_center is not None:
                     p_dist = math.hypot(cx - p_center[0], cy - p_center[1])
-                    if is_overlap or p_dist < 300.0:
+                    if is_overlap and p_dist < 60.0:
                         print(f"[ParkingManager] Bỏ qua lên lịch cảnh báo trùng vị trí cho ID:{track_id} (đang có ID:{pid} cách {p_dist:.0f}px chờ gửi).")
                         return
                 p_plate = pdata.get('plate')
@@ -368,6 +373,14 @@ class ParkingManager:
                     print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn được phát hiện ({time_since_seen:.1f}s).")
                     self.waiting_vehicles.pop(track_id, None)
                     return
+            elif track_id in self.ghost_tracks:
+                time_since_lost = time.time() - self.ghost_tracks[track_id].get('lost_time', 0)
+                if time_since_lost > STALENESS_THRESHOLD:
+                    print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe ghost đã mất dấu ({time_since_lost:.1f}s).")
+                    return
+            else:
+                print(f"[ParkingManager] Hủy cảnh báo ID:{track_id} – xe không còn trong danh sách quan sát.")
+                return
 
             # 3. Lấy biển số mới nhất từ OCR
             current_plate = None
@@ -413,8 +426,12 @@ class ParkingManager:
                 except Exception as tts_err:
                     print(f"[ParkingManager] Lỗi TTS: {tts_err}")
 
-            # 9. Gửi Telegram
-            threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption), daemon=True).start()
+            # 9. Gửi Telegram (kèm dedup key không gian + biển số)
+            gx = int(vcx // 150) if vcx is not None else 0
+            gy = int(vcy // 150) if vcy is not None else 0
+            p_ident = str(current_plate) if current_plate and not str(current_plate).startswith("ID_") else f"grid_{gx}_{gy}"
+            warn_key = f"park_warn_cam{self.camera_id}_{p_ident}"
+            threading.Thread(target=self._send_warning_thread, args=(img_t0, final_caption, warn_key), daemon=True).start()
 
         eff_delay = max(0.5, float(delay))
         t = threading.Timer(eff_delay, fire)
@@ -549,11 +566,12 @@ class ParkingManager:
             for tid in to_delete:
                 del self.active_recordings[tid]
 
-    def _send_warning_thread(self, img_t0, caption):
+    def _send_warning_thread(self, img_t0, caption, dedup_key=None):
         # Nếu có io_worker, dùng async mode (đẩy vào queue)
         if self.io_worker is not None:
             self.io_worker.enqueue_telegram_image_from_frame(
-                img_t0, caption, self.telegram_bot_token, self.telegram_chat_id
+                img_t0, caption, self.telegram_bot_token, self.telegram_chat_id,
+                dedup_key=dedup_key, cooldown_seconds=45.0
             )
             return
 
@@ -562,7 +580,8 @@ class ParkingManager:
         os.makedirs(temp_dir, exist_ok=True)
         img_path = os.path.join(temp_dir, f"temp_warning_{now_ts()}.jpg")
         cv2.imwrite(img_path, img_t0)
-        send_telegram_image(img_path, caption, self.telegram_bot_token, self.telegram_chat_id)
+        send_telegram_image(img_path, caption, self.telegram_bot_token, self.telegram_chat_id,
+                            dedup_key=dedup_key, cooldown_seconds=45.0)
         try: os.remove(img_path)
         except: pass
 
@@ -737,18 +756,28 @@ class ParkingManager:
             else:
                 caption_img = f"🚨 VI PHẠM CHỐT: Phát hiện xe đỗ sai quy định tại {zone_desc} (quá {zone_time}s, Không rõ biển số)."
                 caption_vid = f"Bằng chứng Video phát hiện xe đỗ sai quy định tại {zone_desc}"
+            gx = int(cx // 150) if cx is not None else 0
+            gy = int(cy // 150) if cy is not None else 0
+            v_ident = str(raw_plate) if raw_plate and not str(raw_plate).startswith("ID_") else f"grid_{gx}_{gy}"
+            v_img_key = f"park_violation_img_cam{self.camera_id}_{v_ident}"
+            v_vid_key = f"park_violation_vid_cam{self.camera_id}_{v_ident}"
+
             if self.io_worker is not None:
                 # Async mode: đẩy vào queue
                 self.io_worker.enqueue_telegram_image(
-                    combined_path, caption_img, self.telegram_bot_token, self.telegram_chat_id
+                    combined_path, caption_img, self.telegram_bot_token, self.telegram_chat_id,
+                    dedup_key=v_img_key, cooldown_seconds=60.0
                 )
                 self.io_worker.enqueue_telegram_video(
-                    video_path, caption_vid, self.telegram_bot_token, self.telegram_chat_id
+                    video_path, caption_vid, self.telegram_bot_token, self.telegram_chat_id,
+                    dedup_key=v_vid_key, cooldown_seconds=60.0
                 )
             else:
                 # Fallback: gọi đồng bộ
-                send_telegram_image(combined_path, caption_img, self.telegram_bot_token, self.telegram_chat_id)
-                send_telegram_video(video_path, caption_vid, self.telegram_bot_token, self.telegram_chat_id)
+                send_telegram_image(combined_path, caption_img, self.telegram_bot_token, self.telegram_chat_id,
+                                    dedup_key=v_img_key, cooldown_seconds=60.0)
+                send_telegram_video(video_path, caption_vid, self.telegram_bot_token, self.telegram_chat_id,
+                                    dedup_key=v_vid_key, cooldown_seconds=60.0)
 
     def _purge_track(self, tid: int):
         """Xóa sạch mọi dấu vết và bộ nhớ của một track khi đã hết hạn hoàn toàn"""
@@ -776,11 +805,12 @@ class ParkingManager:
         2. Xe trong last_seen mất dấu 1s - 120s: Chuyển sang ghost_tracks với lost_time = linfo['last_time'].
         3. Xe trong ghost_tracks quá 120s: Purge hoàn toàn, xóa mọi map và trạng thái.
         """
+        GHOST_TIMEOUT = 5.0  # Giới hạn nhớ xe bị che khuất tối đa 5 giây (sau 5s coi như xe đã rời đi)
         to_purge_from_last_seen = []
         to_ghost_from_last_seen = []
         for lid, linfo in list(self.last_seen.items()):
             time_lost = current_time - linfo.get('last_time', 0)
-            if time_lost > 120.0:
+            if time_lost > GHOST_TIMEOUT:
                 to_purge_from_last_seen.append(lid)
             elif time_lost > 1.0:
                 to_ghost_from_last_seen.append((lid, linfo))
@@ -789,12 +819,11 @@ class ParkingManager:
             self._purge_track(lid)
 
         for lid, linfo in to_ghost_from_last_seen:
-            # Lưu ý: KHÔNG hủy pending_warning khi xe chỉ vừa mất dấu 1s (ghost),
-            # vì xe có thể bị che khuất bởi người đi bộ và sẽ Re-ID ngay sau đó!
+            # Xe vừa mất dấu ngắn (1s - 5s): lưu tạm để đề phòng người đi bộ che khuất
             self.ghost_tracks[lid] = {
                 'cx': linfo['cx'],
                 'cy': linfo['cy'],
-                'lost_time': linfo.get('last_time', current_time),  # THỜI GIAN THỰC TẾ LẦN CUỐI XE ĐƯỢC NHÌN THẤY
+                'lost_time': linfo.get('last_time', current_time),
                 'bbox': linfo.get('bbox')
             }
             if self.logic and lid in self.logic.states:
@@ -805,7 +834,7 @@ class ParkingManager:
                 self.ghost_tracks[lid]['recording_data'] = self.active_recordings.pop(lid)
             self.last_seen.pop(lid, None)
 
-        expired_ghosts = [gid for gid, ginfo in list(self.ghost_tracks.items()) if current_time - ginfo.get('lost_time', 0) > 120.0]
+        expired_ghosts = [gid for gid, ginfo in list(self.ghost_tracks.items()) if current_time - ginfo.get('lost_time', 0) > GHOST_TIMEOUT]
         for gid in expired_ghosts:
             self._purge_track(gid)
 
@@ -844,10 +873,10 @@ class ParkingManager:
                 o_overlap = False
                 if bbox is not None and oinfo.get('bbox') is not None:
                     oiou, oiom = compute_box_iou(bbox, oinfo['bbox'])
-                    if oiou >= 0.15 or oiom >= 0.25:
+                    if oiou >= 0.35 or oiom >= 0.45:
                         o_overlap = True
                 odist = math.hypot(cx - oinfo['cx'], cy - oinfo['cy'])
-                if o_overlap or odist < 250.0:
+                if o_overlap and odist < 60.0:
                     print(f"[ParkingManager] Phát hiện 2 ID song song/chuyển ID cho cùng 1 xe: "
                           f"ID:{track_id} -> ID:{oid} (cách {odist:.0f}px, Δt={time_diff:.3f}s).")
                     self.track_id_map[track_id] = oid
@@ -862,17 +891,18 @@ class ParkingManager:
             min_dist = float('inf')
             max_dist_px = max(250.0, self.move_thr_px * 5) # 250px cho độ phân giải 1080p
             
-            # 3a. Tìm trong ghost_tracks (xe vừa mất dấu nhưng còn trong hạn 120s)
+            # 3a. Tìm trong ghost_tracks (xe vừa mất dấu nhưng không quá 5s)
             for gid, ginfo in list(self.ghost_tracks.items()):
-                if current_time - ginfo.get('lost_time', 0) > 120.0:
+                if current_time - ginfo.get('lost_time', 0) > 5.0:
                     continue
                 is_overlap = False
                 if bbox is not None and ginfo.get('bbox') is not None:
                     iou, iom = compute_box_iou(bbox, ginfo['bbox'])
-                    if iou >= 0.15 or iom >= 0.25:
+                    if iou >= 0.35 or iom >= 0.45:
                         is_overlap = True
                 dist = math.hypot(cx - ginfo['cx'], cy - ginfo['cy'])
-                if (is_overlap or dist < max_dist_px) and dist < min_dist:
+                # Bắt buộc phải có bounding box overlap và khoảng cách tâm < 60px
+                if is_overlap and dist < 60.0 and dist < min_dist:
                     min_dist = dist
                     best_match = gid
                     best_source = 'ghost'
@@ -885,10 +915,10 @@ class ParkingManager:
                     is_overlap = False
                     if bbox is not None and sinfo.get('bbox') is not None:
                         iou, iom = compute_box_iou(bbox, sinfo['bbox'])
-                        if iou >= 0.15 or iom >= 0.25:
+                        if iou >= 0.35 or iom >= 0.45:
                             is_overlap = True
                     dist = math.hypot(cx - sinfo['cx'], cy - sinfo['cy'])
-                    if (is_overlap or dist < max_dist_px) and dist < min_dist:
+                    if is_overlap and dist < 60.0 and dist < min_dist:
                         min_dist = dist
                         best_match = sid
                         best_source = 'last_seen'
@@ -910,37 +940,20 @@ class ParkingManager:
         # Cập nhật vị trí và dấu thời gian hiện tại dưới ID thực (mapped_id) kèm bbox
         self.last_seen[mapped_id] = {'cx': cx, 'cy': cy, 'last_time': current_time, 'bbox': bbox}
 
-        # Kiểm tra xe có nằm trong bất kỳ vùng cấm đỗ nào không
-        # Dùng đa điểm (multi-point): tâm xe (cx,cy), điểm tiếp đất bánh xe (cx,y2), góc dưới (x1,y2), (x2,y2)
-        # để chống hiện tượng giật ranh giới (boundary flicker) khi xe đỗ nửa trong nửa ngoài vạch đỏ.
-        check_points = [(cx, cy)]
-        if bbox is not None:
-            bx1, by1, bx2, by2 = bbox
-            check_points.extend([
-                (cx, by2),        # Điểm tiếp đất phía dưới (bánh xe/mũi xe)
-                (cx, by1),        # Điểm phía trên
-                (bx1, by2),       # Góc dưới bên trái
-                (bx2, by2),       # Góc dưới bên phải
-                (cx, (cy + by2) // 2) # Nửa dưới thân xe
-            ])
-
+        # Kiểm tra xe có nằm trong bất kỳ vùng cấm đỗ nào không (chỉ xét TÂM object (cx, cy))
+        center_pt = (float(cx), float(cy))
         matched_zone = None
         for z in self.no_park_zones:
             poly = z.get("polygon")
             if poly is not None and len(poly) >= 3:
-                for pt in check_points:
-                    if cv2.pointPolygonTest(poly, (float(pt[0]), float(pt[1])), False) >= 0:
-                        matched_zone = z
-                        break
-                if matched_zone is not None:
+                if cv2.pointPolygonTest(poly, center_pt, False) >= 0:
+                    matched_zone = z
                     break
 
         # Fallback kiểm tra polygon đơn nếu danh sách zones rỗng
         if matched_zone is None and self._no_park_polygon is not None and len(self._no_park_polygon) >= 3:
-            for pt in check_points:
-                if cv2.pointPolygonTest(self._no_park_polygon, (float(pt[0]), float(pt[1])), False) >= 0:
-                    matched_zone = {"id": 1, "name": "Vùng cấm đỗ", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}
-                    break
+            if cv2.pointPolygonTest(self._no_park_polygon, center_pt, False) >= 0:
+                matched_zone = {"id": 1, "name": "Vùng cấm đỗ", "polygon": self._no_park_polygon, "timeout": self.stop_seconds}
 
         # Hysteresis / Grace Period khi xe bị lệch ra ngoài ranh giới:
         # Nếu xe đang được theo dõi đỗ (WAITING / VIOLATION), không xóa sạch ngay ở frame đầu tiên ra ngoài,
@@ -955,8 +968,8 @@ class ParkingManager:
             out_count = self._outside_zone_counters.get(mapped_id, 0) + 1
             self._outside_zone_counters[mapped_id] = out_count
             is_monitored = (mapped_id in self.waiting_vehicles or mapped_id in self.active_recordings or (self.logic and mapped_id in self.logic.states))
-            # Nếu đang được theo dõi và chưa ra ngoài quá 30 frames -> vẫn giữ trạng thái đỗ trong vùng
-            if is_monitored and out_count < 30:
+            # Nếu đang được theo dõi và tâm xe chưa ra ngoài quá 10 frames -> giữ trạng thái đỗ
+            if is_monitored and out_count < 10:
                 in_no_park = True
                 # Lấy lại zone cũ từ waiting_vehicles nếu có
                 if mapped_id in self.waiting_vehicles:
@@ -977,7 +990,7 @@ class ParkingManager:
                 box_color = (0, 165, 255) # Orange
                 state_str = "WAITING"
                 if just_changed:
-                    # Kiểm tra xem có xe nào khác trong waiting_vehicles đang ở cùng vị trí (< 300px hoặc IoU >= 0.15)
+                    # Kiểm tra xem có xe nào khác trong waiting_vehicles hoặc ghost_tracks đang ở cùng vị trí (< 300px hoặc IoU >= 0.15)
                     existing_waiting_id = None
                     for wid, wdata in list(self.waiting_vehicles.items()):
                         if wid == mapped_id:
@@ -992,11 +1005,11 @@ class ParkingManager:
                         w_overlap = False
                         if bbox is not None and w_bbox is not None:
                             wiou, wiom = compute_box_iou(bbox, w_bbox)
-                            if wiou >= 0.15 or wiom >= 0.25:
+                            if wiou >= 0.35 or wiom >= 0.45:
                                 w_overlap = True
                         if w_cx is not None:
                             w_dist = math.hypot(cx - w_cx, cy - w_cy)
-                            if w_overlap or w_dist < 300.0:
+                            if w_overlap and w_dist < 60.0:
                                 existing_waiting_id = wid
                                 break
                         # Khớp theo biển số
@@ -1005,7 +1018,44 @@ class ParkingManager:
                             existing_waiting_id = wid
                             break
 
+                    # Nếu chưa thấy trong waiting_vehicles, tìm tiếp trong ghost_tracks (xe bị che khuất tạm thời)
+                    if existing_waiting_id is None:
+                        for gid, gdata in list(self.ghost_tracks.items()):
+                            if gid == mapped_id:
+                                existing_waiting_id = gid
+                                break
+                            g_cx = gdata.get('cx')
+                            g_cy = gdata.get('cy')
+                            g_bbox = gdata.get('bbox')
+                            g_overlap = False
+                            if bbox is not None and g_bbox is not None:
+                                giou, giom = compute_box_iou(bbox, g_bbox)
+                                if giou >= 0.35 or giom >= 0.45:
+                                    g_overlap = True
+                            if g_cx is not None:
+                                g_dist = math.hypot(cx - g_cx, cy - g_cy)
+                                if g_overlap and g_dist < 60.0:
+                                    existing_waiting_id = gid
+                                    break
+                            w_data_in_ghost = gdata.get('waiting_data')
+                            if w_data_in_ghost:
+                                g_plate = w_data_in_ghost.get('plate')
+                                if license_plate and not str(license_plate).startswith("ID_") and g_plate == license_plate:
+                                    existing_waiting_id = gid
+                                    break
+
                     if existing_waiting_id is not None:
+                        # Phục hồi xe nếu đang nằm trong ghost_tracks
+                        if existing_waiting_id in self.ghost_tracks:
+                            ghost_entry = self.ghost_tracks.pop(existing_waiting_id)
+                            if 'waiting_data' in ghost_entry:
+                                self.waiting_vehicles[existing_waiting_id] = ghost_entry['waiting_data']
+                            if 'recording_data' in ghost_entry:
+                                self.active_recordings[existing_waiting_id] = ghost_entry['recording_data']
+                            if 'logic_state' in ghost_entry and self.logic:
+                                self.logic.states[existing_waiting_id] = ghost_entry['logic_state']
+                            print(f"[ParkingManager] Đã phục hồi xe ID:{existing_waiting_id} từ ghost_tracks khi ID mới {mapped_id} xuất hiện.")
+
                         # Gộp ID này vào xe đã có sẵn trong danh sách chờ
                         self.track_id_map[mapped_id] = existing_waiting_id
                         self.track_id_map[track_id] = existing_waiting_id
@@ -1131,6 +1181,7 @@ class ParkingManager:
                 self.logic.states.pop(mapped_id, None)
                 self.waiting_vehicles.pop(mapped_id, None)
                 self.active_recordings.pop(mapped_id, None)
+                self.ghost_tracks.pop(mapped_id, None)
 
             if mapped_id != track_id:
                 return f"ID:{mapped_id} {label}", None

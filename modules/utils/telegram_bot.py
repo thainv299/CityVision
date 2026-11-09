@@ -8,7 +8,17 @@ def send_telegram_image(
     bot_token: str | None = None,
     chat_id: str | None = None,
     timeout_seconds: int = 10,
+    dedup_key: str | None = None,
+    cooldown_seconds: float = 30.0,
 ) -> bool:
+    key = dedup_key or f"img_{caption.strip()}"
+    try:
+        from backend.database.sqlite_db import check_and_record_telegram_dedup
+        if check_and_record_telegram_dedup(key, cooldown_seconds=cooldown_seconds):
+            print(f"[Telegram Bot] Bỏ qua gửi ảnh do trùng lặp (dedup key: {key})")
+            return False
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra dedup ảnh: {e}")
     """Gửi ảnh qua Telegram"""
     try:
         from backend.database.sqlite_db import get_system_setting
@@ -47,7 +57,17 @@ def send_telegram_video(
     bot_token: str | None = None,
     chat_id: str | None = None,
     timeout_seconds: int = 10,
+    dedup_key: str | None = None,
+    cooldown_seconds: float = 45.0,
 ) -> bool:
+    key = dedup_key or f"vid_{caption.strip()}"
+    try:
+        from backend.database.sqlite_db import check_and_record_telegram_dedup
+        if check_and_record_telegram_dedup(key, cooldown_seconds=cooldown_seconds):
+            print(f"[Telegram Bot] Bỏ qua gửi video do trùng lặp (dedup key: {key})")
+            return False
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra dedup video: {e}")
     """Gửi video qua Telegram"""
     try:
         from backend.database.sqlite_db import get_system_setting

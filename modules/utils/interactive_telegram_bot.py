@@ -19,7 +19,15 @@ if TELEGRAM_BOT_TOKEN:
 
 alert_manager_ref = None
 
-def send_alert_with_button(img_path, caption, level):
+def send_alert_with_button(img_path, caption, level, dedup_key=None, cooldown_seconds=45.0):
+    key = dedup_key or f"interactive_alert_{level}_{caption.strip()}"
+    try:
+        from backend.database.sqlite_db import check_and_record_telegram_dedup
+        if check_and_record_telegram_dedup(key, cooldown_seconds=cooldown_seconds):
+            print(f"[Telegram Bot] Bỏ qua cảnh báo nút bấm do trùng lặp (dedup key: {key})")
+            return
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra dedup cảnh báo: {e}")
     try:
         from backend.database.sqlite_db import get_system_setting
         if get_system_setting("telegram_notifications", "true") == "false":
@@ -44,8 +52,16 @@ def send_alert_with_button(img_path, caption, level):
 
 
 
-def send_clear_alert(caption: str):
+def send_clear_alert(caption: str, dedup_key=None, cooldown_seconds=60.0):
     """Gửi thông báo văn bản khi giao thông khu vực đã thông thoáng trở lại."""
+    key = dedup_key or f"interactive_clear_{caption.strip()}"
+    try:
+        from backend.database.sqlite_db import check_and_record_telegram_dedup
+        if check_and_record_telegram_dedup(key, cooldown_seconds=cooldown_seconds):
+            print(f"[Telegram Bot] Bỏ qua thông báo thông thoáng do trùng lặp (dedup key: {key})")
+            return
+    except Exception as e:
+        print(f"[Telegram Bot] Lỗi kiểm tra dedup thông thoáng: {e}")
     try:
         from backend.database.sqlite_db import get_system_setting
         if get_system_setting("telegram_notifications", "true") == "false":
