@@ -110,7 +110,7 @@ class WeaponManager:
                 rel_path = os.path.join(self.save_dir, filename).replace("\\", "/")
                 cv2.imwrite(rel_path, evidence_img)
 
-                # Lưu sự kiện vào CSDL
+                # Lưu sự kiện vào CSDL với theo dõi tracking ID vũ khí
                 try:
                     try:
                         from backend.database.sqlite_db import log_weapon_detection
@@ -121,32 +121,36 @@ class WeaponManager:
                         loai_vu_khi=label,
                         thoi_gian_phat_hien=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         do_chinh_xac=float(confidence),
-                        frame_path=rel_path
+                        frame_path=rel_path,
+                        track_id=track_id
                     )
                 except Exception as e:
                     print(f"[WeaponManager] Lỗi lưu DB phát hiện vũ khí: {e}")
 
-                # Gửi cảnh báo Telegram khẩn cấp
+                # Gửi cảnh báo Telegram khẩn cấp (phân biệt theo tracking ID vũ khí)
                 if telegram_enabled:
+                    w_name = WEAPON_NAME_MAP.get(label, label.upper())
+                    w_id_str = f" (ID: #{track_id})" if track_id != -1 else ""
                     caption = (
                         f"🚨 <b>CẢNH BÁO NGUY HIỂM: PHÁT HIỆN VŨ KHÍ!</b>\n"
                         f"📹 Camera: <b>{self.camera_name}</b> (ID: {self.camera_id})\n"
-                        f"🗡️ Loại vũ khí: <b>{WEAPON_NAME_MAP.get(label, label.upper())}</b>\n"
+                        f"🗡️ Loại vũ khí: <b>{w_name}</b>{w_id_str}\n"
                         f"🎯 Độ chính xác: <b>{int(confidence * 100)}%</b>\n"
                         f"⏰ Thời gian: <b>{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}</b>"
                     )
                     threading.Thread(
                         target=self._send_telegram_async,
-                        args=(rel_path, caption, label),
+                        args=(rel_path, caption, label, track_id),
                         daemon=True
                     ).start()
 
             return display_label, box_color
 
-    def _send_telegram_async(self, image_path: str, caption: str, label: str = ""):
+    def _send_telegram_async(self, image_path: str, caption: str, label: str = "", track_id: int = -1):
         try:
-            dedup_key = f"weapon_alert_cam{self.camera_id}_{label}"
-            send_telegram_image(image_path, caption, dedup_key=dedup_key, cooldown_seconds=45.0)
-            print(f"[WeaponManager] Đã gửi cảnh báo vũ khí qua Telegram: {image_path}")
+            w_ident = f"track_{track_id}" if track_id != -1 else f"pos_{label}"
+            dedup_key = f"weapon_alert_cam{self.camera_id}_{label}_{w_ident}"
+            send_telegram_image(image_path, caption, dedup_key=dedup_key, cooldown_seconds=60.0)
+            print(f"[WeaponManager] Đã gửi cảnh báo vũ khí qua Telegram: {image_path} (Key: {dedup_key})")
         except Exception as e:
             print(f"[WeaponManager] Lỗi gửi Telegram cảnh báo vũ khí: {e}")

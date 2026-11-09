@@ -1376,7 +1376,7 @@ def process_video(
                             frame, clean_frame, track_id, label, confidence,
                             bbox=(x1, y1, x2, y2),
                             camera_id=camera_id, camera_name=settings.get("name", "Camera"),
-                            telegram_enabled=True
+                            telegram_enabled=bool(settings.get("telegram_enabled", save_to_db))
                         )
                         if display_label_w:
                             display_label = display_label_w if show_label else ""

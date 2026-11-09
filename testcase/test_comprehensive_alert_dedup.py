@@ -310,7 +310,7 @@ class TestComprehensiveAlertDedup(unittest.TestCase):
                 pass
 
     def test_11_log_weapon_detection_db_guard(self):
-        """Kiểm tra log_weapon_detection chống ghi đúp phát hiện vũ khí trong 15s."""
+        """Kiểm tra log_weapon_detection: cùng track_id thì dedup, khác track_id thì luôn cảnh báo."""
         import tempfile
         import backend.database.sqlite_db as sdb
 
@@ -322,14 +322,20 @@ class TestComprehensiveAlertDedup(unittest.TestCase):
         try:
             sdb.init_db()
 
-            w1 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:00", do_chinh_xac=0.92)
-            w2 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:03", do_chinh_xac=0.94)
-            self.assertEqual(w1, w2, "Cùng loại vũ khí trên 1 camera trong 15s phải trả về cùng ID")
+            # Vũ khí 1 (Track 1): Ghi nhận
+            w1 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:00", do_chinh_xac=0.92, track_id=1)
+            # Vũ khí 1 (Track 1): Lặp lại sau 3s -> Tái sử dụng ID w1
+            w1_dup = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:03", do_chinh_xac=0.94, track_id=1)
+            self.assertEqual(w1, w1_dup, "Cùng track_id vũ khí phải tái sử dụng ID cũ, không tạo bản ghi đúp")
+
+            # Vũ khí 2 (Track 2): Xuất hiện sau 4s -> PHẢI LÀ BẢN GHI MỚI!
+            w2 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:04", do_chinh_xac=0.88, track_id=2)
+            self.assertNotEqual(w1, w2, "Vũ khí mới (khác track_id) phải tạo bản ghi mới và được cảnh báo riêng!")
 
             with sdb.connect() as conn:
                 w_count = conn.execute("SELECT COUNT(*) as c FROM phat_hien_vu_khi").fetchone()["c"]
 
-            self.assertEqual(w_count, 1, "Chỉ được có 1 bản ghi phát hiện vũ khí")
+            self.assertEqual(w_count, 2, "Phải có đúng 2 bản ghi cho 2 vũ khí khác nhau (Track 1 và Track 2)")
         finally:
             sdb.DATABASE_PATH = orig_path
             try:
@@ -397,6 +403,58 @@ class TestComprehensiveAlertDedup(unittest.TestCase):
                 pass
 
 
+    def test_14_two_cars_parked_and_sequential_arrivals(self):
+        """
+        Kiểm tra 2 trường hợp thực tế quan trọng:
+        1. Hai xe đỗ CÙNG LÚC tại 2 vị trí khác nhau -> CẢ HAI ĐỀU ĐƯỢC GHI NHẬN VI PHẠM.
+        2. Xe cũ rời đi, xe mới tới đỗ ngay sau đó -> XE MỚI ĐƯỢC GHI NHẬN VI PHẠM MỚI (không bị chặn).
+        """
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            # --- TRƯỜNG HỢP 1: 2 xe đỗ cùng lúc tại camera 1 ---
+            # Xe A (29A-11111) đỗ lúc 12:00:00
+            v_a = sdb.log_parking_violation(camera_id=1, license_plate="29A-11111", violation_time="2026-11-09T12:00:00", duration=30)
+            # Xe B (30E-22222) đỗ lúc 12:00:15 (cách nhau 15s, cả 2 xe đang cùng đỗ)
+            v_b = sdb.log_parking_violation(camera_id=1, license_plate="30E-22222", violation_time="2026-11-09T12:00:15", duration=30)
+            
+            self.assertNotEqual(v_a, v_b, "Hai xe khác nhau đỗ cùng lúc phải có 2 ID vi phạm riêng biệt!")
+
+            with sdb.connect() as conn:
+                v_count = conn.execute("SELECT COUNT(*) as c FROM vi_pham_do_xe").fetchone()["c"]
+                notif_count = conn.execute("SELECT COUNT(*) as c FROM thong_bao WHERE loai_thong_bao = 'violation'").fetchone()["c"]
+            self.assertEqual(v_count, 2, "Cả 2 xe đỗ cùng lúc đều phải được ghi nhận vào CSDL")
+            self.assertEqual(notif_count, 2, "Cả 2 xe đỗ cùng lúc đều phải có thông báo vi phạm")
+
+            # --- TRƯỜNG HỢP 2: Xe A rời đi, xe C (ID_999) tới đỗ ngay sau đó ---
+            # Xe A rời đi lúc 12:05:00
+            sdb.update_violation_end_time(v_a, end_time="2026-11-09T12:05:00")
+            
+            # Xe C (ID_999) tới và bị vi phạm lúc 12:05:40 (sau khi xe A đã đi)
+            v_c = sdb.log_parking_violation(camera_id=1, license_plate="ID_999", violation_time="2026-11-09T12:05:40", duration=30)
+            self.assertNotEqual(v_c, v_a, "Xe C tới sau khi xe A đã rời đi phải là vi phạm mới!")
+
+            with sdb.connect() as conn:
+                v_count_after = conn.execute("SELECT COUNT(*) as c FROM vi_pham_do_xe").fetchone()["c"]
+            self.assertEqual(v_count_after, 3, "Tổng cộng phải có 3 vi phạm (Xe A, Xe B và Xe C)")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
