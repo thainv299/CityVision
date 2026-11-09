@@ -235,10 +235,12 @@ class ParkingManager:
                     is_overlap = False
                     if bbox is not None and pbbox is not None:
                         iou, iom = compute_box_iou(bbox, pbbox)
-                        if iou >= 0.15 or iom >= 0.25:
+                        if iou >= 0.40 or iom >= 0.50:
                             is_overlap = True
                     dist = math.hypot(cx - px, cy - py)
-                    if (is_overlap or dist < DIST_PX) and now - pt < COOLDOWN:
+                    # Chỉ bỏ qua khi TRÙNG HỘP BAO (IoU >= 0.40) và tâm gần (< 50px).
+                    # Không dùng chỉ khoảng cách dist < DIST_PX vì sẽ chặn các xe khác đỗ gần đó!
+                    if is_overlap and dist < 50.0 and now - pt < 60.0:
                         print(f"[ParkingManager] Bỏ qua thông báo trùng vị trí xe ID:{track_id} "
                               f"(cách {dist:.0f}px, overlap={is_overlap}, đã thông báo {now - pt:.0f}s trước).")
                         return True
@@ -298,10 +300,10 @@ class ParkingManager:
                     is_overlap = False
                     if bbox is not None and pbbox is not None:
                         iou, iom = compute_box_iou(bbox, pbbox)
-                        if iou >= 0.15 or iom >= 0.25:
+                        if iou >= 0.40 or iom >= 0.50:
                             is_overlap = True
                     dist = math.hypot(cx - px, cy - py)
-                    if (is_overlap or dist < DIST_PX) and now - pt < COOLDOWN:
+                    if is_overlap and dist < 50.0 and now - pt < 60.0:
                         print(f"[ParkingManager] Bỏ qua thông báo vi phạm trùng vị trí ID:{track_id} "
                               f"(cách {dist:.0f}px, {now - pt:.0f}s trước).")
                         return True
@@ -612,13 +614,13 @@ class ParkingManager:
                 is_overlap = False
                 if bbox is not None and pbbox is not None:
                     iou, iom = compute_box_iou(bbox, pbbox)
-                    if iou >= 0.15 or iom >= 0.25:
+                    if iou >= 0.40 or iom >= 0.50:
                         is_overlap = True
                 if cx is not None and vx is not None:
                     dist = math.hypot(cx - vx, cy - vy)
-                    if (is_overlap or dist < 250.0) and now_ts - vt < 900.0:
+                    if is_overlap and dist < 50.0 and now_ts - vt < 60.0:
                         print(f"[ParkingManager] Bỏ qua lưu vi phạm trùng vị trí ID:{track_id} "
-                              f"(cách {dist:.0f}px, overlap={is_overlap}, đã ghi nhận {now_ts - vt:.1f}s trước, cooldown 15m).")
+                              f"(cách {dist:.0f}px, overlap={is_overlap}, đã ghi nhận {now_ts - vt:.1f}s trước).")
                         return
 
             self._recent_saved_violations.append((cx, cy, str(raw_plate) if raw_plate else None, now_ts, bbox))
