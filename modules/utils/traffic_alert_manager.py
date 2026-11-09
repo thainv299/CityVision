@@ -43,6 +43,7 @@ class TrafficAlertManager:
         self.save_to_db = True
         self.camera_id = 1
         self.tts_enabled = True
+        self.telegram_enabled = True
         
         os.makedirs("logs", exist_ok=True)
 
@@ -73,6 +74,7 @@ class TrafficAlertManager:
                     self.last_alert_time = 0.0
                     self.snooze_until = 0.0
                     self.is_acknowledged = False
+                    self.clear_start_time = 0.0
             return
         else:
             self.clear_start_time = 0.0 # Đang có xe thì reset bộ đếm vắng đường
@@ -151,7 +153,11 @@ class TrafficAlertManager:
             except Exception as e:
                 print(f"[TrafficAlertManager] Lỗi phát âm thanh TTS: {e}")
 
-        # 4. Gửi thông báo sang Telegram nếu camera đang hoạt động (enable)
+        # 4. Gửi thông báo sang Telegram nếu camera đang hoạt động (enable) và tính năng Telegram được bật
+        if not getattr(self, "telegram_enabled", True):
+            print(f"[TrafficAlertManager] Bỏ qua gửi Telegram do telegram_enabled=False (test/preview mode).")
+            return
+
         try:
             from backend.database.sqlite_db import is_camera_enabled
             if not is_camera_enabled(self.camera_id):
@@ -160,10 +166,15 @@ class TrafficAlertManager:
         except Exception as e:
             print(f"[TrafficAlertManager] Lỗi kiểm tra trạng thái hoạt động của camera: {e}")
 
-        send_alert_with_button(img_path, caption, level)
+        # Khóa chống gửi trùng lặp theo camera + level
+        cam_caption = f"{caption} (Camera {self.camera_id})"
+        dedup_key = f"traffic_alert_cam{self.camera_id}_lvl{level}_{'remind' if is_reminder else 'init'}"
+        send_alert_with_button(img_path, cam_caption, level, dedup_key=dedup_key, cooldown_seconds=45.0)
 
     def _trigger_clear_notification(self):
         """Gửi thông báo nhẹ khi đường đã thông thoáng trở lại"""
+        if not getattr(self, "telegram_enabled", True):
+            return
         try:
             from backend.database.sqlite_db import is_camera_enabled
             if not is_camera_enabled(self.camera_id):
@@ -171,7 +182,8 @@ class TrafficAlertManager:
         except Exception:
             pass
         msg = f"✅ THÔNG BÁO: Giao thông khu vực (Camera {self.camera_id}) đã THÔNG THOÁNG trở lại."
-        send_clear_alert(msg)
+        dedup_key = f"traffic_clear_cam{self.camera_id}"
+        send_clear_alert(msg, dedup_key=dedup_key, cooldown_seconds=60.0)
 
     # --- CÁC HÀM PHỤ ĐỂ LƯU CHI TIẾT ---
     def save_congestion(self, level, img_path):

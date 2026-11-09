@@ -8,6 +8,7 @@ DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "best.pt"
 INPUTS_DIR = APP_DIR / "runtime" / "inputs"
 OUTPUTS_DIR = APP_DIR / "runtime" / "outputs"
 PREVIEWS_DIR = APP_DIR / "runtime" / "previews"
+SAMPLES_DIR = PROJECT_ROOT / "data" / "samples"
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".mpeg", ".mpg"}
 VALID_ROLES = {"admin", "operator"}
 DATABASE_PATH = PROJECT_ROOT / "backend" / "portal.db"

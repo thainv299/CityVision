@@ -502,6 +502,7 @@ async def api_create_test_job(
             #
 
             test_settings["save_to_db"] = False
+            test_settings["telegram_enabled"] = False
             job = container.job_use_cases.submit_job(
                 job_id=job_id,
                 input_stream=input_stream,

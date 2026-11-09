@@ -897,6 +897,7 @@ def process_video(
     traffic_alert_manager.io_worker = io_worker
     traffic_alert_manager.save_to_db = False # Tắt tự ghi DB để tránh ghi đúp (tiến trình chính sẽ quản lý và lưu)
     traffic_alert_manager.camera_id = camera_id
+    traffic_alert_manager.telegram_enabled = bool(settings.get("telegram_enabled", save_to_db))
 
     parking_manager = ParkingManager(None, None)
     parking_manager.stop_seconds = stop_seconds
@@ -917,7 +918,7 @@ def process_video(
     tracker_config_path = str(bytetrack_parking_cfg) if bytetrack_parking_cfg.exists() else "bytetrack.yaml"
 
     # Khởi tạo Bộ ổn định ID xe tĩnh (chống nhảy ID, trùng lặp ID, gộp cùng biển số/cùng vị trí)
-    stationary_stabilizer = StationaryVehicleStabilizer(iou_thresh=0.35, iom_thresh=0.50, max_ghost_frames=150)
+    stationary_stabilizer = StationaryVehicleStabilizer(iou_thresh=0.35, iom_thresh=0.50, max_ghost_frames=75)
 
     # Không gọi start_bot_thread ở đây để tránh lỗi 409 Conflict từ Telegram
     # (Chỉ duy nhất tiến trình chính mới được phép gọi bot.polling())
@@ -1231,7 +1232,7 @@ def process_video(
                 suppressed_indices_per_result[r_idx] = stationary_stabilizer.filter_duplicate_indices(result.boxes, v_indices)
 
             # Dọn dẹp bộ nhớ xe tĩnh định kỳ mỗi 100 frames
-            if frame_index % 100 == 0:
+            if frame_index % 10 == 0:
                 stationary_stabilizer.cleanup_old_tracks(frame_index)
 
             if enable_congestion and traffic_monitor is not None:

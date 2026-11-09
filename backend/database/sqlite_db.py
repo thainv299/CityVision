@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import time
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash
@@ -283,6 +285,13 @@ def init_db() -> None:
                 khoa TEXT PRIMARY KEY,
                 gia_tri TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS telegram_alert_dedup (
+                alert_key TEXT PRIMARY KEY,
+                sent_at REAL NOT NULL
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_telegram_alert_dedup_sent_at ON telegram_alert_dedup(sent_at);
+
             
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_thoi_gian ON lich_su_phuong_tien(thoi_gian_di_qua);
             CREATE INDEX IF NOT EXISTS idx_lich_su_phuong_tien_camera_thoi_gian ON lich_su_phuong_tien(id_camera, thoi_gian_di_qua);
@@ -1715,4 +1724,76 @@ def is_camera_enabled(camera_id: int) -> bool:
     except Exception as e:
         print(f"[Database] Lỗi kiểm tra trạng thái camera: {e}")
     return False
+
+_local_dedup_cache = {}
+_local_dedup_lock = threading.Lock()
+
+
+def check_and_record_telegram_dedup(alert_key: str, cooldown_seconds: float = 60.0) -> bool:
+    """
+    Kiểm tra và ghi nhận chống gửi trùng thông báo Telegram xuyên tiến trình (Cross-Process Deduplication).
+    Sử dụng atomic UPSERT trong SQLite kết hợp in-memory cache để loại bỏ hoàn toàn việc gửi trùng
+    giữa nhiều tiến trình hoặc nhiều luồng cùng chạy.
+
+    Trả về:
+        True: Nếu thông báo bị trùng lặp trong khoảng cooldown_seconds (CẦN CHẶN / BỎ QUA).
+        False: Nếu thông báo hợp lệ (được phép gửi) và đã ghi nhận mốc thời gian mới.
+    """
+    if not alert_key:
+        return False
+
+    clean_key = str(alert_key).strip()
+    now = time.time()
+
+    # 1. Fast-path: Kiểm tra cache trong cùng tiến trình
+    with _local_dedup_lock:
+        last_t = _local_dedup_cache.get(clean_key, 0.0)
+        if now - last_t < cooldown_seconds:
+            return True
+        _local_dedup_cache[clean_key] = now
+
+        # Dọn dẹp cache RAM nếu có hơn 1000 key
+        if len(_local_dedup_cache) > 1000:
+            stale = [k for k, v in _local_dedup_cache.items() if now - v > 3600.0]
+            for k in stale:
+                _local_dedup_cache.pop(k, None)
+
+    # 2. Cross-process check: Atomic UPSERT vào SQLite
+    try:
+        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(DATABASE_PATH, timeout=10.0) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_alert_dedup (
+                    alert_key TEXT PRIMARY KEY,
+                    sent_at REAL NOT NULL
+                );
+                """
+            )
+            cursor = conn.execute(
+                """
+                INSERT INTO telegram_alert_dedup (alert_key, sent_at)
+                VALUES (?, ?)
+                ON CONFLICT(alert_key) DO UPDATE SET sent_at = excluded.sent_at
+                WHERE (excluded.sent_at - telegram_alert_dedup.sent_at) >= ?
+                """,
+                (clean_key, now, cooldown_seconds)
+            )
+            conn.commit()
+
+            # Nếu rowcount == 0: đã có bản ghi và chưa hết cooldown -> Trùng lặp!
+            if cursor.rowcount == 0:
+                return True
+
+            # Dọn dẹp định kỳ các bản ghi quá 2 giờ (xác suất 5%)
+            if int(now) % 20 == 0:
+                conn.execute(
+                    "DELETE FROM telegram_alert_dedup WHERE sent_at < ?",
+                    (now - 7200.0,)
+                )
+                conn.commit()
+            return False
+    except Exception as e:
+        print(f"[Database] Lỗi kiểm tra telegram dedup: {e}")
+        return False
 

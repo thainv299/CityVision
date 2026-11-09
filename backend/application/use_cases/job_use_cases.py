@@ -335,6 +335,14 @@ class JobUseCases:
                 job.status = "aborted"
                 job.message = "Hệ thống đã dừng tác vụ AI cho camera này."
                 
+                # Báo cờ aborted vào shared state để child process dừng chủ động
+                try:
+                    state = dict(self.shared_jobs_state.get(jid) or {})
+                    state["aborted"] = True
+                    self.shared_jobs_state[jid] = state
+                except Exception:
+                    pass
+
                 # Kích hoạt dừng tiến trình vật lý
                 self._cleanup_process(jid)
                 print(f"[System] Đã dừng tiến trình AI {jid} cho camera {camera_id} thành công.")
@@ -496,6 +504,34 @@ class JobUseCases:
             }
         except Exception as e:
             print(f"[System] Lỗi khởi tạo shared state: {e}")
+
+        # Dọn dẹp tiến trình cũ của job_id này nếu còn đang chạy (tránh orphan process sinh 2 tiến trình song song)
+        if job_id in self.processes:
+            old_p = self.processes.get(job_id)
+            if old_p and old_p.is_alive():
+                print(f"[System] Tiến trình cũ của {job_id} vẫn đang chạy (PID: {old_p.pid}). Dọn dẹp trước khi tạo mới...")
+                try:
+                    state = dict(self.shared_jobs_state.get(job_id) or {})
+                    state["aborted"] = True
+                    self.shared_jobs_state[job_id] = state
+                except Exception:
+                    pass
+                self._cleanup_process(job_id)
+
+        # Với background job, đảm bảo không có 2 tiến trình cùng chạy detection trên 1 camera
+        if camera_id is not None and job_id.startswith("background_"):
+            for other_jid, other_job in list(self.jobs.items()):
+                if other_jid != job_id and str(other_job.camera_id) == str(camera_id) and other_job.status in {"queued", "running"}:
+                    if other_jid.startswith("background_"):
+                        print(f"[System] Phát hiện background job cũ {other_jid} cho camera {camera_id}. Dừng job cũ...")
+                        try:
+                            state = dict(self.shared_jobs_state.get(other_jid) or {})
+                            state["aborted"] = True
+                            self.shared_jobs_state[other_jid] = state
+                        except Exception:
+                            pass
+                        self._cleanup_process(other_jid)
+                        other_job.status = "aborted"
 
         # Khởi chạy Tiến trình con (Process) thay vì Thread
         process = self.mp_ctx.Process(
