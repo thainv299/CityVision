@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 import time
 import os
@@ -208,5 +209,194 @@ class TestComprehensiveAlertDedup(unittest.TestCase):
         self.assertEqual(cid3, 99, "Xe đến sau một lúc phải nhận ID mới của chính nó, không nối vào ID xe cũ!")
 
 
+    def test_08_log_parking_violation_db_guard(self):
+        """Kiểm tra log_parking_violation chống ghi đúp bản ghi và chống đúp thong_bao."""
+        import tempfile
+        import sqlite3
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+            
+            # Lần 1: Ghi nhận vi phạm
+            v_id1 = sdb.log_parking_violation(camera_id=1, license_plate="29A-88888", violation_time="2026-11-09T12:00:00", duration=30)
+            self.assertIsNotNone(v_id1)
+
+            # Lần 2: Gọi lại ngay cho cùng xe (hoặc do track id nhảy trong khi vi phạm đang diễn ra)
+            v_id2 = sdb.log_parking_violation(camera_id=1, license_plate="29A-88888", violation_time="2026-11-09T12:00:05", duration=35)
+            self.assertEqual(v_id1, v_id2, "Bảo vệ DB phải trả về cùng ID vi phạm, không tạo bản ghi mới")
+
+            with sdb.connect() as conn:
+                v_count = conn.execute("SELECT COUNT(*) as c FROM vi_pham_do_xe").fetchone()["c"]
+                notif_count = conn.execute("SELECT COUNT(*) as c FROM thong_bao WHERE loai_thong_bao = 'violation'").fetchone()["c"]
+
+            self.assertEqual(v_count, 1, "Chỉ được tồn tại duy nhất 1 bản ghi vi_pham_do_xe")
+            self.assertEqual(notif_count, 1, "Chỉ được tồn tại duy nhất 1 thông báo vi phạm trong thong_bao")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    def test_09_log_congestion_db_guard(self):
+        """Kiểm tra log_congestion chống ghi đúp bản ghi nhat_ky_un_tac và thong_bao."""
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            # Lần 1: Cảnh báo ùn tắc mức 2
+            c_id1 = sdb.log_congestion(camera_id=10, level=2, start_time="2026-11-09T17:00:00")
+            self.assertIsNotNone(c_id1)
+
+            # Lần 2: Mức 2 lặp lại trong khi sự kiện trước chưa kết thúc
+            c_id2 = sdb.log_congestion(camera_id=10, level=2, start_time="2026-11-09T17:00:10")
+            self.assertEqual(c_id1, c_id2, "Cùng mức độ ùn tắc phải tái sử dụng ID cũ, không tạo bản ghi đúp")
+
+            with sdb.connect() as conn:
+                c_count = conn.execute("SELECT COUNT(*) as c FROM nhat_ky_un_tac").fetchone()["c"]
+                notif_count = conn.execute("SELECT COUNT(*) as c FROM thong_bao WHERE loai_thong_bao = 'congestion'").fetchone()["c"]
+
+            self.assertEqual(c_count, 1, "Chỉ được có đúng 1 bản ghi ùn tắc mức 2")
+            self.assertEqual(notif_count, 1, "Chỉ được có đúng 1 thông báo ùn tắc")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    def test_10_log_passed_vehicle_db_guard(self):
+        """Kiểm tra log_passed_vehicle chống ghi trùng trong vòng 5 giây."""
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            sdb.log_passed_vehicle(camera_id=1, bien_so_xe="30F-99999", loai_xe="car", thoi_gian_di_qua="2026-11-09T12:00:00")
+            # Ghi lại ngay sau 1s
+            sdb.log_passed_vehicle(camera_id=1, bien_so_xe="30F-99999", loai_xe="car", thoi_gian_di_qua="2026-11-09T12:00:01")
+
+            with sdb.connect() as conn:
+                p_count = conn.execute("SELECT COUNT(*) as c FROM lich_su_phuong_tien").fetchone()["c"]
+
+            self.assertEqual(p_count, 1, "Không được ghi đúp xe đi qua cùng biển số trong 5s")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    def test_11_log_weapon_detection_db_guard(self):
+        """Kiểm tra log_weapon_detection chống ghi đúp phát hiện vũ khí trong 15s."""
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            w1 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:00", do_chinh_xac=0.92)
+            w2 = sdb.log_weapon_detection(camera_id=1, loai_vu_khi="knife", thoi_gian_phat_hien="2026-11-09 12:00:03", do_chinh_xac=0.94)
+            self.assertEqual(w1, w2, "Cùng loại vũ khí trên 1 camera trong 15s phải trả về cùng ID")
+
+            with sdb.connect() as conn:
+                w_count = conn.execute("SELECT COUNT(*) as c FROM phat_hien_vu_khi").fetchone()["c"]
+
+            self.assertEqual(w_count, 1, "Chỉ được có 1 bản ghi phát hiện vũ khí")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    def test_12_create_system_notification_db_guard(self):
+        """Kiểm tra create_system_notification chống ghi đúp thông báo hệ thống."""
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            sdb.create_system_notification(title="Mất kết nối", content="Camera 5 mất kết nối RTSP")
+            sdb.create_system_notification(title="Mất kết nối", content="Camera 5 mất kết nối RTSP")
+
+            with sdb.connect() as conn:
+                notif_count = conn.execute("SELECT COUNT(*) as c FROM thong_bao WHERE tieu_de = 'Mất kết nối'").fetchone()["c"]
+
+            self.assertEqual(notif_count, 1, "Chỉ được tạo duy nhất 1 thông báo hệ thống trùng lặp")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+    def test_13_log_vehicle_count_flexibility(self):
+        """Kiểm tra log_vehicle_count xử lý linh hoạt tham số và loại bỏ nhãn person/license_plate."""
+        import tempfile
+        import backend.database.sqlite_db as sdb
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        orig_path = sdb.DATABASE_PATH
+        sdb.DATABASE_PATH = Path(tmp_path)
+        try:
+            sdb.init_db()
+
+            sdb.log_vehicle_count(camera_id=1, vehicle_type="car", count=1)
+            sdb.log_vehicle_count(camera_id=1, vehicle_type=1) # Chấp nhận dạng log_vehicle_count(cam, 1)
+            sdb.log_vehicle_count(camera_id=1, vehicle_type="person", count=5) # Bỏ qua người
+
+            with sdb.connect() as conn:
+                row = conn.execute("SELECT so_luong_xe FROM thong_ke_giao_thong WHERE id_camera = 1").fetchone()
+
+            self.assertIsNotNone(row)
+            self.assertEqual(row["so_luong_xe"], 2, "Tổng số lượng xe phải bằng 2 (1 + 1)")
+        finally:
+            sdb.DATABASE_PATH = orig_path
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
     unittest.main()
+

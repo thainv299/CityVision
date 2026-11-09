@@ -1422,7 +1422,7 @@ def process_video(
                                     io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{alpr_tid}", label))
                                     
                                     # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
-                                    io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, 1))
+                                    io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, label, 1))
                                 
                                 logged_vehicle_ids.add(alpr_tid)
                                 unique_passed_count += 1
@@ -1800,8 +1800,7 @@ def process_video(
             ocr_manager.stop_worker()
         if last_congestion_record_id and save_to_db:
             update_congestion_end_time(last_congestion_record_id)
-        if save_to_db:
-            log_vehicle_count(camera_id, unique_passed_count)
+        # Đã cập nhật thống kê xe theo thời gian thực (realtime) ở vòng lặp chính qua io_worker, không ghi đúp khi shutdown
         if parking_manager and parking_manager.violation_records:
             try:
                 print(f"[DetectionBridge] Đang dọn dẹp {len(parking_manager.violation_records)} vi phạm chưa kết thúc...")

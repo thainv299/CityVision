@@ -112,7 +112,10 @@ class WeaponManager:
 
                 # Lưu sự kiện vào CSDL
                 try:
-                    from database.sqlite_db import log_weapon_detection
+                    try:
+                        from backend.database.sqlite_db import log_weapon_detection
+                    except ImportError:
+                        from database.sqlite_db import log_weapon_detection
                     log_weapon_detection(
                         camera_id=self.camera_id,
                         loai_vu_khi=label,
@@ -134,15 +137,16 @@ class WeaponManager:
                     )
                     threading.Thread(
                         target=self._send_telegram_async,
-                        args=(rel_path, caption),
+                        args=(rel_path, caption, label),
                         daemon=True
                     ).start()
 
             return display_label, box_color
 
-    def _send_telegram_async(self, image_path: str, caption: str):
+    def _send_telegram_async(self, image_path: str, caption: str, label: str = ""):
         try:
-            send_telegram_image(image_path, caption)
+            dedup_key = f"weapon_alert_cam{self.camera_id}_{label}"
+            send_telegram_image(image_path, caption, dedup_key=dedup_key, cooldown_seconds=45.0)
             print(f"[WeaponManager] Đã gửi cảnh báo vũ khí qua Telegram: {image_path}")
         except Exception as e:
             print(f"[WeaponManager] Lỗi gửi Telegram cảnh báo vũ khí: {e}")

@@ -1,3 +1,4 @@
+from typing import Optional, Any, List, Dict
 import sqlite3
 import os
 import time
@@ -11,8 +12,9 @@ from core.config import DATABASE_PATH
 
 def connect() -> sqlite3.Connection:
     """Tạo kết nối mới tới CSDL SQLite"""
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
+    db_path = Path(DATABASE_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(db_path))
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -234,6 +236,7 @@ def init_db() -> None:
                 bien_so_xe TEXT,
                 loai_xe TEXT,
                 thoi_gian_di_qua TEXT NOT NULL,
+                duong_dan_anh TEXT,
                 ngay_tao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -404,6 +407,16 @@ def init_db() -> None:
                 "ALTER TABLE camera ADD COLUMN bat_phat_hien_vu_khi INTEGER NOT NULL DEFAULT 1"
             )
 
+        # Cột duong_dan_anh trong bảng lich_su_phuong_tien
+        veh_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(lich_su_phuong_tien)").fetchall()
+        }
+        if "duong_dan_anh" not in veh_columns:
+            connection.execute(
+                "ALTER TABLE lich_su_phuong_tien ADD COLUMN duong_dan_anh TEXT"
+            )
+
         # Cột enabled_detect_labels trong cai_dat_camera
         cai_dat_cam_columns = {
             row["name"]
@@ -543,18 +556,79 @@ def resolve_parking_violation(violation_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+def _levenshtein_distance(s1: str, s2: str) -> int:
+    """Tính khoảng cách Levenshtein giữa 2 chuỗi để phát hiện biến thể biển số đọc sai 1 ký tự."""
+    if len(s1) < len(s2):
+        return _levenshtein_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = prev[j + 1] + 1
+            deletions = curr[j] + 1
+            substitutions = prev[j] + (c1 != c2)
+            curr.append(min(insertions, deletions, substitutions))
+        prev = curr
+    return prev[-1]
+
+
+def _parse_datetime_safe(dt_str):
+    """Parse an toàn chuỗi ngày giờ sang đối tượng datetime."""
+    if not dt_str:
+        return None
+    from datetime import datetime
+    if isinstance(dt_str, datetime):
+        return dt_str
+    s = str(dt_str).strip()
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s[:19], fmt)
+        except Exception:
+            continue
+    return None
+
+
 # --- PHÁT HIỆN VŨ KHÍ ---
 def log_weapon_detection(camera_id: int, loai_vu_khi: str, thoi_gian_phat_hien: str = None, do_chinh_xac: float = 0.0, frame_path: str = None) -> int:
-    """Lưu nhật ký phát hiện vũ khí vào CSDL"""
+    """Lưu nhật ký phát hiện vũ khí vào CSDL với bảo vệ chống ghi đúp tuyệt đối"""
+    from datetime import datetime
     if not thoi_gian_phat_hien:
         thoi_gian_phat_hien = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    query = """
-        INSERT INTO phat_hien_vu_khi (id_camera, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, duong_dan_anh)
-        VALUES (?, ?, ?, ?, ?)
-    """
+    cur_dt = _parse_datetime_safe(thoi_gian_phat_hien) or datetime.now()
+
     with connect() as connection:
-        cursor = connection.execute(query, (camera_id, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, frame_path))
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp vũ khí cùng loại trên cùng camera trong vòng 15 giây
+        cursor = connection.execute(
+            """
+            SELECT id, loai_vu_khi, thoi_gian_phat_hien
+            FROM phat_hien_vu_khi
+            WHERE id_camera = ? AND loai_vu_khi = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (camera_id, loai_vu_khi)
+        )
+        prev_row = cursor.fetchone()
+        if prev_row:
+            prev_dt = _parse_datetime_safe(prev_row["thoi_gian_phat_hien"])
+            if prev_dt:
+                diff_sec = abs((cur_dt - prev_dt).total_seconds())
+                if diff_sec <= 15.0:
+                    print(f"[Weapon DB Guard] Bỏ qua ghi đúp vũ khí '{loai_vu_khi}' (vừa ghi cách đây {diff_sec:.1f}s, ID: {prev_row['id']})")
+                    return prev_row["id"]
+
+        frame_path_clean = frame_path or "/static/img/no_image.png"
+        query = """
+            INSERT INTO phat_hien_vu_khi (id_camera, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, duong_dan_anh)
+            VALUES (?, ?, ?, ?, ?)
+        """
+        cursor = connection.execute(query, (camera_id, loai_vu_khi, thoi_gian_phat_hien, do_chinh_xac, frame_path_clean))
         connection.commit()
         return cursor.lastrowid
 
@@ -788,8 +862,24 @@ def broadcast_notification(notification_data: dict):
                     pass
 
 def create_system_notification(title: str, content: str, type_name: str = "system") -> None:
-    """Tạo và broadcast thông báo hệ thống."""
+    """Tạo và broadcast thông báo hệ thống (với chống ghi đúp trong vòng 10s)."""
+    from datetime import datetime
     with connect() as connection:
+        cursor = connection.execute(
+            """
+            SELECT id, tieu_de, noi_dung, (strftime('%s', 'now') - strftime('%s', ngay_tao)) as diff_sec
+            FROM thong_bao
+            WHERE loai_thong_bao = ? AND tieu_de = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (type_name, title)
+        )
+        prev_row = cursor.fetchone()
+        if prev_row:
+            diff_sec = prev_row["diff_sec"]
+            if diff_sec is not None and abs(diff_sec) <= 10.0 and prev_row["noi_dung"] == content:
+                return
+
         cursor = connection.execute(
             """
             INSERT INTO thong_bao (loai_thong_bao, tieu_de, noi_dung, duong_dan_anh)
@@ -930,8 +1020,12 @@ def get_traffic_report_by_camera(start_date: str = None, end_date: str = None, c
     return [dict(row) for row in rows]
 
 
-def log_vehicle_count(camera_id: int, vehicle_type: str, count: int = 1) -> None:
+def log_vehicle_count(camera_id: int, vehicle_type: Any = "vehicle", count: int = 1) -> None:
     """Ghi nhận số lượng xe theo loại và ngày (loại bỏ người và biển số)"""
+    if isinstance(vehicle_type, int):
+        count = vehicle_type
+        vehicle_type = "vehicle"
+
     if vehicle_type in ['person', 'license_plate']:
         return
         
@@ -952,7 +1046,7 @@ def log_vehicle_count(camera_id: int, vehicle_type: str, count: int = 1) -> None
 
 
 def log_parking_violation(camera_id: int, license_plate: str = None, violation_time: str = None, duration: int = 0, frame_path: str = None) -> int:
-    """Ghi lại vi phạm đỗ xe"""
+    """Ghi lại vi phạm đỗ xe với bảo vệ chống trùng lặp tuyệt đối ở tầng CSDL"""
     from datetime import datetime
     if violation_time is None:
         violation_time = datetime.now().isoformat()
@@ -960,8 +1054,59 @@ def log_parking_violation(camera_id: int, license_plate: str = None, violation_t
     # Đảm bảo đường dẫn lưu vào DB là tương đối và đúng thư mục logs/violations/
     if frame_path and "runtime/violations/" in frame_path:
         frame_path = frame_path.replace("runtime/violations/", "logs/violations/")
+
+    cur_dt = _parse_datetime_safe(violation_time) or datetime.now()
     
     with connect() as connection:
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp vi phạm đỗ xe
+        cursor = connection.execute(
+            """
+            SELECT id, bien_so, thoi_gian_vi_pham, thoi_gian_ket_thuc, thoi_gian_cap_nhat_cuoi, duong_dan_anh
+            FROM vi_pham_do_xe
+            WHERE id_camera = ?
+            ORDER BY id DESC LIMIT 10
+            """,
+            (camera_id,)
+        )
+        recent_rows = cursor.fetchall()
+        for row in recent_rows:
+            prev_id = row["id"]
+            prev_plate = row["bien_so"]
+            prev_end = row["thoi_gian_ket_thuc"]
+            prev_update = row["thoi_gian_cap_nhat_cuoi"] or row["thoi_gian_vi_pham"]
+            
+            diff_sec = 999999.0
+            prev_dt = _parse_datetime_safe(prev_update)
+            if prev_dt:
+                diff_sec = abs((cur_dt - prev_dt).total_seconds())
+
+            is_same_plate = False
+            if license_plate and prev_plate:
+                if license_plate == prev_plate:
+                    is_same_plate = True
+                elif _levenshtein_distance(license_plate, prev_plate) <= 1:
+                    is_same_plate = True
+            elif not license_plate and not prev_plate:
+                is_same_plate = True
+
+            # 1. Vi phạm trước CÒN ĐANG DIỄN RA (thoi_gian_ket_thuc IS NULL)
+            if prev_end is None:
+                # Nếu cùng biển số hoặc xảy ra cách nhau dưới 45 giây -> Cùng 1 sự kiện vi phạm
+                if is_same_plate or diff_sec < 45.0:
+                    print(f"[Parking DB Guard] Bỏ qua ghi đúp vi phạm đỗ xe (sự kiện #{prev_id} đang diễn ra, cập nhật heartbeat)")
+                    connection.execute(
+                        "UPDATE vi_pham_do_xe SET thoi_gian_cap_nhat_cuoi = ?, duong_dan_anh = COALESCE(?, duong_dan_anh) WHERE id = ?",
+                        (violation_time, frame_path, prev_id)
+                    )
+                    connection.commit()
+                    return prev_id
+
+            # 2. Vi phạm trước vừa kết thúc hoặc vừa ghi cách đây <= 25 giây
+            if diff_sec <= 25.0 and (is_same_plate or not license_plate or not prev_plate):
+                print(f"[Parking DB Guard] Bỏ qua ghi đúp vi phạm đỗ xe vừa ghi cách đây {diff_sec:.1f}s (ID: {prev_id})")
+                return prev_id
+
+        # Chưa có vi phạm nào trùng lặp -> Tạo mới bản ghi
         cursor = connection.execute(
             """
             INSERT INTO vi_pham_do_xe (id_camera, bien_so, thoi_gian_vi_pham, thoi_gian_do_giay, duong_dan_anh, thoi_gian_cap_nhat_cuoi)
@@ -1019,12 +1164,62 @@ def update_violation_end_time(violation_id: int, end_time: str = None) -> None:
 
 
 def log_congestion(camera_id: int, level: int = 1, start_time: str = None, duong_dan_anh: str = None) -> int:
-    """Ghi lại sự kiện tắc nghẽn và trả về ID của record"""
+    """Ghi lại sự kiện tắc nghẽn với bảo vệ chống trùng lặp tuyệt đối ở tầng CSDL"""
     from datetime import datetime
     if start_time is None:
         start_time = datetime.now().isoformat()
+
+    cur_dt = _parse_datetime_safe(start_time) or datetime.now()
     
     with connect() as connection:
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp nhật ký ùn tắc
+        cursor = connection.execute(
+            """
+            SELECT id, muc_do_un_tac, thoi_gian_bat_dau, thoi_gian_ket_thuc, thoi_gian_cap_nhat_cuoi
+            FROM nhat_ky_un_tac
+            WHERE id_camera = ?
+            ORDER BY id DESC LIMIT 5
+            """,
+            (camera_id,)
+        )
+        recent_rows = cursor.fetchall()
+        for row in recent_rows:
+            prev_id = row["id"]
+            prev_level = row["muc_do_un_tac"]
+            prev_end = row["thoi_gian_ket_thuc"]
+            prev_update = row["thoi_gian_cap_nhat_cuoi"] or row["thoi_gian_bat_dau"]
+            
+            diff_sec = 999999.0
+            prev_dt = _parse_datetime_safe(prev_update)
+            if prev_dt:
+                diff_sec = abs((cur_dt - prev_dt).total_seconds())
+
+            # 1. Đợt ùn tắc trước đó CHƯA KẾT THÚC (thoi_gian_ket_thuc IS NULL):
+            if prev_end is None:
+                if prev_level == level:
+                    # Cùng mức độ -> Cập nhật nhịp đập và ảnh, KHÔNG TẠO MỚI, KHÔNG PHÁT THÔNG BÁO LẶP
+                    print(f"[Congestion DB Guard] Bỏ qua ghi đúp ùn tắc mức {level} (sự kiện #{prev_id} đang diễn ra)")
+                    connection.execute(
+                        "UPDATE nhat_ky_un_tac SET thoi_gian_cap_nhat_cuoi = ?, duong_dan_anh = COALESCE(?, duong_dan_anh) WHERE id = ?",
+                        (start_time, duong_dan_anh, prev_id)
+                    )
+                    connection.commit()
+                    return prev_id
+                else:
+                    # Mức độ thay đổi -> Kết thúc đợt cũ sạch sẽ
+                    prev_start_dt = _parse_datetime_safe(row["thoi_gian_bat_dau"])
+                    duration = max(0, int((cur_dt - prev_start_dt).total_seconds())) if prev_start_dt else 0
+                    connection.execute(
+                        "UPDATE nhat_ky_un_tac SET thoi_gian_ket_thuc = ?, thoi_gian_keo_dai_giay = ? WHERE id = ?",
+                        (start_time, duration, prev_id)
+                    )
+
+            # 2. Đợt ùn tắc trước cùng mức độ vừa ghi cách đây <= 20 giây:
+            elif prev_level == level and diff_sec <= 20.0:
+                print(f"[Congestion DB Guard] Bỏ qua ghi đúp ùn tắc mức {level} vừa ghi cách đây {diff_sec:.1f}s (ID: {prev_id})")
+                return prev_id
+
+        # Chưa có sự kiện ùn tắc trùng -> Tạo mới
         cursor = connection.execute(
             """
             INSERT INTO nhat_ky_un_tac (id_camera, muc_do_un_tac, thoi_gian_bat_dau, duong_dan_anh, thoi_gian_cap_nhat_cuoi)
@@ -1232,7 +1427,7 @@ def close_all_dangling_records() -> None:
 
 
 def log_passed_vehicle(camera_id: int, bien_so_xe: str, loai_xe: str, thoi_gian_di_qua: str = None, duong_dan_anh: str = None) -> None:
-    """Ghi lại lịch sử phương tiện đi qua có kèm ảnh"""
+    """Ghi lại lịch sử phương tiện đi qua có kèm ảnh với bảo vệ chống trùng lặp"""
     from datetime import datetime
     if thoi_gian_di_qua is None:
         thoi_gian_di_qua = datetime.now().isoformat()
@@ -1240,8 +1435,40 @@ def log_passed_vehicle(camera_id: int, bien_so_xe: str, loai_xe: str, thoi_gian_
     # Chuẩn hóa đường dẫn ảnh
     if duong_dan_anh:
         duong_dan_anh = duong_dan_anh.replace("\\", "/").replace("runtime/vehicles/", "logs/vehicles/")
+
+    cur_dt = _parse_datetime_safe(thoi_gian_di_qua) or datetime.now()
         
     with connect() as connection:
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp cùng phương tiện trong vòng 5.0 giây
+        cursor = connection.execute(
+            """
+            SELECT id, bien_so_xe, loai_xe, thoi_gian_di_qua
+            FROM lich_su_phuong_tien
+            WHERE id_camera = ?
+            ORDER BY id DESC LIMIT 5
+            """,
+            (camera_id,)
+        )
+        recent_rows = cursor.fetchall()
+        for row in recent_rows:
+            prev_plate = row["bien_so_xe"]
+            prev_type = row["loai_xe"]
+            prev_time = row["thoi_gian_di_qua"]
+            prev_dt = _parse_datetime_safe(prev_time)
+            
+            diff_sec = 999999.0
+            if prev_dt:
+                diff_sec = abs((cur_dt - prev_dt).total_seconds())
+
+            if diff_sec <= 5.0:
+                # 1. Trùng biển số trong vòng 5 giây -> Bỏ qua
+                if bien_so_xe and prev_plate and bien_so_xe == prev_plate:
+                    print(f"[Vehicle Pass DB Guard] Bỏ qua ghi đúp phương tiện '{bien_so_xe}' ({diff_sec:.1f}s)")
+                    return
+                # 2. Cùng loại xe và cùng ID tạm trong vòng 5 giây -> Bỏ qua
+                if bien_so_xe and prev_plate and bien_so_xe == prev_plate and loai_xe == prev_type:
+                    return
+
         connection.execute(
             """
             INSERT INTO lich_su_phuong_tien (id_camera, bien_so_xe, loai_xe, thoi_gian_di_qua, duong_dan_anh)
