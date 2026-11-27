@@ -1,7 +1,28 @@
 import cv2
 import numpy as np
 import re
+import time
 from shapely.geometry import Polygon
+
+_OCR_PREPROCESS_CACHE = {"ts": 0.0, "vals": (True, True, True)}
+
+
+def _get_ocr_preprocess_flags():
+    now = time.time()
+    if now - _OCR_PREPROCESS_CACHE["ts"] < 5.0:
+        return _OCR_PREPROCESS_CACHE["vals"]
+    try:
+        from backend.database.sqlite_db import get_system_setting
+        vals = (
+            get_system_setting("ocr_preprocess_perspective", "true") == "true",
+            get_system_setting("ocr_preprocess_grayscale", "true") == "true",
+            get_system_setting("ocr_preprocess_magnify", "true") == "true",
+        )
+    except Exception:
+        vals = (True, True, True)
+    _OCR_PREPROCESS_CACHE["ts"] = now
+    _OCR_PREPROCESS_CACHE["vals"] = vals
+    return vals
 
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -105,16 +126,8 @@ def is_valid_vn_plate(text):
     return bool(re.match(pattern, text))
 
 def run_ocr(ocr_reader, img_bgr):
-    # Load các cấu hình tiền xử lý từ Database
-    try:
-        from backend.database.sqlite_db import get_system_setting
-        use_perspective = get_system_setting("ocr_preprocess_perspective", "true") == "true"
-        use_grayscale = get_system_setting("ocr_preprocess_grayscale", "true") == "true"
-        use_magnify = get_system_setting("ocr_preprocess_magnify", "true") == "true"
-    except Exception:
-        use_perspective = True
-        use_grayscale = True
-        use_magnify = True
+    # Đọc cấu hình tiền xử lý có cache 5s để tránh mở SQLite 3 lần mỗi biển số
+    use_perspective, use_grayscale, use_magnify = _get_ocr_preprocess_flags()
 
     # 1. Khử góc nghiêng (Perspective Warp)
     if use_perspective:

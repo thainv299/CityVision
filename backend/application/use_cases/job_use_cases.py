@@ -40,9 +40,15 @@ def _child_process_run(
     input_stream = io.BytesIO(input_stream_bytes) if input_stream_bytes else None
 
     current_quality = None
+    last_quality_seq = 0
+    last_settings_seq = 0
+    last_preview_seq = 0
+    last_state_poll_t = 0.0
+    cached_viewer_count = 0
+    cached_abort = False
 
     def handle_progress(progress: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        nonlocal current_quality
+        nonlocal current_quality, last_quality_seq, last_settings_seq, last_preview_seq, last_state_poll_t, cached_viewer_count, cached_abort
         
         if progress:
             # Gửi tiến độ qua Queue về Parent Process
@@ -58,37 +64,45 @@ def _child_process_run(
             except Exception as e:
                 print(f"[Child Process {job_id}] Lỗi gửi queue: {e}")
 
-        # Đọc các cập nhật/lệnh điều khiển từ Parent qua Shared Dict (Chỉ đọc, KHÔNG ghi để tránh race condition)
+        # Đọc các cập nhật/lệnh điều khiển từ Parent qua Shared Dict (Throttle 0.15s để giảm RPC Manager socket)
         actions = {}
-        try:
-            state = shared_jobs_state.get(job_id)
-            if state is None:
-                actions["abort"] = True
-            else:
-                req_q = state.get("requested_quality")
-                req_settings = state.get("requested_settings")
-                req_force_preview = state.get("requested_force_preview")
-                viewer_count = state.get("viewer_count", 0)
-                aborted = state.get("aborted", False)
+        now_poll = time.time()
+        if (now_poll - last_state_poll_t >= 0.15) or cached_abort:
+            last_state_poll_t = now_poll
+            try:
+                state = shared_jobs_state.get(job_id)
+                if state is None:
+                    cached_abort = True
+                else:
+                    if state.get("aborted", False):
+                        cached_abort = True
 
-                if aborted:
-                    actions["abort"] = True
+                    q_seq = int(state.get("quality_seq", 0))
+                    req_q = state.get("requested_quality")
+                    if req_q and (q_seq != last_quality_seq or req_q != current_quality):
+                        actions["new_quality"] = req_q
+                        current_quality = req_q
+                        last_quality_seq = q_seq
 
-                # Chỉ gửi chất lượng mới nếu nó khác với chất lượng hiện tại
-                if req_q and req_q != current_quality:
-                    actions["new_quality"] = req_q
-                    current_quality = req_q
-                    
-                if req_settings:
-                    actions["new_settings"] = req_settings
-                if req_force_preview:
-                    actions["force_preview"] = True
+                    s_seq = int(state.get("settings_seq", 0))
+                    req_settings = state.get("requested_settings")
+                    if req_settings and s_seq != last_settings_seq:
+                        actions["new_settings"] = req_settings
+                        last_settings_seq = s_seq
 
-                actions["viewer_count"] = viewer_count
-        except Exception as e:
-            print(f"[Child Process {job_id}] Lỗi đọc shared state: {e}")
+                    p_seq = int(state.get("preview_seq", 0))
+                    if state.get("requested_force_preview") and p_seq != last_preview_seq:
+                        actions["force_preview"] = True
+                        last_preview_seq = p_seq
 
-        return actions if actions else None
+                    cached_viewer_count = state.get("viewer_count", 0)
+            except Exception as e:
+                print(f"[Child Process {job_id}] Lỗi đọc shared state: {e}")
+
+        if cached_abort:
+            actions["abort"] = True
+        actions["viewer_count"] = cached_viewer_count
+        return actions
 
     try:
         summary = detection_service.process_video(
@@ -155,6 +169,13 @@ class JobUseCases:
         self.listener_thread = threading.Thread(target=self._queue_listener, daemon=True)
         self.listener_thread.start()
 
+    def _notify_job_frame(self, job: Optional[Job]) -> None:
+        """Đánh thức các client MJPEG đang chờ frame mới hoặc tín hiệu dừng job."""
+        if not job:
+            return
+        with job.frame_condition:
+            job.frame_condition.notify_all()
+
     def _queue_listener(self):
         """Luồng đón dữ liệu tiến độ từ các tiến trình con để cập nhật vào RAM tiến trình chính FastAPI."""
         import queue
@@ -199,7 +220,10 @@ class JobUseCases:
                         data = msg.get("data")
                         preview_jpeg = data.pop("preview_jpeg", None)
                         if preview_jpeg:
-                            job.latest_frame = preview_jpeg
+                            with job.frame_condition:
+                                job.latest_frame = preview_jpeg
+                                job.frame_seq += 1
+                                job.frame_condition.notify_all()
                         
                         # Đồng bộ tiến trình
                         job.progress = data
@@ -303,6 +327,7 @@ class JobUseCases:
             self.shared_jobs_state.pop(job_id, None)
         except Exception:
             pass
+        self._notify_job_frame(self.jobs.get(job_id))
 
     def set_job(self, job_id: str, **updates: Any) -> Job:
         with self.job_lock:
@@ -368,6 +393,7 @@ class JobUseCases:
             try:
                 state = dict(self.shared_jobs_state.get(job_id) or {})
                 state["requested_quality"] = quality
+                state["quality_seq"] = int(state.get("quality_seq", 0)) + 1
                 self.shared_jobs_state[job_id] = state
                 return True
             except Exception:
@@ -392,6 +418,7 @@ class JobUseCases:
                         for k, v in settings.items():
                             req_s_shared[k] = v
                         state["requested_settings"] = req_s_shared
+                        state["settings_seq"] = int(state.get("settings_seq", 0)) + 1
                         self.shared_jobs_state[job_id] = state
                         print(f"[System] Đã cập nhật cấu hình cho tiến trình con {job_id}")
                     except Exception as e:
@@ -498,8 +525,11 @@ class JobUseCases:
         try:
             self.shared_jobs_state[job_id] = {
                 "requested_quality": None,
+                "quality_seq": 0,
                 "requested_settings": None,
+                "settings_seq": 0,
                 "requested_force_preview": False,
+                "preview_seq": 0,
                 "viewer_count": 0
             }
         except Exception as e:
@@ -565,17 +595,17 @@ class JobUseCases:
                 try:
                     state = dict(self.shared_jobs_state.get(job_id) or {})
                     state["requested_force_preview"] = True
+                    state["preview_seq"] = int(state.get("preview_seq", 0)) + 1
                     self.shared_jobs_state[job_id] = state
                 except Exception:
                     pass
 
     def stream_job_frames(self, job_id: str):
+        terminal_statuses = ("completed", "failed", "aborted")
         with self.job_lock:
             job = self.jobs.get(job_id)
-        if not job:
-            return
-
-        with self.job_lock:
+            if not job or job.status in terminal_statuses:
+                return
             job.viewer_count += 1
             # Cập nhật số người xem vào Shared Dict
             try:
@@ -585,19 +615,39 @@ class JobUseCases:
             except Exception:
                 pass
 
+        last_sent_seq = 0
+        last_sent_frame_id = None
+
+        def _has_unseen_frame() -> bool:
+            if not job.latest_frame:
+                return False
+            if job.frame_seq != last_sent_seq:
+                return True
+            return job.frame_seq == 0 and id(job.latest_frame) != last_sent_frame_id
+
         try:
             while True:
-                if job.status in ("completed", "failed", "aborted"):
-                    break
-                
-                # Cập nhật heartbeat khi đang đẩy stream MJPEG
-                job.last_heartbeat = time.time()
-                
-                frame_bytes = job.latest_frame
+                frame_bytes = None
+                is_terminal = False
+                with job.frame_condition:
+                    while job.status not in terminal_statuses and not _has_unseen_frame():
+                        job.last_heartbeat = time.time()
+                        wait_s = 0.05 if job.frame_seq == 0 else 1.0
+                        job.frame_condition.wait(timeout=wait_s)
+
+                    is_terminal = job.status in terminal_statuses
+                    if _has_unseen_frame():
+                        frame_bytes = job.latest_frame
+                        last_sent_seq = job.frame_seq
+                        last_sent_frame_id = id(frame_bytes)
+                        job.last_heartbeat = time.time()
+                    elif is_terminal:
+                        break
+
                 if frame_bytes:
                     yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                
-                time.sleep(0.03)  # Tránh nghẽn băng thông
+                if is_terminal:
+                    break
         finally:
             with self.job_lock:
                 if job.status in ("queued", "running"):
@@ -695,4 +745,5 @@ class JobUseCases:
                 if job.status in {"queued", "running"}:
                     job.status = "aborted"
                     job.message = "Đã dừng task do server tắt."
+                    self._notify_job_frame(job)
 

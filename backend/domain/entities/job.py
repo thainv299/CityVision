@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -16,6 +17,8 @@ class Job:
     summary: Optional[Dict[str, Any]] = None
     progress: Dict[str, Any] = field(default_factory=dict)
     latest_frame: Optional[bytes] = None
+    frame_seq: int = 0
+    frame_condition: threading.Condition = field(default_factory=threading.Condition, repr=False, compare=False)
     is_paused: bool = False
     camera_id: Optional[int] = None
     viewer_count: int = 0

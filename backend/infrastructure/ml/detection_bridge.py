@@ -67,6 +67,41 @@ PIPE_WIDTH = 1920
 # 1280px (720p) là mức cân bằng tốt cho chất lượng và băng thông
 PREVIEW_WIDTH = 1280
 
+# Cache khả năng hỗ trợ phần cứng một lần để không probe lặp lại mỗi khi mở camera
+_OPENCV_HAS_GSTREAMER = "GStreamer:                   YES" in cv2.getBuildInformation()
+_CACHED_FFMPEG_ENCODER: Optional[str] = None
+
+
+def _get_preferred_ffmpeg_encoder() -> str:
+    """Phát hiện bộ mã hóa H.264 phần cứng của FFmpeg một lần và lưu cache."""
+    global _CACHED_FFMPEG_ENCODER
+    if _CACHED_FFMPEG_ENCODER is not None:
+        return _CACHED_FFMPEG_ENCODER
+    encoder = "libx264"
+    try:
+        res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=2)
+        if "h264_nvenc" in res.stdout:
+            encoder = "h264_nvenc"
+        elif "h264_v4l2m2m" in res.stdout:
+            encoder = "h264_v4l2m2m"
+    except Exception:
+        pass
+    _CACHED_FFMPEG_ENCODER = encoder
+    return encoder
+
+
+def _read_exact_into_ndarray(pipe, shape: Tuple[int, int, int], frame_size: int) -> Optional[np.ndarray]:
+    """Đọc thẳng frame raw từ stdout FFmpeg vào ndarray writable, tránh alloc bytes + copy() thừa."""
+    buf = np.empty(frame_size, dtype=np.uint8)
+    mv = memoryview(buf)
+    offset = 0
+    while offset < frame_size:
+        n = pipe.readinto(mv[offset:])
+        if not n:
+            return None
+        offset += n
+    return buf.reshape(shape)
+
 # Màu sắc cho các loại phương tiện
 BOX_COLORS = {
     "person": (0, 255, 0),
@@ -83,7 +118,7 @@ class VideoStream:
     """Luồng đọc frame sử dụng FFmpeg CLI để giải mã thô (Raw Video).
     Giải pháp để tránh crash async_lock của OpenCV trên Windows với H.265.
     """
-    def __init__(self, path, force_single_thread: bool = False):
+    def __init__(self, path, force_single_thread: bool = False, pre_probed: Optional[Tuple[int, int, float, int]] = None):
         self.path = str(path)
         self.stopped = False
         self.queue = queue.Queue(maxsize=5)
@@ -91,41 +126,14 @@ class VideoStream:
         # FIX #2: Chỉ dùng single-thread khi cần (H.265), H.264 dùng auto-thread
         self._force_single_thread = force_single_thread
 
-        # Lấy metadata bằng ffprobe
-        try:
-            probe = subprocess.run([
-                "ffprobe", "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,r_frame_rate,nb_frames",
-                "-of", "json", self.path
-            ], capture_output=True, text=True, timeout=10)
-
-            info = json.loads(probe.stdout)
-            stream_info = info.get("streams", [{}])[0]
-            self.width = int(stream_info.get("width", 1280))
-            self.height = int(stream_info.get("height", 720))
-
-            fps_str = stream_info.get("r_frame_rate", "25/1")
-            if "/" in fps_str:
-                num, den = fps_str.split("/")
-                self.fps = float(num) / float(den) if float(den) > 0 else 25.0
-            else:
-                self.fps = float(fps_str)
-
-            self.total_frames = int(stream_info.get("nb_frames", 0))
+        if pre_probed is not None:
+            self.width, self.height, self.fps, self.total_frames = pre_probed
             self._is_opened = True
-        except Exception as e:
-            print(f"[VideoStream] Lỗi lấy metadata: {e}")
-            self.width, self.height, self.fps, self.total_frames = 1280, 720, 25.0, 0
-            # Fallback OpenCV
-            cap = cv2.VideoCapture(self.path)
-            if cap.isOpened():
-                self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                self.fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-                self.total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-                self._is_opened = True
-                cap.release()
+        else:
+            # Lấy metadata bằng ffprobe 1 lần
+            w, h, fps_val, tot, _ = _probe_stream_metadata(self.path)
+            self.width, self.height, self.fps, self.total_frames = w, h, fps_val, tot
+            self._is_opened = True
 
         # FIX #1: Tính kích thước pipe ở 1080p (1920px)
         # Đây là kích thước frame thực tế trong pipeline AI (đảm bảo độ nét cao)
@@ -238,12 +246,18 @@ class VideoStream:
             self._cap.release()
 
     def _build_ffmpeg_cmd(self) -> list:
-        """Xây dựng lệnh FFmpeg tối ưu."""
+        """Xây dựng lệnh FFmpeg tối ưu (giảm trễ RTSP và bỏ cấp phát dư)."""
         cmd = [
             "ffmpeg", "-loglevel", "error",
             "-threads", "0"
         ]
-        
+
+        path_str = str(self.path)
+        if path_str.lower().startswith("rtsp://"):
+            cmd.extend(["-rtsp_transport", "tcp", "-fflags", "nobuffer", "-flags", "low_delay"])
+        elif path_str.lower().startswith(("http://", "https://", "rtmp://")):
+            cmd.extend(["-fflags", "nobuffer", "-flags", "low_delay"])
+
         # Hỗ trợ giải mã phần cứng trên Jetson (NVDEC / V4L2)
         use_nvdec = os.environ.get("USE_JETSON_NVDEC", "0") == "1"
         if use_nvdec:
@@ -251,7 +265,7 @@ class VideoStream:
             cmd.extend(["-c:v", "h264_nvv4l2dec"])
             
         cmd.extend([
-            "-i", str(self.path),
+            "-i", path_str,
             "-vf", f"scale={self.draw_w}:{self.draw_h}",
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
@@ -262,6 +276,7 @@ class VideoStream:
     def _run_ffmpeg_loop(self):
         self._using_gstreamer = False
         frame_size = self.draw_w * self.draw_h * 3
+        shape = (self.draw_h, self.draw_w, 3)
         is_url = "://" in self.path or self.path.startswith("rtsp")
 
         self._proc = subprocess.Popen(
@@ -272,8 +287,8 @@ class VideoStream:
 
         while not self.stopped:
             try:
-                raw = self._proc.stdout.read(frame_size)
-                if len(raw) < frame_size:
+                frame = _read_exact_into_ndarray(self._proc.stdout, shape, frame_size)
+                if frame is None:
                     # Hết video hoặc mất kết nối
                     self._proc.stdout.close()
                     self._proc.wait()
@@ -289,27 +304,33 @@ class VideoStream:
                     )
                     continue
 
-                frame = np.frombuffer(raw, dtype=np.uint8).reshape((self.draw_h, self.draw_w, 3))
-                
                 if not self.queue.full():
-                    self.queue.put(frame.copy())
+                    self.queue.put(frame)
                 else:
                     # Nếu là RTSP/Live stream thì mới drop frame cũ (tránh lag tích lũy)
                     if is_url:
                         try:
                             self.queue.get_nowait()
-                            self.queue.put(frame.copy())
-                        except Exception: pass
+                            self.queue.put(frame)
+                        except Exception:
+                            pass
                     else:
-                        # Nếu là Video File, đợi cho đến khi có chỗ trong queue để không bị giật/mất frame
-                        self.queue.put(frame.copy())
+                        # Nếu là Video File, chờ theo từng nhịp ngắn để vẫn kiểm tra được cờ self.stopped
+                        while not self.stopped:
+                            try:
+                                self.queue.put(frame, timeout=0.2)
+                                break
+                            except queue.Full:
+                                continue
             except Exception as e:
                 print(f"[VideoStream FFmpeg] Lỗi luồng đọc: {e}")
                 if not self.stopped:
                     time.sleep(1)
 
     def update(self):
-        use_gstreamer = os.environ.get("USE_GSTREAMER", "1") == "1"
+        use_gstreamer = (os.environ.get("USE_GSTREAMER", "1") == "1") and (
+            _OPENCV_HAS_GSTREAMER or os.environ.get("FORCE_GSTREAMER", "0") == "1"
+        )
         if use_gstreamer:
             try:
                 self._run_gstreamer_loop()
@@ -329,6 +350,11 @@ class VideoStream:
 
     def release(self):
         self.stopped = True
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except Exception:
+                break
         if self._using_gstreamer and self._cap:
             self._cap.release()
         if self._proc:
@@ -338,6 +364,12 @@ class VideoStream:
             except Exception:
                 if self._proc:
                     self._proc.kill()
+            finally:
+                try:
+                    if self._proc.stdout:
+                        self._proc.stdout.close()
+                except Exception:
+                    pass
 
     def set_pos(self, frame_idx):
         # Reset bằng cách restart process
@@ -482,19 +514,110 @@ def _display_label(label_key: str) -> str:
     return label_key.replace("_", " ")
 
 
+def _probe_stream_metadata(path: Any) -> Tuple[int, int, float, int, bool]:
+    """Đọc toàn bộ metadata video/RTSP (width, height, fps, total_frames, is_hevc) bằng một lần ffprobe duy nhất."""
+    path_str = str(path)
+    if not isinstance(path, int):
+        try:
+            cmd = ["ffprobe", "-v", "error"]
+            if path_str.lower().startswith("rtsp://"):
+                cmd.extend(["-rtsp_transport", "tcp"])
+            cmd.extend([
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames",
+                "-of", "json",
+                path_str,
+            ])
+            probe = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            info = json.loads(probe.stdout)
+            stream_info = info.get("streams", [{}])[0]
+            width = int(stream_info.get("width") or 1280)
+            height = int(stream_info.get("height") or 720)
+
+            fps_str = stream_info.get("r_frame_rate", "25/1")
+            if "/" in fps_str:
+                num, den = fps_str.split("/")
+                raw_fps = float(num) / float(den) if float(den) > 0 else 25.0
+            else:
+                raw_fps = float(fps_str)
+            fps = raw_fps if raw_fps > 0 else 25.0
+
+            total_frames = int(stream_info.get("nb_frames", 0) or 0)
+            codec_name = str(stream_info.get("codec_name", "")).strip().lower()
+            is_hevc = codec_name in ("hevc", "h265")
+            return width, height, fps, total_frames, is_hevc
+        except Exception as e:
+            print(f"[VideoStream] Lỗi lấy metadata bằng ffprobe ({e}), fallback OpenCV...")
+
+    width, height, fps, total_frames = 1280, 720, 25.0, 0
+    cap_arg = path if isinstance(path, int) else path_str
+    cap = cv2.VideoCapture(cap_arg)
+    if cap.isOpened():
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        cap.release()
+    return width, height, fps, total_frames, False
+
+
 def _is_hevc(path: Any) -> bool:
     """Kiểm tra video có dùng codec H.265/HEVC không."""
-    try:
-        result = subprocess.run([
-            "ffprobe", "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=codec_name",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(path)
-        ], capture_output=True, text=True, timeout=10)
-        return result.stdout.strip().lower() in ("hevc", "h265")
-    except Exception:
-        return False
+    _, _, _, _, is_hevc = _probe_stream_metadata(path)
+    return is_hevc
+
+
+def _build_label_lookup(model: Optional[YOLO]) -> Tuple[Dict[int, str], Dict[int, str]]:
+    """Tạo bảng ánh xạ cls_id -> (canonical_label, display_label) một lần sau khi tải model."""
+    if model is None:
+        return {}, {}
+    raw_names = getattr(model, "custom_names", None) or getattr(model, "names", None) or {}
+    canon_map: Dict[int, str] = {}
+    disp_map: Dict[int, str] = {}
+    if isinstance(raw_names, dict):
+        for k, v in raw_names.items():
+            c_lbl = _canonical_label(v)
+            canon_map[int(k)] = c_lbl
+            disp_map[int(k)] = _display_label(c_lbl)
+    elif isinstance(raw_names, (list, tuple)):
+        for k, v in enumerate(raw_names):
+            c_lbl = _canonical_label(v)
+            canon_map[k] = c_lbl
+            disp_map[k] = _display_label(c_lbl)
+    return canon_map, disp_map
+
+
+def _draw_detection_box(
+    frame: np.ndarray,
+    x1: int, y1: int, x2: int, y2: int,
+    box_color: Tuple[int, int, int],
+    display_label: str,
+    f_scale: float, f_thick: int, show_label: bool
+) -> None:
+    """Vẽ bounding box và nhãn đối tượng lên frame."""
+    cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
+    if display_label and show_label:
+        (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+        text_y = max(th + 10, y1 - 5)
+        cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
+        brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
+        text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
+        cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
+
+
+def _draw_plate_overlay(
+    frame: np.ndarray,
+    x1: int, y1: int, x2: int, y2: int,
+    color: Tuple[int, int, int],
+    display_text: str,
+    f_scale: float, f_thick: int, f_offset: int
+) -> None:
+    """Vẽ lại khung biển số đã cached ở những frame skip."""
+    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), f_thick)
+    (tw, th), baseline = cv2.getTextSize(display_text, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
+    text_y = max(th + 5, y1 - f_offset)
+    cv2.rectangle(frame, (x1, text_y - th - 5), (x1 + tw + 5, text_y + baseline + 2), color, -1)
+    cv2.putText(frame, display_text, (x1 + 2, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
 
 
 def _remux_to_faststart(input_path: Path) -> Path:
@@ -727,8 +850,10 @@ def _load_model(model_path: Path) -> YOLO:
     model_str = str(model_path)
     if model_str.lower().endswith(".engine"):
         model = YOLO(model_str, task="detect")
-        # Phục hồi tên các class cho file .engine (tránh lỗi str has no attribute names do lazy-loading)
-        model.custom_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
+        # Chỉ fallback nếu TensorRT .engine không tự nạp được metadata names
+        existing_names = getattr(model, "names", None)
+        if not isinstance(existing_names, dict) or not existing_names:
+            model.custom_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
         return model
 
     model = YOLO(model_str)
@@ -773,8 +898,8 @@ def process_video(
     if isinstance(input_video_path, Path) and not input_video_path.exists():
         raise FileNotFoundError(f"Không tìm thấy video đầu vào: {input_video_path}")
 
-    # FIX #2: Detect HEVC một lần duy nhất, dùng lại kết quả cho cả remux và VideoStream
-    is_hevc = _is_hevc(input_video_path)
+    # Gọi ffprobe 1 lần duy nhất lấy toàn bộ metadata cho cả remux và VideoStream
+    probed_w, probed_h, probed_fps, probed_total, is_hevc = _probe_stream_metadata(input_video_path)
 
     # Chỉ remux nếu là file cục bộ (Path), không remux RTSP/URL
     if is_hevc and isinstance(input_video_path, Path):
@@ -801,8 +926,8 @@ def process_video(
     enable_illegal_parking = bool(settings.get("enable_illegal_parking", True)) if enable_ai else False
     enable_license_plate = bool(settings.get("enable_license_plate", True)) if enable_ai else False
     enable_weapon_detection = bool(settings.get("enable_weapon_detection", settings.get("bat_phat_hien_vu_khi", True))) if enable_ai else False
-    enabled_detect_labels = settings.get("enabled_detect_labels", None)
-    enabled_draw_labels = settings.get("enabled_draw_labels", None)
+    enabled_detect_labels = set(settings["enabled_detect_labels"]) if settings.get("enabled_detect_labels") else None
+    enabled_draw_labels = set(settings["enabled_draw_labels"]) if settings.get("enabled_draw_labels") else None
     stop_seconds = float(settings.get("stop_seconds", 30.0))
     move_threshold_px = float(settings.get("parking_move_threshold_px", 10.0))
     process_stride = max(1, int(settings.get("process_every_n_frames", 2)))
@@ -812,23 +937,29 @@ def process_video(
     show_roi_surveillance = bool(settings.get("show_roi_surveillance", False))
     show_roi_parking = bool(settings.get("show_roi_parking", False))
     show_fps = bool(settings.get("show_fps", True))
-    show_box_person = bool(settings.get("show_box_person", True))
-    show_box_bicycle = bool(settings.get("show_box_bicycle", True))
-    show_box_car = bool(settings.get("show_box_car", True))
-    show_box_motorcycle = bool(settings.get("show_box_motorcycle", True))
-    show_box_plate = bool(settings.get("show_box_plate", True))
-    show_box_bus = bool(settings.get("show_box_bus", True))
-    show_box_truck = bool(settings.get("show_box_truck", True))
-    show_box_knife = bool(settings.get("show_box_knife", True))
-    show_box_pistol = bool(settings.get("show_box_pistol", True))
-    show_box_sword = bool(settings.get("show_box_sword", True))
-    show_box_helmet = bool(settings.get("show_box_helmet", True))
-    show_box_mask = bool(settings.get("show_box_mask", True))
-    show_box_backpack = bool(settings.get("show_box_backpack", True))
+    show_box_map = {
+        "person": bool(settings.get("show_box_person", True)),
+        "bicycle": bool(settings.get("show_box_bicycle", True)),
+        "car": bool(settings.get("show_box_car", True)),
+        "motorcycle": bool(settings.get("show_box_motorcycle", True)),
+        "license_plate": bool(settings.get("show_box_plate", True)),
+        "bus": bool(settings.get("show_box_bus", True)),
+        "truck": bool(settings.get("show_box_truck", True)),
+        "knife": bool(settings.get("show_box_knife", True)),
+        "pistol": bool(settings.get("show_box_pistol", True)),
+        "sword": bool(settings.get("show_box_sword", True)),
+        "helmet": bool(settings.get("show_box_helmet", True)),
+        "mask": bool(settings.get("show_box_mask", True)),
+        "backpack": bool(settings.get("show_box_backpack", True)),
+    }
     show_label = bool(settings.get("show_label", True))
 
-    # FIX #2: Truyền force_single_thread=True chỉ khi là H.265
-    capture = VideoStream(input_video_path, force_single_thread=is_hevc).start()
+    # Truyền metadata đã probe sẵn để tránh chạy ffprobe lần 2
+    capture = VideoStream(
+        input_video_path,
+        force_single_thread=is_hevc,
+        pre_probed=(probed_w, probed_h, probed_fps, probed_total)
+    ).start()
     is_live = not isinstance(input_video_path, Path)
     frame_width = capture.width
     frame_height = capture.height
@@ -878,6 +1009,7 @@ def process_video(
         )
 
     model = _load_model(model_path) if enable_ai else None
+    canon_names_map, disp_names_map = _build_label_lookup(model)
     congestion_threshold = float(settings.get("congestion_threshold", 35.0))
     traffic_monitor = TrafficMonitor(roi_polygon=roi_polygon, congestion_threshold=congestion_threshold) if enable_congestion else None
 
@@ -951,7 +1083,7 @@ def process_video(
 
     # Luồng nền nén ảnh JPEG
     preview_queue = queue.Queue(maxsize=1)
-    preview_state = {"last_jpeg": None, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
+    preview_state = {"last_jpeg": None, "jpeg_seq": 0, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
 
     # Khởi tạo Hardware JPEG Encoder
     hw_encoder = HardwareJPEGEncoder()
@@ -966,19 +1098,18 @@ def process_video(
                 
                 # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
                 if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
-                    preview_state["last_jpeg"] = hw_encoder.encode(
+                    encoded_jpg = hw_encoder.encode(
                         frame_to_encode, 
                         preview_state["pw"], 
                         preview_state["ph"],
                         preview_state["q"]
                     )
+                    if encoded_jpg:
+                        preview_state["last_jpeg"] = encoded_jpg
+                        preview_state["jpeg_seq"] += 1
                     # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
                     if preview_state["force_preview"]:
                         preview_state["force_preview"] = False
-                else:
-                    # Giữ nguyên last_jpeg của lần cuối cùng để có ảnh thumbnail cũ, 
-                    # không set thành None để giữ thumbnail cho Grid view
-                    pass
             except queue.Empty:
                 continue
 
@@ -993,30 +1124,21 @@ def process_video(
         ocr_manager.save_to_db = save_to_db
         ocr_manager.start_worker()
 
-    # Khởi chạy FFmpeg RTSP push process
-    import subprocess
+    # Khởi chạy FFmpeg RTSP push process + Worker ghi bất đồng bộ (không block luồng AI)
     rtsp_proc = None
+    rtsp_lock = threading.RLock()
     rtsp_target = f"rtsp://127.0.0.1:8554/live_camera_{camera_id}"
-    
-    # Phát hiện encoder tối ưu
-    encoder = "libx264"
-    try:
-        res = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True, timeout=2)
-        if "h264_nvenc" in res.stdout:
-            encoder = "h264_nvenc"
-            print(f"[RTSP Push - Camera {camera_id}] Phát hiện GPU NVENC. Tự động offload sang GPU nén video!")
-        elif "h264_v4l2m2m" in res.stdout:
-            encoder = "h264_v4l2m2m"
-            print(f"[RTSP Push - Camera {camera_id}] Phát hiện Jetson V4L2 Hardware Encoder. Sử dụng phần cứng Jetson!")
-        else:
-            print(f"[RTSP Push - Camera {camera_id}] Không tìm thấy bộ mã hóa phần cứng. Sử dụng CPU (libx264)...")
-    except Exception:
-        pass
 
-    encoder_to_use = encoder
+    encoder_to_use = _get_preferred_ffmpeg_encoder()
+    if encoder_to_use == "h264_nvenc":
+        print(f"[RTSP Push - Camera {camera_id}] Sử dụng GPU NVENC (cache) để nén video!")
+    elif encoder_to_use == "h264_v4l2m2m":
+        print(f"[RTSP Push - Camera {camera_id}] Sử dụng Jetson V4L2 Hardware Encoder (cache)!")
+    else:
+        print(f"[RTSP Push - Camera {camera_id}] Sử dụng CPU encoder (libx264)...")
     rtsp_start_time = 0.0
 
-    # Kích thước push mặc định
+    # Kích thước push mặc định (1080p)
     push_w, push_h = draw_w, draw_h
     push_bitrate = "3.5M"
     push_crf = "20"
@@ -1037,102 +1159,165 @@ def process_video(
     push_w = push_w + (push_w % 2)
     push_h = push_h + (push_h % 2)
 
+    rtsp_state = {"stop": False, "w": push_w, "h": push_h, "bitrate": push_bitrate, "crf": push_crf}
+    rtsp_queue = queue.Queue(maxsize=1)
+
     def start_rtsp_push(w, h, bitrate, crf):
         nonlocal rtsp_proc, rtsp_start_time
-        rtsp_start_time = time.time()
-        if rtsp_proc:
-            try:
-                rtsp_proc.stdin.close()
-                rtsp_proc.terminate()
-                rtsp_proc.wait(timeout=1.0)
-            except Exception:
+        with rtsp_lock:
+            rtsp_start_time = time.time()
+            rtsp_state["w"] = w
+            rtsp_state["h"] = h
+            rtsp_state["bitrate"] = bitrate
+            rtsp_state["crf"] = crf
+            if rtsp_proc:
                 try:
-                    rtsp_proc.kill()
+                    rtsp_proc.terminate()
+                    rtsp_proc.wait(timeout=1.0)
+                except Exception:
+                    try:
+                        rtsp_proc.kill()
+                    except Exception:
+                        pass
+                try:
+                    if rtsp_proc.stdin:
+                        rtsp_proc.stdin.close()
                 except Exception:
                     pass
-        
-        ffmpeg_push_cmd = [
-            "ffmpeg", "-y",
-            "-loglevel", "error",
-            "-f", "rawvideo",
-            "-pix_fmt", "bgr24",
-            "-s", f"{w}x{h}",
-            "-r", f"{int(fps) if fps > 0 else 25}",
-            "-i", "-",
-        ]
-        
-        gop_size = "15"
-        
-        if 'M' in bitrate:
-            val = float(bitrate.replace('M',''))
-            max_r = f"{val*1.5:.1f}M"
-            buf_s = f"{val*2:.1f}M"
-        else:
-            val = float(bitrate.replace('K',''))
-            max_r = f"{int(val*1.5)}K"
-            buf_s = f"{int(val*2)}K"
+            
+            ffmpeg_push_cmd = [
+                "ffmpeg", "-y",
+                "-loglevel", "error",
+                "-f", "rawvideo",
+                "-pix_fmt", "bgr24",
+                "-s", f"{w}x{h}",
+                "-r", f"{int(fps) if fps > 0 else 25}",
+                "-i", "-",
+            ]
+            
+            gop_size = "15"
+            
+            if 'M' in bitrate:
+                val = float(bitrate.replace('M',''))
+                max_r = f"{val*1.5:.1f}M"
+                buf_s = f"{val*2:.1f}M"
+            else:
+                val = float(bitrate.replace('K',''))
+                max_r = f"{int(val*1.5)}K"
+                buf_s = f"{int(val*2)}K"
 
-        if encoder_to_use == "h264_nvenc":
+            if encoder_to_use == "h264_nvenc":
+                ffmpeg_push_cmd.extend([
+                    "-vf", "format=yuv420p",
+                    "-c:v", "h264_nvenc",
+                    "-preset", "p3",
+                    "-tune", "ull",
+                    "-b:v", bitrate,
+                    "-maxrate", max_r,
+                    "-bufsize", buf_s,
+                    "-g", gop_size,
+                    "-forced-idr", "1"
+                ])
+            elif encoder_to_use == "h264_v4l2m2m":
+                ffmpeg_push_cmd.extend([
+                    "-vf", "format=yuv420p",
+                    "-c:v", "h264_v4l2m2m",
+                    "-b:v", bitrate,
+                    "-g", gop_size,
+                    "-num_output_buffers", "16",
+                ])
+            else:
+                ffmpeg_push_cmd.extend([
+                    "-vf", "format=yuv420p",
+                    "-c:v", "libx264",
+                    "-preset", "veryfast",
+                    "-tune", "zerolatency",
+                    "-crf", crf,
+                    "-b:v", bitrate,
+                    "-maxrate", max_r,
+                    "-bufsize", buf_s,
+                    "-g", gop_size
+                ])
+                
             ffmpeg_push_cmd.extend([
-                "-vf", "format=yuv420p",
-                "-c:v", "h264_nvenc",
-                "-preset", "p3",
-                "-tune", "ull",
-                "-b:v", bitrate,
-                "-maxrate", max_r,
-                "-bufsize", buf_s,
-                "-g", gop_size,
-                "-forced-idr", "1"
-            ])
-        elif encoder_to_use == "h264_v4l2m2m":
-            ffmpeg_push_cmd.extend([
-                "-vf", "format=yuv420p",
-                "-c:v", "h264_v4l2m2m",
-                "-b:v", bitrate,
-                "-g", gop_size,
-                "-num_output_buffers", "16",
-            ])
-        else:
-            ffmpeg_push_cmd.extend([
-                "-vf", "format=yuv420p",
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-tune", "zerolatency",
-                "-crf", crf,
-                "-b:v", bitrate,
-                "-maxrate", max_r,
-                "-bufsize", buf_s,
-                "-g", gop_size
+                "-f", "rtsp",
+                "-rtsp_transport", "tcp",
+                rtsp_target
             ])
             
-        ffmpeg_push_cmd.extend([
-            "-f", "rtsp",
-            "-rtsp_transport", "tcp",
-            rtsp_target
-        ])
-        
-        startupinfo = None
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            
-        try:
-            rtsp_proc = subprocess.Popen(
-                ffmpeg_push_cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=None,
-                startupinfo=startupinfo
-            )
-            print(f"[RTSP Push] Khởi động đẩy RTSP: {w}x{h} @ {bitrate} (CRF={crf})")
-        except Exception as e:
-            print(f"[RTSP Push] Lỗi khởi động FFmpeg push: {e}")
+            startupinfo = None
+            if os.name == "nt":
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+            try:
+                rtsp_proc = subprocess.Popen(
+                    ffmpeg_push_cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=None,
+                    startupinfo=startupinfo
+                )
+                print(f"[RTSP Push] Khởi động đẩy RTSP: {w}x{h} @ {bitrate} (CRF={crf})")
+            except Exception as e:
+                print(f"[RTSP Push] Lỗi khởi động FFmpeg push: {e}")
+
+    def rtsp_writer_worker():
+        nonlocal encoder_to_use
+        while not rtsp_state["stop"]:
+            try:
+                frame_ref = rtsp_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if frame_ref is None:
+                break
+
+            pw, ph = rtsp_state["w"], rtsp_state["h"]
+            if frame_ref.shape[1] != pw or frame_ref.shape[0] != ph:
+                push_frame = cv2.resize(frame_ref, (pw, ph))
+            else:
+                push_frame = frame_ref
+            if not push_frame.flags["C_CONTIGUOUS"]:
+                push_frame = np.ascontiguousarray(push_frame)
+            mv = memoryview(push_frame.ravel())
+
+            with rtsp_lock:
+                proc = rtsp_proc
+            if not proc or not proc.stdin or rtsp_state["stop"]:
+                continue
+
+            try:
+                proc.stdin.write(mv)
+            except Exception as e:
+                if rtsp_state["stop"]:
+                    break
+                with rtsp_lock:
+                    if rtsp_proc is not proc or rtsp_state["stop"]:
+                        continue
+                    if proc.poll() is not None:
+                        run_duration = time.time() - rtsp_start_time
+                        if run_duration < 3.0 and encoder_to_use != "libx264":
+                            print(f"[RTSP Push - Camera {camera_id}] Bộ mã hóa phần cứng '{encoder_to_use}' lỗi ({run_duration:.2f}s). Tự động chuyển về 'libx264'...")
+                            encoder_to_use = "libx264"
+                            start_rtsp_push(rtsp_state["w"], rtsp_state["h"], rtsp_state["bitrate"], rtsp_state["crf"])
+                        elif run_duration >= 2.0:
+                            print(f"[RTSP Push] Tiến trình FFmpeg đã ngắt ({e}). Đang khởi động lại...")
+                            start_rtsp_push(rtsp_state["w"], rtsp_state["h"], rtsp_state["bitrate"], rtsp_state["crf"])
+                    elif (time.time() - rtsp_start_time) >= 5.0:
+                        start_rtsp_push(rtsp_state["w"], rtsp_state["h"], rtsp_state["bitrate"], rtsp_state["crf"])
 
     start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
+    rtsp_writer_thread = threading.Thread(target=rtsp_writer_worker, args=(), daemon=True)
+    rtsp_writer_thread.start()
 
     # FIX #4: Tính drawing params 1 lần trước vòng lặp
     f_scale, f_thick, f_offset = _get_drawing_params(draw_w)
     last_progress_time = 0.0
+    last_sent_jpeg_seq = 0
+    cached_draw_boxes: List[Tuple[int, int, int, int, Tuple[int, int, int], str]] = []
+    cached_plate_overlays: List[Tuple[int, int, int, int, Tuple[int, int, int], str]] = []
+    cached_status_args: Optional[Tuple[float, str, Tuple[int, int, int]]] = None
+    last_infer_frame_index = 0
 
     try:
         while capture.isOpened():
@@ -1197,354 +1382,356 @@ def process_video(
                 continue
             consecutive_invalid_frames = 0
 
-            clean_frame = frame.copy()
-
-            if enable_illegal_parking:
-                parking_manager.update_buffer(clean_frame)
-
             frame_index += 1
             current_time = time.time()
 
-            if enable_illegal_parking and parking_manager is not None:
-                parking_manager.cleanup_stale_tracks(current_time)
+            # Chỉ lưu ring buffer 1080p khi bật phát hiện đỗ xe VÀ có lưu DB
+            # Tránh copy 6.22MB/frame (~933MB RAM buffer) khi chỉ xem Preview hoặc tắt đỗ xe
+            if enable_illegal_parking and save_to_db:
+                clean_frame = frame.copy()
+                parking_manager.update_buffer(clean_frame)
+            else:
+                clean_frame = None
 
-
-
-            # Tracking
-            # Chỉ chạy AI Model (YOLO) theo bước nhảy (Stride)
-            if enable_ai:
-                if process_stride > 1 and frame_index % process_stride != 0 and last_results is not None:
-                    results = last_results
-                else:
+            # Tracking & Inference theo bước nhảy (Stride)
+            if enable_ai and model is not None:
+                did_infer = (process_stride <= 1) or (frame_index % process_stride == 0) or (last_results is None)
+                if did_infer:
                     results = model.track(frame, persist=True, tracker=tracker_config_path, verbose=False, imgsz=640)
                     last_results = results
+                else:
+                    results = last_results
             else:
+                did_infer = False
                 results = []
+                cached_draw_boxes.clear()
+                cached_plate_overlays.clear()
+                cached_status_args = None
 
-            # Lọc các box xe trùng lặp trong cùng 1 frame (Intra-frame NMS)
-            suppressed_indices_per_result = {}
-            for r_idx, result in enumerate(results):
-                v_indices = []
-                for b_idx, box in enumerate(result.boxes):
-                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
-                    if _canonical_label(lbl_name) in PARKING_LABELS:
-                        v_indices.append(b_idx)
-                suppressed_indices_per_result[r_idx] = stationary_stabilizer.filter_duplicate_indices(result.boxes, v_indices)
+            if enable_ai and did_infer:
+                frame_step = max(1, frame_index - last_infer_frame_index) if last_infer_frame_index > 0 else 1
+                last_infer_frame_index = frame_index
 
-            # Dọn dẹp bộ nhớ xe tĩnh định kỳ mỗi 100 frames
-            if frame_index % 10 == 0:
-                stationary_stabilizer.cleanup_old_tracks(frame_index)
+                if enable_illegal_parking and parking_manager is not None:
+                    parking_manager.cleanup_stale_tracks(current_time)
 
-            if enable_congestion and traffic_monitor is not None:
-                traffic_monitor.reset_counters()
+                if frame_index % 10 == 0 or frame_step >= 10:
+                    stationary_stabilizer.cleanup_old_tracks(frame_index)
 
-            current_plate_ids = set()
-            valid_vehicles = []
-            frame_snapshot = None  # Lazy copy: chỉ copy clean_frame khi thực sự cần lưu ảnh
+                if enable_congestion and traffic_monitor is not None:
+                    traffic_monitor.reset_counters()
 
-            # Pass 1: Thu thập valid_vehicles cho OCR (cần hoàn thành trước khi xử lý license plate)
-            for r_idx, result in enumerate(results):
-                supp_set = suppressed_indices_per_result.get(r_idx, set())
-                for b_idx, box in enumerate(result.boxes):
-                    if b_idx in supp_set:
+                cached_draw_boxes.clear()
+                cached_plate_overlays.clear()
+                current_plate_ids = set()
+                current_track_ids = set()
+                frame_snapshot = None  # Lazy copy chỉ tạo khi thực sự lưu ảnh xe
+
+                # Duyệt từng result một lần trích xuất Tensor -> NumPy (tránh Python slicing lặp)
+                for r_idx, result in enumerate(results):
+                    boxes_obj = result.boxes
+                    if boxes_obj is None or len(boxes_obj) == 0:
                         continue
-                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
-                    lbl = _canonical_label(lbl_name)
-                    if lbl in PARKING_LABELS:
-                        vx1, vy1, vx2, vy2 = map(int, box.xyxy[0])
-                        v_track_id = int(box.id[0]) if box.id is not None else -1
+
+                    xyxy_arr = boxes_obj.xyxy.cpu().numpy().astype(np.int32)
+                    conf_arr = boxes_obj.conf.cpu().numpy()
+                    cls_arr = boxes_obj.cls.cpu().numpy().astype(np.int32)
+                    id_arr = boxes_obj.id.cpu().numpy().astype(np.int32) if boxes_obj.id is not None else None
+                    n_boxes = len(xyxy_arr)
+
+                    parking_indices = []
+                    plate_candidates = []  # (px1, py1, px2, py2, p_tid)
+                    labels_arr = [""] * n_boxes
+                    needs_clean_snap = False
+
+                    # Pass chuẩn bị duy nhất trên mảng NumPy
+                    for b_idx in range(n_boxes):
+                        c_id = int(cls_arr[b_idx])
+                        lbl = canon_names_map.get(c_id)
+                        if lbl is None:
+                            lbl_name = getattr(model, "custom_names", model.names)[c_id]
+                            lbl = _canonical_label(lbl_name)
+                            canon_names_map[c_id] = lbl
+                            disp_names_map[c_id] = _display_label(lbl)
+                        labels_arr[b_idx] = lbl
+
+                        tid_raw = int(id_arr[b_idx]) if id_arr is not None else -1
+                        if tid_raw != -1:
+                            current_track_ids.add(tid_raw)
+                            current_track_ids.add(stationary_stabilizer.raw_to_canonical.get(tid_raw, tid_raw))
+
+                        if lbl in PARKING_LABELS:
+                            parking_indices.append(b_idx)
+                        elif lbl in LICENSE_PLATE_LABELS and enable_license_plate and float(conf_arr[b_idx]) >= confidence_threshold:
+                            plate_candidates.append((
+                                int(xyxy_arr[b_idx, 0]),
+                                int(xyxy_arr[b_idx, 1]),
+                                int(xyxy_arr[b_idx, 2]),
+                                int(xyxy_arr[b_idx, 3]),
+                                tid_raw,
+                            ))
+
+                        if not needs_clean_snap and clean_frame is None and float(conf_arr[b_idx]) >= confidence_threshold:
+                            if (
+                                (enable_license_plate and lbl in LICENSE_PLATE_LABELS)
+                                or (enable_weapon_detection and lbl in WEAPON_LABELS)
+                                or (enable_illegal_parking and lbl in PARKING_LABELS)
+                                or (save_to_db and lbl in VEHICLE_LOG_LABELS and lbl not in VEHICLE_NO_IMAGE_LABELS)
+                            ):
+                                needs_clean_snap = True
+
+                    # Nếu frame có đối tượng cần cắt ảnh (OCR/ALPR/Weapon) và chưa copy clean_frame -> copy 1 lần trước khi vẽ
+                    if needs_clean_snap and clean_frame is None:
+                        clean_frame = frame.copy()
+
+                    # Lọc các box xe trùng lặp trong cùng 1 frame bằng mảng NumPy
+                    supp_set = stationary_stabilizer.filter_duplicate_indices_np(xyxy_arr, conf_arr, parking_indices)
+
+                    # Thu thập valid_vehicles và khóa Canonical ID một lần duy nhất
+                    valid_vehicles = []
+                    canonical_by_idx = {}
+                    for b_idx in parking_indices:
+                        if b_idx in supp_set:
+                            continue
+                        vx1, vy1, vx2, vy2 = int(xyxy_arr[b_idx, 0]), int(xyxy_arr[b_idx, 1]), int(xyxy_arr[b_idx, 2]), int(xyxy_arr[b_idx, 3])
+                        v_track_id = int(id_arr[b_idx]) if id_arr is not None else -1
                         vcx, vcy = (vx1 + vx2) // 2, (vy1 + vy2) // 2
-                        stable_v_id = stationary_stabilizer.get_canonical_id(v_track_id, (vx1, vy1, vx2, vy2), (vcx, vcy), frame_index) if v_track_id != -1 else v_track_id
+                        stable_v_id = stationary_stabilizer.get_canonical_id(
+                            v_track_id, (vx1, vy1, vx2, vy2), (vcx, vcy), frame_index
+                        ) if v_track_id != -1 else v_track_id
+                        canonical_by_idx[b_idx] = stable_v_id
                         valid_vehicles.append((vx1, vy1, vx2, vy2, stable_v_id))
+                        if stable_v_id != -1:
+                            current_track_ids.add(stable_v_id)
 
-            # Vòng lặp chính xử lý detection
-            for r_idx, result in enumerate(results):
-                supp_set = suppressed_indices_per_result.get(r_idx, set())
-                for b_idx, box in enumerate(result.boxes):
-                    if b_idx in supp_set:
-                        continue
-                    lbl_name = getattr(model, "custom_names", model.names)[int(box.cls[0])]
-                    label = _canonical_label(lbl_name)
-                    if label not in DETECTABLE_LABELS:
-                        continue
-                    if label in LICENSE_PLATE_LABELS and not enable_license_plate:
-                        continue
-                    if label in WEAPON_LABELS and not enable_weapon_detection:
-                        continue
-
-                    # Lọc nhãn theo cài đặt hệ thống (enabled_detect_labels)
-                    if enabled_detect_labels is not None and len(enabled_detect_labels) > 0:
-                        if label not in enabled_detect_labels:
+                    # Vòng lặp chính xử lý detection (dùng dữ liệu NumPy đã trích xuất)
+                    for b_idx in range(n_boxes):
+                        if b_idx in supp_set:
+                            continue
+                        label = labels_arr[b_idx]
+                        if label not in DETECTABLE_LABELS:
+                            continue
+                        if label in LICENSE_PLATE_LABELS and not enable_license_plate:
+                            continue
+                        if label in WEAPON_LABELS and not enable_weapon_detection:
+                            continue
+                        if enabled_detect_labels is not None and label not in enabled_detect_labels:
                             continue
 
-                    confidence = float(box.conf[0])
-                    if confidence < confidence_threshold:
-                        continue
+                        confidence = float(conf_arr[b_idx])
+                        if confidence < confidence_threshold:
+                            continue
 
-                    track_id = int(box.id[0]) if box.id is not None else -1
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
+                        track_id = int(id_arr[b_idx]) if id_arr is not None else -1
+                        x1, y1, x2, y2 = int(xyxy_arr[b_idx, 0]), int(xyxy_arr[b_idx, 1]), int(xyxy_arr[b_idx, 2]), int(xyxy_arr[b_idx, 3])
+                        center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
 
-                    in_roi = cv2.pointPolygonTest(roi_polygon, (center_x, center_y), False) >= 0
+                        if cv2.pointPolygonTest(roi_polygon, (center_x, center_y), False) < 0:
+                            continue
 
-                    if not in_roi:
-                        continue
+                        box_area = (x2 - x1) * (y2 - y1)
+                        if label in SMALL_OBJECT_LABELS and roi_contour_area > 0 and box_area > roi_contour_area * 0.3:
+                            continue
 
-                    # Lọc nhiễu: Bỏ qua Bounding Box lớn bất thường (> 30% diện tích ROI)
-                    box_area = (x2 - x1) * (y2 - y1)
-                    if label in SMALL_OBJECT_LABELS and roi_contour_area > 0 and box_area > roi_contour_area * 0.3:
-                        continue
+                        box_color = BOX_COLORS.get(label, (128, 128, 128))
+                        display_label = disp_names_map.get(int(cls_arr[b_idx]), _display_label(label)) if show_label else ""
+                        stable_track_id = canonical_by_idx.get(b_idx, track_id)
 
-                    # Xác định màu sắc nhãn
-                    box_color = BOX_COLORS.get(label, (128, 128, 128))
+                        # 1. OCR Biển số
+                        if label in LICENSE_PLATE_LABELS:
+                            if enable_license_plate and track_id != -1:
+                                src_clean = clean_frame if clean_frame is not None else frame
+                                processed_id = ocr_manager.process_plate(
+                                    frame, src_clean, track_id, x1, y1, x2, y2, center_x, center_y,
+                                    valid_vehicles, current_time, frame_index,
+                                    drawing_params=(f_scale, f_thick, f_offset)
+                                )
+                                if processed_id:
+                                    current_plate_ids.add(processed_id)
+                                if ocr_manager.last_drawn_overlay is not None:
+                                    cached_plate_overlays.append(ocr_manager.last_drawn_overlay)
+                            continue
 
-                    if show_label:
-                        label_text = _display_label(label)
-                        display_label = label_text
-                    else:
-                        display_label = ""
+                        # 2. Đếm phương tiện và người
+                        if label == "person":
+                            if traffic_monitor is not None:
+                                traffic_monitor.log_person(bbox=(x1, y1, x2, y2))
+                        elif label in VEHICLE_LABELS and traffic_monitor is not None:
+                            traffic_monitor.log_vehicle(stable_track_id, center_x, center_y, current_time, (x1, y1, x2, y2))
 
-                    # Chuẩn hóa Stable Track ID cho xe
-                    stable_track_id = track_id
-                    if label in PARKING_LABELS and track_id != -1:
-                        stable_track_id = stationary_stabilizer.get_canonical_id(
-                            track_id, (x1, y1, x2, y2), (center_x, center_y), frame_index
-                        )
-
-                    # 1. OCR Biển số
-                    if label in LICENSE_PLATE_LABELS:
-                        if enable_license_plate and track_id != -1:
-                            processed_id = ocr_manager.process_plate(
-                                frame, clean_frame, track_id, x1, y1, x2, y2, center_x, center_y,
-                                valid_vehicles, current_time, frame_index,
-                                drawing_params=(f_scale, f_thick, f_offset)
-                            )
-                            if processed_id:
-                                current_plate_ids.add(processed_id)
-                        continue
-
-                    # 2. Đếm phương tiện và người
-                    if label == "person":
-                        if traffic_monitor is not None:
-                            traffic_monitor.log_person(bbox=(x1, y1, x2, y2))
-                    elif label in VEHICLE_LABELS and traffic_monitor is not None:
-                        traffic_monitor.log_vehicle(stable_track_id, center_x, center_y, current_time, (x1, y1, x2, y2))
-
-                    # 3. Quản lý Đỗ Xe Trái Phép
-                    if label in PARKING_LABELS and enable_illegal_parking:
-                        license_plate = None
-                        if enable_license_plate:
-                            for p_box in result.boxes:
-                                p_lbl_name = getattr(model, "custom_names", model.names)[int(p_box.cls[0])]
-                                p_lbl = _canonical_label(p_lbl_name)
-                                if p_lbl in LICENSE_PLATE_LABELS:
-                                    p_tid = int(p_box.id[0]) if p_box.id is not None else -1
-                                    px1, py1, px2, py2 = map(int, p_box.xyxy[0])
+                        # 3. Quản lý Đỗ Xe Trái Phép
+                        if label in PARKING_LABELS and enable_illegal_parking:
+                            license_plate = None
+                            if enable_license_plate and plate_candidates:
+                                for px1, py1, px2, py2, p_tid in plate_candidates:
                                     pcx, pcy = (px1 + px2) // 2, (py1 + py2) // 2
                                     if x1 <= pcx <= x2 and y1 <= pcy <= y2:
                                         if p_tid in ocr_manager.plate_confirmed:
                                             license_plate = ocr_manager.plate_confirmed[p_tid]
                                         break
-                        if not license_plate and enable_license_plate and ocr_manager:
-                            license_plate = ocr_manager.vehicle_plates.get(stable_track_id) or ocr_manager.vehicle_plates.get(track_id)
+                            if not license_plate and enable_license_plate and ocr_manager:
+                                license_plate = ocr_manager.vehicle_plates.get(stable_track_id) or ocr_manager.vehicle_plates.get(track_id)
 
-                        # Cập nhật lại canonical ID nếu vừa phát hiện biển số
-                        if license_plate:
-                            stable_track_id = stationary_stabilizer.get_canonical_id(
-                                track_id, (x1, y1, x2, y2), (center_x, center_y), frame_index, plate=license_plate
+                            if license_plate:
+                                stable_track_id = stationary_stabilizer.get_canonical_id(
+                                    track_id, (x1, y1, x2, y2), (center_x, center_y), frame_index, plate=license_plate
+                                )
+
+                            src_clean = clean_frame if clean_frame is not None else frame
+                            display_label_p, box_color_p = parking_manager.process_vehicle(
+                                frame, src_clean, stable_track_id, label, center_x, center_y, frame_index,
+                                bbox=(x1, y1, x2, y2), license_plate=license_plate,
+                                drawing_params=(f_scale, f_thick, f_offset)
                             )
 
-                        display_label_p, box_color_p = parking_manager.process_vehicle(
-                            frame, clean_frame, stable_track_id, label, center_x, center_y, frame_index,
-                            bbox=(x1, y1, x2, y2), license_plate=license_plate,
-                            drawing_params=(f_scale, f_thick, f_offset)
-                        )
+                            if display_label_p:
+                                display_label = display_label_p if show_label else ""
+                                if license_plate:
+                                    parking_manager.update_plate(stable_track_id, license_plate)
+                                if "VIOLATION" in display_label_p and stable_track_id not in logged_violation_track_ids:
+                                    logged_violation_track_ids.add(stable_track_id)
 
-                        if display_label_p:
-                            display_label = display_label_p if show_label else ""
-                            if license_plate:
-                                parking_manager.update_plate(stable_track_id, license_plate)
-                            if "VIOLATION" in display_label_p and stable_track_id not in logged_violation_track_ids:
-                                logged_violation_track_ids.add(stable_track_id)
+                            if box_color_p is not None:
+                                box_color = box_color_p
 
-                        if box_color_p is not None:
-                            box_color = box_color_p
+                        # 3.5. Quản lý Phát hiện Vũ khí (Weapon Detection)
+                        if label in WEAPON_LABELS and enable_weapon_detection and weapon_manager is not None:
+                            src_clean = clean_frame if clean_frame is not None else frame
+                            display_label_w, box_color_w = weapon_manager.process_weapon(
+                                frame, src_clean, track_id, label, confidence,
+                                bbox=(x1, y1, x2, y2),
+                                camera_id=camera_id, camera_name=settings.get("name", "Camera"),
+                                telegram_enabled=bool(settings.get("telegram_enabled", save_to_db))
+                            )
+                            if display_label_w:
+                                display_label = display_label_w if show_label else ""
+                                box_color = box_color_w
 
-                    # 3.5. Quản lý Phát hiện Vũ khí (Weapon Detection)
-                    if label in WEAPON_LABELS and enable_weapon_detection and weapon_manager is not None:
-                        display_label_w, box_color_w = weapon_manager.process_weapon(
-                            frame, clean_frame, track_id, label, confidence,
-                            bbox=(x1, y1, x2, y2),
-                            camera_id=camera_id, camera_name=settings.get("name", "Camera"),
-                            telegram_enabled=bool(settings.get("telegram_enabled", save_to_db))
-                        )
-                        if display_label_w:
-                            display_label = display_label_w if show_label else ""
-                            box_color = box_color_w
-
-                    # 4. Quản lý theo dõi ALPR và Log phương tiện (Đợi xe ổn định mới lưu)
-                    alpr_tid = stable_track_id if (label in PARKING_LABELS and track_id != -1) else track_id
-                    if alpr_tid != -1 and label in VEHICLE_LOG_LABELS:
-                        if alpr_tid not in pending_alpr_tracks:
-                            # Khởi tạo theo dõi cho xe mới
-                            pending_alpr_tracks[alpr_tid] = {
-                                "last_seen": frame_index,
-                                "best_image": None,  # Lazy: sẽ gán khi cần (bỏ qua xe máy/xe đạp)
-                                "seen_count": 1,
-                                "is_passed_logged": False, # Đã ghi log 'Xe đi qua' chưa
-                                "missing_frames": 0,
-                                "label": label,
-                                "best_w": (x2 - x1) if label not in VEHICLE_NO_IMAGE_LABELS else 0
-                            }
-                            # Lưu ảnh ban đầu cho xe cần ảnh (ô tô/bus/truck)
-                            if label not in VEHICLE_NO_IMAGE_LABELS:
-                                if frame_snapshot is None:
-                                    frame_snapshot = clean_frame.copy()
-                                pending_alpr_tracks[alpr_tid]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
-                        else:
-                            # Cập nhật thông tin xe đang theo dõi
-                            pending_alpr_tracks[alpr_tid]["last_seen"] = frame_index
-                            pending_alpr_tracks[alpr_tid]["seen_count"] += 1
-                            pending_alpr_tracks[alpr_tid]["missing_frames"] = 0
-                            
-                            # Cập nhật ảnh tốt nhất (Lấy lúc xe to nhất) - Bỏ qua xe máy/xe đạp
-                            if label not in VEHICLE_NO_IMAGE_LABELS:
-                                if (x2 - x1) > pending_alpr_tracks[alpr_tid]["best_w"]:
+                        # 4. Quản lý theo dõi ALPR và Log phương tiện (Đợi xe ổn định mới lưu)
+                        alpr_tid = stable_track_id if (label in PARKING_LABELS and track_id != -1) else track_id
+                        if alpr_tid != -1 and label in VEHICLE_LOG_LABELS:
+                            if alpr_tid not in pending_alpr_tracks:
+                                pending_alpr_tracks[alpr_tid] = {
+                                    "last_seen": frame_index,
+                                    "best_image": None,
+                                    "seen_count": frame_step,
+                                    "is_passed_logged": False,
+                                    "missing_frames": 0,
+                                    "label": label,
+                                    "best_w": (x2 - x1) if label not in VEHICLE_NO_IMAGE_LABELS else 0
+                                }
+                                if label not in VEHICLE_NO_IMAGE_LABELS and save_to_db:
                                     if frame_snapshot is None:
-                                        frame_snapshot = clean_frame.copy()
+                                        frame_snapshot = (clean_frame if clean_frame is not None else frame).copy()
                                     pending_alpr_tracks[alpr_tid]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
-                                    pending_alpr_tracks[alpr_tid]["best_w"] = (x2 - x1)
-                            
-                            # XÁC MINH XE MỚI: Chỉ lưu vào DB sau khi đã thấy xe ổn định (> 30 frames ~ 1s)
-                            if not pending_alpr_tracks[alpr_tid]["is_passed_logged"] and pending_alpr_tracks[alpr_tid]["seen_count"] > 30:
-                                # 1. Ghi vào bảng lịch sử phương tiện
-                                if save_to_db:
-                                    io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{alpr_tid}", label))
-                                    
-                                    # 2. Cập nhật bảng thống kê lưu lượng (Để vẽ biểu đồ)
-                                    io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, label, 1))
-                                
-                                logged_vehicle_ids.add(alpr_tid)
-                                unique_passed_count += 1
-                                pending_alpr_tracks[alpr_tid]["is_passed_logged"] = True
+                            else:
+                                pending_alpr_tracks[alpr_tid]["last_seen"] = frame_index
+                                pending_alpr_tracks[alpr_tid]["seen_count"] += frame_step
+                                pending_alpr_tracks[alpr_tid]["missing_frames"] = 0
 
-                    # 5. Vẽ nhãn lên frame nếu được bật (hoặc nếu là person khi bật phát hiện tụ tập/ùn tắc)
-                    if label == "person" and enable_congestion:
-                        show_box = True
-                    elif enabled_draw_labels is not None and len(enabled_draw_labels) > 0:
-                        show_box = label in enabled_draw_labels
-                    else:
-                        show_box_map = {
-                            "person": show_box_person, "bicycle": show_box_bicycle,
-                            "car": show_box_car, "motorcycle": show_box_motorcycle,
-                            "license_plate": show_box_plate, "bus": show_box_bus,
-                            "truck": show_box_truck, "knife": show_box_knife,
-                            "pistol": show_box_pistol, "sword": show_box_sword,
-                            "helmet": show_box_helmet, "mask": show_box_mask,
-                            "backpack": show_box_backpack
-                        }
-                        show_box = show_box_map.get(label, True)
+                                if label not in VEHICLE_NO_IMAGE_LABELS and save_to_db:
+                                    if (x2 - x1) > pending_alpr_tracks[alpr_tid]["best_w"]:
+                                        if frame_snapshot is None:
+                                            frame_snapshot = (clean_frame if clean_frame is not None else frame).copy()
+                                        pending_alpr_tracks[alpr_tid]["best_image"] = (frame_snapshot, (x1, y1, x2, y2))
+                                        pending_alpr_tracks[alpr_tid]["best_w"] = (x2 - x1)
 
-                    if show_box:
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, f_thick)
+                                # XÁC MINH XE MỚI: Chỉ lưu vào DB sau khi đã thấy xe ổn định (> 30 frames ~ 1s)
+                                if not pending_alpr_tracks[alpr_tid]["is_passed_logged"] and pending_alpr_tracks[alpr_tid]["seen_count"] > 30:
+                                    if save_to_db:
+                                        io_worker.enqueue_db_write(log_passed_vehicle, args=(camera_id, f"ID_{alpr_tid}", label))
+                                        io_worker.enqueue_db_write(log_vehicle_count, args=(camera_id, label, 1))
 
-                        if display_label and show_label:
-                            (tw, th), baseline = cv2.getTextSize(display_label, cv2.FONT_HERSHEY_SIMPLEX, f_scale, f_thick)
-                            text_y = max(th + 10, y1 - 5)
-                            cv2.rectangle(frame, (x1, text_y - th - 10), (x1 + tw + 10, text_y + baseline + 5), box_color, -1)
+                                    logged_vehicle_ids.add(alpr_tid)
+                                    unique_passed_count += 1
+                                    pending_alpr_tracks[alpr_tid]["is_passed_logged"] = True
 
-                            brightness = 0.114 * box_color[0] + 0.587 * box_color[1] + 0.299 * box_color[2]
-                            text_color = (0, 0, 0) if brightness > 165 else (255, 255, 255)
-                            cv2.putText(frame, display_label, (x1 + 5, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, text_color, f_thick)
+                        # 5. Vẽ nhãn lên frame nếu được bật (và cache để dùng lại cho frame skip)
+                        if label == "person" and enable_congestion:
+                            show_box = True
+                        elif enabled_draw_labels is not None and len(enabled_draw_labels) > 0:
+                            show_box = label in enabled_draw_labels
+                        else:
+                            show_box = show_box_map.get(label, True)
 
-            # --- LOGIC DỌN DẸP VÀ CHỐT LOG (VỚI THỜI GIAN ĐỢI RE-ID) ---
-            current_track_ids = set()
-            if last_results:
-                for res in last_results:
-                    for box in res.boxes:
-                        if box.id is not None:
-                            r_id = int(box.id[0])
-                            current_track_ids.add(r_id)
-                            current_track_ids.add(stationary_stabilizer.raw_to_canonical.get(r_id, r_id))
-            
-            for tid in list(pending_alpr_tracks.keys()):
-                if tid not in current_track_ids:
-                    # Xe tạm thời mất dấu
-                    pending_alpr_tracks[tid]["missing_frames"] += 1
-                    
-                    # Chỉ chốt log sau khi đã mất dấu > 45 frames (~1.5 giây) để đợi RE-ID
-                    if pending_alpr_tracks[tid]["missing_frames"] > 45:
-                        # Chỉ ghi log nếu xe đã từng xuất hiện ổn định (đã được log 'Xe đi qua')
-                        if pending_alpr_tracks[tid]["is_passed_logged"]:
-                            # Chỉ lưu ảnh cho xe ô tô/bus/truck, bỏ qua xe máy/xe đạp
-                            if tid not in alpr_logger.logged_v_tracks and save_to_db and pending_alpr_tracks[tid]["best_image"] is not None:
-                                best_f, best_box = pending_alpr_tracks[tid]["best_image"]
-                                alpr_logger.log_vehicle_without_plate(frame_index, best_f, best_box)
-                        
-                        del pending_alpr_tracks[tid]
+                        if show_box:
+                            _draw_detection_box(frame, x1, y1, x2, y2, box_color, display_label, f_scale, f_thick, show_label)
+                            cached_draw_boxes.append((x1, y1, x2, y2, box_color, display_label))
+
+                # --- LOGIC DỌN DẸP VÀ CHỐT LOG (VỚI THỜI GIAN ĐỢI RE-ID) ---
+                for tid in list(pending_alpr_tracks.keys()):
+                    if tid not in current_track_ids:
+                        pending_alpr_tracks[tid]["missing_frames"] += frame_step
+                        if pending_alpr_tracks[tid]["missing_frames"] > 45:
+                            if pending_alpr_tracks[tid]["is_passed_logged"]:
+                                if tid not in alpr_logger.logged_v_tracks and save_to_db and pending_alpr_tracks[tid]["best_image"] is not None:
+                                    best_f, best_box = pending_alpr_tracks[tid]["best_image"]
+                                    alpr_logger.log_vehicle_without_plate(frame_index, best_f, best_box)
+                            del pending_alpr_tracks[tid]
+
+                # Cập nhật Traffic Monitor trên frame có inference mới
+                if enable_congestion and traffic_monitor is not None:
+                    avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
+                    # Truyền trực tiếp frame (không .copy() lãng phí 6.22MB mỗi frame)
+                    traffic_alert_manager.update_traffic_state(raw_lvl, frame)
+                    confirmed_lvl = traffic_alert_manager.confirmed_level
+                    conf_st_txt, conf_st_clr = traffic_monitor.get_status_for_level(confirmed_lvl, avg_spd)
+                    cached_status_args = (avg_spd, conf_st_txt, conf_st_clr)
+
+                    is_admin = bool(settings.get("is_admin", False))
+                    traffic_monitor.draw_status(frame, avg_spd, conf_st_txt, conf_st_clr, f_scale, f_thick, is_admin=is_admin)
+                    latest_status = conf_st_txt
+
+                    # --- ĐỒNG BỘ DATABASE (Sync based on Confirmed Level) ---
+                    if confirmed_lvl != last_db_traffic_level:
+                        if last_congestion_record_id and save_to_db:
+                            io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
+                            last_congestion_record_id = None
+
+                        if confirmed_lvl > 0 and save_to_db:
+                            now = datetime.now()
+                            lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
+                            time_folder = now.strftime(f"{lvl_name}_%H%M")
+
+                            rel_dir = os.path.join(
+                                "logs", "traffic",
+                                now.strftime('%Y'),
+                                now.strftime('%m'),
+                                now.strftime('%d'),
+                                time_folder
+                            )
+                            abs_dir = PROJECT_ROOT / rel_dir
+                            os.makedirs(abs_dir, exist_ok=True)
+
+                            img_name = f"{time_folder}.jpg"
+                            rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
+                            abs_path = str(abs_dir / img_name)
+
+                            # enqueue_save_image tự copy bên trong -> không gọi frame.copy() trùng
+                            io_worker.enqueue_save_image(abs_path, frame)
+                            last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
+
+                        last_db_traffic_level = confirmed_lvl
+
+            elif enable_ai:
+                # Frame skip: chỉ vẽ lại nhanh các box/nhãn/status đã cache (không tốn CPU cho AI/Mask/Stabilizer)
+                for bx1, by1, bx2, by2, bcol, blbl in cached_draw_boxes:
+                    _draw_detection_box(frame, bx1, by1, bx2, by2, bcol, blbl, f_scale, f_thick, show_label)
+                for px1, py1, px2, py2, pcol, ptxt in cached_plate_overlays:
+                    _draw_plate_overlay(frame, px1, py1, px2, py2, pcol, ptxt, f_scale, f_thick, f_offset)
+                if enable_congestion and traffic_monitor is not None and cached_status_args is not None:
+                    is_admin = bool(settings.get("is_admin", False))
+                    traffic_monitor.draw_status(frame, *cached_status_args, f_scale, f_thick, is_admin=is_admin)
 
             # Gửi heartbeat định kỳ (mỗi 10 giây)
             if current_time - last_heartbeat_time >= 10.0:
                 last_heartbeat_time = current_time
                 if last_congestion_record_id and save_to_db:
                     io_worker.enqueue_db_write(update_congestion_heartbeat, args=(last_congestion_record_id,))
-                
+
                 if enable_illegal_parking and parking_manager and parking_manager.violation_records:
                     for tid, v_id in list(parking_manager.violation_records.items()):
                         io_worker.enqueue_db_write(update_violation_heartbeat, args=(v_id,))
-
-            # Cập nhật Traffic Monitor
-            if enable_congestion and traffic_monitor is not None:
-                # 1. Lấy dữ liệu thô (Instantaneous)
-                avg_spd, raw_st_txt, raw_st_clr, raw_lvl = traffic_monitor.calculate_speed_and_status(current_time, frame.shape)
-                
-                # 2. Cập nhật Debounce Manager (truyền frame có vẽ Bounding Box)
-                traffic_alert_manager.update_traffic_state(raw_lvl, frame.copy())
-                confirmed_lvl = traffic_alert_manager.confirmed_level
-                
-                # 3. Lấy Text và Màu dựa trên mức đã được CONFIRMED (Debounced)
-                conf_st_txt, conf_st_clr = traffic_monitor.get_status_for_level(confirmed_lvl, avg_spd)
-                
-                # 4. Vẽ lên Frame và cập nhật status
-                is_admin = bool(settings.get("is_admin", False))
-                traffic_monitor.draw_status(frame, avg_spd, conf_st_txt, conf_st_clr, f_scale, f_thick, is_admin=is_admin)
-                latest_status = conf_st_txt
-
-                # --- ĐỒNG BỘ DATABASE (Sync based on Confirmed Level) ---
-                if confirmed_lvl != last_db_traffic_level:
-                    # Nếu đang có một record cũ (mức khác) -> Kết thúc nó ngay
-                    if last_congestion_record_id and save_to_db:
-                        io_worker.enqueue_db_write(update_congestion_end_time, args=(last_congestion_record_id,))
-                        last_congestion_record_id = None
-                    
-                    # Nếu mức mới > 0 -> Tạo record mới
-                    if confirmed_lvl > 0 and save_to_db:
-                        # Tạo đường dẫn ảnh bằng chứng
-                        now = datetime.now()
-                        lvl_name = TRAFFIC_LEVEL_NAMES.get(confirmed_lvl, "UnTac")
-                        time_folder = now.strftime(f"{lvl_name}_%H%M")
-                        
-                        rel_dir = os.path.join(
-                            "logs", "traffic",
-                            now.strftime('%Y'),
-                            now.strftime('%m'),
-                            now.strftime('%d'),
-                            time_folder
-                        )
-                        abs_dir = PROJECT_ROOT / rel_dir
-                        os.makedirs(abs_dir, exist_ok=True)
-                        
-                        img_name = f"{time_folder}.jpg"
-                        rel_path = os.path.join(rel_dir, img_name).replace("\\", "/")
-                        abs_path = str(abs_dir / img_name)
-                        
-                        # Lưu ảnh bằng chứng ĐÃ VẼ BOUNDING BOX qua io_worker (Async)
-                        io_worker.enqueue_save_image(abs_path, frame.copy())
-                                
-                        last_congestion_record_id = log_congestion(camera_id, confirmed_lvl, duong_dan_anh=rel_path)
-                    
-                    # Cập nhật mức đã lưu DB gần nhất
-                    last_db_traffic_level = confirmed_lvl
 
             # --- VẼ CÁC VÙNG QUAN SÁT (ROI OVERLAY) ---
             if show_roi_surveillance and roi_polygon is not None and len(roi_polygon) > 0:
@@ -1567,42 +1754,44 @@ def process_video(
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
-            # Đẩy frame đã vẽ vào luồng RTSP
-            if rtsp_proc and rtsp_proc.stdin:
+            # Đẩy frame sang RTSP writer thread bất đồng bộ (không block vòng lặp AI)
+            if not rtsp_state["stop"]:
                 try:
-                    if frame.shape[1] != push_w or frame.shape[0] != push_h:
-                        push_frame = cv2.resize(frame, (push_w, push_h))
-                    else:
-                        push_frame = frame
-                    rtsp_proc.stdin.write(push_frame.tobytes())
-                except Exception as e:
-                    if rtsp_proc is None or rtsp_proc.poll() is not None:
-                        run_duration = time.time() - rtsp_start_time
-                        if run_duration < 3.0 and encoder_to_use != "libx264":
-                            print(f"[RTSP Push - Camera {camera_id}] Bộ mã hóa phần cứng '{encoder_to_use}' lỗi hoặc quá tải (chạy được {run_duration:.2f} giây). Tự động chuyển về bộ mã hóa CPU 'libx264'...")
-                            encoder_to_use = "libx264"
-                        
-                        print(f"[RTSP Push] Tiến trình FFmpeg đã ngắt ({e}). Đang khởi động lại...")
-                        start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
+                    rtsp_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    rtsp_queue.put_nowait(frame)
+                except queue.Full:
+                    pass
 
             response = None
-            # 3. GỬI TIẾN ĐỘ LÊN WEB (Gửi mỗi frame/hoặc throttle tùy số lượng viewer để tránh nghẽn Queue IPC)
+            # 3. GỬI TIẾN ĐỘ LÊN WEB (Throttle để tránh nghẽn mp.Queue & Manager RPC)
             if progress_callback is not None:
                 now_t = time.time()
-                should_send_progress = (preview_state["viewer_count"] > 0) or (now_t - last_progress_time >= 0.5) or (frame_index == 1)
-                
+                cur_jpeg_seq = preview_state["jpeg_seq"]
+                has_new_jpeg = (cur_jpeg_seq != last_sent_jpeg_seq)
+                if preview_state["viewer_count"] > 0:
+                    should_send_progress = (now_t - last_progress_time >= 0.066) or (has_new_jpeg and (now_t - last_progress_time >= 0.04))
+                else:
+                    should_send_progress = (now_t - last_progress_time >= 0.5) or (frame_index == 1) or has_new_jpeg
+
                 if should_send_progress:
                     last_progress_time = now_t
-                    if preview_queue.empty():
+                    if (preview_state["viewer_count"] > 0 or preview_state["force_preview"]) and preview_queue.empty():
                         preview_queue.put(frame)
 
-                    response = progress_callback({
+                    progress_payload = {
                         "phase": "running_detection",
                         "latest_status": latest_status,
-                        "preview_jpeg": preview_state["last_jpeg"],
                         "timestamp": now_t,
-                        "processed_frames": frame_index
-                    })
+                        "processed_frames": frame_index,
+                    }
+                    if has_new_jpeg and preview_state["last_jpeg"] is not None:
+                        progress_payload["preview_jpeg"] = preview_state["last_jpeg"]
+                        last_sent_jpeg_seq = cur_jpeg_seq
+
+                    response = progress_callback(progress_payload)
                     if response and response.get("abort"):
                         print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng từ hệ thống. Đang dừng luồng xử lý...")
                         break
@@ -1702,6 +1891,7 @@ def process_video(
                             if enable_ai and model is None:
                                 print("[Dynamic Settings] Loading YOLO model...")
                                 model = _load_model(model_path)
+                                canon_names_map, disp_names_map = _build_label_lookup(model)
                     
                     # Bật tắt phát hiện tắc nghẽn
                     if "enable_congestion" in new_s:
@@ -1746,32 +1936,23 @@ def process_video(
                         show_roi_parking = bool(new_s["show_roi_parking"])
                     if "show_fps" in new_s:
                         show_fps = bool(new_s["show_fps"])
-                    if "show_box_person" in new_s:
-                        show_box_person = bool(new_s["show_box_person"])
-                    if "show_box_bicycle" in new_s:
-                        show_box_bicycle = bool(new_s["show_box_bicycle"])
-                    if "show_box_car" in new_s:
-                        show_box_car = bool(new_s["show_box_car"])
-                    if "show_box_motorcycle" in new_s:
-                        show_box_motorcycle = bool(new_s["show_box_motorcycle"])
-                    if "show_box_plate" in new_s:
-                        show_box_plate = bool(new_s["show_box_plate"])
-                    if "show_box_bus" in new_s:
-                        show_box_bus = bool(new_s["show_box_bus"])
-                    if "show_box_truck" in new_s:
-                        show_box_truck = bool(new_s["show_box_truck"])
-                    if "show_box_knife" in new_s:
-                        show_box_knife = bool(new_s["show_box_knife"])
-                    if "show_box_pistol" in new_s:
-                        show_box_pistol = bool(new_s["show_box_pistol"])
-                    if "show_box_sword" in new_s:
-                        show_box_sword = bool(new_s["show_box_sword"])
-                    if "show_box_helmet" in new_s:
-                        show_box_helmet = bool(new_s["show_box_helmet"])
-                    if "show_box_mask" in new_s:
-                        show_box_mask = bool(new_s["show_box_mask"])
-                    if "show_box_backpack" in new_s:
-                        show_box_backpack = bool(new_s["show_box_backpack"])
+                    for key_name, lbl_key in (
+                        ("show_box_person", "person"),
+                        ("show_box_bicycle", "bicycle"),
+                        ("show_box_car", "car"),
+                        ("show_box_motorcycle", "motorcycle"),
+                        ("show_box_plate", "license_plate"),
+                        ("show_box_bus", "bus"),
+                        ("show_box_truck", "truck"),
+                        ("show_box_knife", "knife"),
+                        ("show_box_pistol", "pistol"),
+                        ("show_box_sword", "sword"),
+                        ("show_box_helmet", "helmet"),
+                        ("show_box_mask", "mask"),
+                        ("show_box_backpack", "backpack"),
+                    ):
+                        if key_name in new_s:
+                            show_box_map[lbl_key] = bool(new_s[key_name])
                     if "show_label" in new_s:
                         show_label = bool(new_s["show_label"])
 
@@ -1785,12 +1966,36 @@ def process_video(
                 time.sleep(ideal_frame_time - elapsed)
 
     finally:
-        # Đóng tiến trình RTSP push
-        if rtsp_proc:
+        # Đặt cờ dừng RTSP writer và chấm dứt FFmpeg push trước để giải phóng ngay nếu đang block stdin.write
+        rtsp_state["stop"] = True
+        with rtsp_lock:
+            proc_to_stop = rtsp_proc
+            rtsp_proc = None
+        if proc_to_stop:
             try:
-                rtsp_proc.stdin.close()
-                rtsp_proc.terminate()
-                rtsp_proc.wait(timeout=1)
+                proc_to_stop.terminate()
+                proc_to_stop.wait(timeout=1.0)
+            except Exception:
+                try:
+                    proc_to_stop.kill()
+                except Exception:
+                    pass
+
+        try:
+            rtsp_queue.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            rtsp_queue.put_nowait(None)
+        except queue.Full:
+            pass
+        try:
+            rtsp_writer_thread.join(timeout=2.0)
+        except Exception:
+            pass
+        if proc_to_stop and proc_to_stop.stdin:
+            try:
+                proc_to_stop.stdin.close()
             except Exception:
                 pass
 
