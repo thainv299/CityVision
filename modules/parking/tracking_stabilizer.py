@@ -84,6 +84,33 @@ class StationaryVehicleStabilizer:
 
         return suppressed
 
+    def filter_duplicate_indices_np(self, xyxy_arr, conf_arr, vehicle_indices: list) -> set:
+        """
+        Phiên bản vectorized/NumPy của filter_duplicate_indices:
+        Dùng mảng xyxy_arr (N, 4) int và conf_arr (N,) float đã tách sẵn khỏi GPU Tensor.
+        Loại bỏ hoàn toàn chi phí slice PyTorch tensor trên từng box.
+        """
+        if len(vehicle_indices) <= 1:
+            return set()
+
+        sorted_indices = sorted(vehicle_indices, key=lambda idx: float(conf_arr[idx]), reverse=True)
+        suppressed = set()
+        coords = [(int(xyxy_arr[idx, 0]), int(xyxy_arr[idx, 1]), int(xyxy_arr[idx, 2]), int(xyxy_arr[idx, 3])) for idx in sorted_indices]
+
+        for i, idx_i in enumerate(sorted_indices):
+            if idx_i in suppressed:
+                continue
+            b1 = coords[i]
+            for j in range(i + 1, len(sorted_indices)):
+                idx_j = sorted_indices[j]
+                if idx_j in suppressed:
+                    continue
+                iou, iom = compute_box_iou(b1, coords[j])
+                if iou >= 0.20 or iom >= 0.30:
+                    suppressed.add(idx_j)
+
+        return suppressed
+
     def filter_duplicate_boxes(self, raw_boxes: list) -> list:
         """
         Intra-frame NMS: Nếu cùng 1 frame có 2 box phương tiện đè lên nhau (IoU >= 0.45 hoặc IoM >= 0.60),

@@ -15,6 +15,27 @@ from .tracking_stabilizer import compute_box_iou
 from modules.utils.telegram_bot import send_telegram_image, send_telegram_video
 from modules.utils.common_utils import ensure_dir, now_ts
 
+_CACHED_FFMPEG_PATH = None
+
+
+def _get_ffmpeg_bin():
+    global _CACHED_FFMPEG_PATH
+    if _CACHED_FFMPEG_PATH is not None:
+        return _CACHED_FFMPEG_PATH
+    import shutil
+    ffmpeg_cmd = shutil.which("ffmpeg")
+    if not ffmpeg_cmd:
+        local_appdata = os.environ.get("LOCALAPPDATA", "")
+        winget_packages = os.path.join(local_appdata, "Microsoft", "WinGet", "Packages")
+        if os.path.exists(winget_packages):
+            for root, dirs, files in os.walk(winget_packages):
+                if "ffmpeg.exe" in files:
+                    ffmpeg_cmd = os.path.join(root, "ffmpeg.exe")
+                    break
+    _CACHED_FFMPEG_PATH = ffmpeg_cmd or "ffmpeg"
+    return _CACHED_FFMPEG_PATH
+
+
 def strip_vietnamese_accents(text: str) -> str:
     """Loại bỏ dấu tiếng Việt để hiển thị an toàn với cv2.putText (chỉ hỗ trợ ASCII)."""
     if not text:
@@ -689,17 +710,7 @@ class ParkingManager:
                 temp_vid = video_path.replace(".mp4", "_temp.mp4")
                 shutil.move(video_path, temp_vid)
                 
-                ffmpeg_cmd = shutil.which("ffmpeg")
-                if not ffmpeg_cmd:
-                    local_appdata = os.environ.get("LOCALAPPDATA", "")
-                    winget_packages = os.path.join(local_appdata, "Microsoft", "WinGet", "Packages")
-                    if os.path.exists(winget_packages):
-                        for root, dirs, files in os.walk(winget_packages):
-                            if "ffmpeg.exe" in files:
-                                ffmpeg_cmd = os.path.join(root, "ffmpeg.exe")
-                                break
-                if not ffmpeg_cmd:
-                    ffmpeg_cmd = "ffmpeg"
+                ffmpeg_cmd = _get_ffmpeg_bin()
                 
                 subprocess.run([
                     ffmpeg_cmd, "-i", temp_vid, "-c:v", "libx264", "-preset", "fast", "-y", video_path

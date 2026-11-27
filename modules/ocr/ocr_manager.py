@@ -34,6 +34,8 @@ class OCRManager:
         self.spatial_memory = {}
         self.last_seen_plate = {}
         self.last_comparison_window = None
+        self.enable_debug_window = False
+        self.last_drawn_overlay = None
         self.vehicle_plates = {} # Maps v_track_id -> confirmed_plate_string
         self.confirmed_plate_logged = set() # Tập biển số đã được ghi DB, tránh ghi đúp
 
@@ -114,6 +116,7 @@ class OCRManager:
 
     def process_plate(self, frame, clean_frame, track_id, x1, y1, x2, y2, cx, cy, valid_vehicles, current_time, frame_count, drawing_params=None):
         """Xử lý lôgic chính: check spatial memory, nhận kết quả queue, gửi queue, vẽ biển số lên frame."""
+        self.last_drawn_overlay = None
         # Lấy tham số vẽ linh hoạt
         f_scale, f_thick, f_offset = (0.7, 2, 10)
         if drawing_params:
@@ -198,12 +201,13 @@ class OCRManager:
             else:
                 display_text = f"[SKIP] {final_text}" if final_text else "..."
 
-            # Cập nhật cửa sổ debug (Tùy chọn hiển thị)
-            img_before_r = cv2.resize(res['img_before'], (res['dst_w'], res['dst_h']))
-            img_after_r = cv2.resize(res['img_processed'], (res['dst_w'], res['dst_h']))
-            cv2.putText(img_after_r, f"RAW: {res['clean_text']}", (5, res['dst_h'] - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,165,255), 2)
-            cv2.putText(img_after_r, f"FIX: {display_text}", (5, res['dst_h'] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
-            self.last_comparison_window = np.vstack((img_before_r, img_after_r))
+            # Cập nhật cửa sổ debug (chỉ dựng khi bật debug UI để tránh tốn CPU vô ích trên server)
+            if self.enable_debug_window:
+                img_before_r = cv2.resize(res['img_before'], (res['dst_w'], res['dst_h']))
+                img_after_r = cv2.resize(res['img_processed'], (res['dst_w'], res['dst_h']))
+                cv2.putText(img_after_r, f"RAW: {res['clean_text']}", (5, res['dst_h'] - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,165,255), 2)
+                cv2.putText(img_after_r, f"FIX: {display_text}", (5, res['dst_h'] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,255), 2)
+                self.last_comparison_window = np.vstack((img_before_r, img_after_r))
 
         else:
             display_text = (self.plate_history.get(track_id) or [self.plate_raw_cache.get(track_id, "...")])[-1]
@@ -233,10 +237,12 @@ class OCRManager:
         text_y = max(th + 5, y1 - f_offset)
         cv2.rectangle(frame, (x1, text_y - th - 5), (x1 + tw + 5, text_y + baseline + 2), color, -1)
         cv2.putText(frame, display_text, (x1 + 2, text_y), cv2.FONT_HERSHEY_SIMPLEX, f_scale, (255, 255, 255), f_thick)
+        self.last_drawn_overlay = (x1, y1, x2, y2, color, display_text)
         
         return track_id
 
     def show_debug_window(self):
         """Hiển thị cửa sổ OCR debug nếu có cập nhật"""
+        self.enable_debug_window = True
         if self.last_comparison_window is not None:
             cv2.imshow("Before vs After Processing", self.last_comparison_window)

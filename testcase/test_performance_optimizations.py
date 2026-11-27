@@ -1,0 +1,200 @@
+import io
+import json
+import os
+import sys
+import tempfile
+import threading
+import time
+import unittest
+from pathlib import Path
+import numpy as np
+import cv2
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BACKEND_ROOT = PROJECT_ROOT / "backend"
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from modules.traffic.traffic_monitor import TrafficMonitor
+from modules.parking.tracking_stabilizer import StationaryVehicleStabilizer
+from modules.ocr.ocr_manager import OCRManager
+from backend.infrastructure.ml.detection_bridge import (
+    _read_exact_into_ndarray,
+    _probe_stream_metadata,
+    _build_label_lookup,
+    process_video,
+)
+
+
+class TestPerformanceOptimizations(unittest.TestCase):
+    """Kiểm thử các tối ưu hiệu năng cho detection_bridge và các module liên quan."""
+
+    def test_01_traffic_monitor_1080p_mask_accuracy_and_buffer_reuse(self):
+        """TrafficMonitor tính mask ở độ phân giải 1/4 vẫn chính xác và tái sử dụng buffer."""
+        roi = np.array([[0, 0], [1920, 0], [1920, 1080], [0, 1080]], dtype=np.int32)
+        tm = TrafficMonitor(roi_polygon=roi, congestion_threshold=35.0)
+
+        # Box 500x500 ~ 250,000 / 2,073,600 = 12.06%
+        tm.reset_counters()
+        tm.log_vehicle(track_id=1, cx=500, cy=500, current_time=1.0, bbox=(250, 250, 750, 750))
+        _, _, _, _ = tm.calculate_speed_and_status(1.0, (1080, 1920, 3))
+        occ1 = tm.last_occupancy
+        self.assertAlmostEqual(occ1, 12.06, delta=0.8)
+
+        buf_id_first = id(tm._vehicles_mask)
+        overlap_id_first = id(tm._overlap_mask)
+
+        # Gọi lần 2 phải tái sử dụng đúng cùng buffer (không cấp phát mới)
+        tm.reset_counters()
+        tm.log_vehicle(track_id=1, cx=505, cy=500, current_time=1.05, bbox=(255, 250, 755, 750))
+        _, _, _, _ = tm.calculate_speed_and_status(1.05, (1080, 1920, 3))
+        self.assertEqual(id(tm._vehicles_mask), buf_id_first)
+        self.assertEqual(id(tm._overlap_mask), overlap_id_first)
+
+    def test_02_stabilizer_filter_duplicate_indices_np(self):
+        """filter_duplicate_indices_np lọc đúng box trùng và giữ lại box xe khác."""
+        stab = StationaryVehicleStabilizer()
+        xyxy = np.array([
+            [100, 100, 300, 300],  # 0: Xe 1 (conf 0.9)
+            [105, 102, 305, 302],  # 1: Trùng Xe 1 (conf 0.6) -> bị lọc
+            [600, 100, 800, 300],  # 2: Xe 2 ở vị trí khác (conf 0.8) -> giữ lại
+        ], dtype=np.int32)
+        conf = np.array([0.9, 0.6, 0.8], dtype=np.float32)
+
+        suppressed = stab.filter_duplicate_indices_np(xyxy, conf, [0, 1, 2])
+        self.assertEqual(suppressed, {1})
+
+    def test_03_read_exact_into_ndarray_writable(self):
+        """_read_exact_into_ndarray đọc đúng số byte vào ndarray writable (không copy thừa)."""
+        raw_arr = np.arange(10 * 20 * 3, dtype=np.uint8)
+        pipe = io.BytesIO(raw_arr.tobytes())
+        out = _read_exact_into_ndarray(pipe, (10, 20, 3), 10 * 20 * 3)
+        self.assertIsNotNone(out)
+        self.assertEqual(out.shape, (10, 20, 3))
+        self.assertTrue(out.flags["WRITEABLE"])
+        np.testing.assert_array_equal(out.reshape(-1), raw_arr)
+
+        # EOF thiếu byte phải trả về None
+        short_pipe = io.BytesIO(b"\x01\x02\x03")
+        self.assertIsNone(_read_exact_into_ndarray(short_pipe, (10, 20, 3), 10 * 20 * 3))
+
+    def test_04_ocr_manager_debug_window_disabled_by_default(self):
+        """OCRManager mặc định tắt dựng ảnh debug window khi chạy server."""
+        mgr = OCRManager(reader=None)
+        self.assertFalse(mgr.enable_debug_window)
+        mgr.show_debug_window()
+        self.assertTrue(mgr.enable_debug_window)
+
+    def test_05_probe_and_process_video_1080p_e2e(self):
+        """Chạy thử pipeline process_video trên video tổng hợp 1080p (giữ nguyên 1080p, stride=2)."""
+        model_path = PROJECT_ROOT / "models" / "VTS_FINETUNE.pt"
+        if not model_path.exists():
+            self.skipTest("Không có models/VTS_FINETUNE.pt để chạy E2E")
+
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            vid_path = tmp.name
+
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(vid_path, fourcc, 25.0, (1920, 1080))
+            self.assertTrue(writer.isOpened())
+            # Vẽ khung hình có họa tiết rõ để vượt qua kiểm tra _is_frame_valid()
+            base_frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            cv2.rectangle(base_frame, (100, 100), (1800, 950), (60, 120, 180), -1)
+            cv2.rectangle(base_frame, (300, 300), (600, 500), (200, 200, 200), -1)
+            for _ in range(12):
+                writer.write(base_frame)
+            writer.release()
+
+            w, h, fps_val, total, is_hevc = _probe_stream_metadata(Path(vid_path))
+            self.assertEqual((w, h), (1920, 1080))
+            self.assertGreater(fps_val, 0)
+            self.assertFalse(is_hevc)
+
+            frames_seen = []
+
+            def on_progress(payload):
+                pf = payload.get("processed_frames", 0)
+                frames_seen.append(pf)
+                if pf >= 6:
+                    return {"abort": True}
+                return {"viewer_count": 0}
+
+            summary = process_video(
+                input_path=vid_path,
+                settings={
+                    "camera_id": 999,
+                    "model_path": str(model_path),
+                    "enable_ai": True,
+                    "enable_congestion": True,
+                    "enable_illegal_parking": True,
+                    "enable_license_plate": False,
+                    "enable_weapon_detection": False,
+                    "process_every_n_frames": 2,
+                    "save_to_db": False,
+                    "telegram_enabled": False,
+                },
+                progress_callback=on_progress,
+            )
+
+            self.assertTrue(any(f >= 6 for f in frames_seen))
+            self.assertGreaterEqual(summary["processing_seconds"], 0.0)
+        finally:
+            if os.path.exists(vid_path):
+                try:
+                    os.remove(vid_path)
+                except Exception:
+                    pass
+
+    def test_06_stream_job_frames_no_duplicate_mjpeg_chunks(self):
+        """stream_job_frames chỉ đẩy MJPEG khi có frame mới và thức dậy ngay khi có tín hiệu."""
+        from backend.application.use_cases.job_use_cases import JobUseCases
+        from backend.domain.entities.job import Job
+
+        uc = JobUseCases.__new__(JobUseCases)
+        uc.job_lock = threading.RLock()
+        uc.jobs = {}
+        uc.shared_jobs_state = {}
+        uc.processes = {}
+        uc.pause_events = {}
+
+        job = Job(id="background_1", status="running", camera_id=1)
+        uc.jobs[job.id] = job
+        # Job.to_dict vẫn phải serialize JSON sạch (không lọt threading.Condition)
+        json.dumps(job.to_dict())
+
+        # Job đã hoàn tất trước khi mở stream -> 0 chunk và không tăng viewer_count
+        done_job = Job(id="done_1", status="completed", camera_id=2, latest_frame=b"OLD", frame_seq=1)
+        uc.jobs[done_job.id] = done_job
+        self.assertEqual(list(uc.stream_job_frames(done_job.id)), [])
+        self.assertEqual(done_job.viewer_count, 0)
+
+        def producer():
+            time.sleep(0.03)
+            with job.frame_condition:
+                job.latest_frame = b"JPEG_1"
+                job.frame_seq = 1
+                job.frame_condition.notify_all()
+            # Đợi lâu hơn 0.03s cũ để chứng minh stream không gửi lặp lại frame 1
+            time.sleep(0.12)
+            with uc.job_lock:
+                with job.frame_condition:
+                    job.latest_frame = b"JPEG_2"
+                    job.frame_seq = 2
+                    job.status = "completed"
+                    job.frame_condition.notify_all()
+
+        t = threading.Thread(target=producer, daemon=True)
+        t.start()
+        chunks = list(uc.stream_job_frames(job.id))
+        t.join(timeout=2.0)
+
+        self.assertEqual(len(chunks), 2)
+        self.assertIn(b"JPEG_1", chunks[0])
+        self.assertIn(b"JPEG_2", chunks[1])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -22,9 +22,13 @@ class TrafficMonitor:
         self.last_occupancy = 0.0
         self.current_level = 0 # Lưu mức trạng thái gần nhất để áp dụng Hysteresis
         
-        # Cache cho Masking (Tối ưu hiệu năng)
+        # Cache cho Masking (Tối ưu hiệu năng: hạ độ phân giải mask 1/4 để giảm 16x chi phí CPU/RAM)
+        self._mask_scale = 0.25
         self._cached_roi_mask = None
         self._cached_roi_pixel_area = 0
+        self._cached_mask_src_shape = None
+        self._vehicles_mask = None
+        self._overlap_mask = None
         
     def reset_counters(self):
         self.vehicle_count = 0
@@ -91,29 +95,40 @@ class TrafficMonitor:
 
         avg_speed = total_speed / valid_speed_count if valid_speed_count > 0 else 0.0
 
-        # 2. TÍNH % DIỆN TÍCH BẰNG MASKING (Chống Overlap & Tràn viền)
+        # 2. TÍNH % DIỆN TÍCH BẰNG MASKING HẠ ĐỘ PHÂN GIẢI (1/4 chiều) + TÁI SỬ DỤNG BUFFER
         occupancy_percent = 0.0
         if self.roi_polygon is not None and len(self.current_bboxes) > 0 and len(frame_shape) >= 2:
             h, w = frame_shape[:2]
-            
-            # Khởi tạo Mask ROI một lần duy nhất (Cache)
-            if self._cached_roi_mask is None or self._cached_roi_mask.shape != (h, w):
-                self._cached_roi_mask = np.zeros((h, w), dtype=np.uint8)
-                cv2.fillPoly(self._cached_roi_mask, [np.array(self.roi_polygon, dtype=np.int32)], 255)
+            scale = self._mask_scale
+            mh = max(32, int(round(h * scale)))
+            mw = max(32, int(round(w * scale)))
+            sx = mw / float(w)
+            sy = mh / float(h)
+
+            # Khởi tạo Mask ROI và buffer tái sử dụng một lần duy nhất (Cache)
+            if self._cached_roi_mask is None or self._cached_mask_src_shape != (h, w):
+                self._cached_mask_src_shape = (h, w)
+                self._cached_roi_mask = np.zeros((mh, mw), dtype=np.uint8)
+                self._vehicles_mask = np.zeros((mh, mw), dtype=np.uint8)
+                self._overlap_mask = np.zeros((mh, mw), dtype=np.uint8)
+                scaled_poly = np.round(np.array(self.roi_polygon, dtype=np.float32) * [sx, sy]).astype(np.int32)
+                cv2.fillPoly(self._cached_roi_mask, [scaled_poly], 255)
                 self._cached_roi_pixel_area = cv2.countNonZero(self._cached_roi_mask)
-            
-            # Tạo mask cho các phương tiện hiện tại
-            vehicles_mask = np.zeros((h, w), dtype=np.uint8)
+
+            # Reset buffer tại chỗ (0 cấp phát mới) rồi vẽ các phương tiện hiện tại
+            self._vehicles_mask.fill(0)
+            vehicles_mask = self._vehicles_mask
             for (x1, y1, x2, y2) in self.current_bboxes:
-                x1, y1, x2, y2 = int(max(0, x1)), int(max(0, y1)), int(min(w, x2)), int(min(h, y2))
-                cv2.rectangle(vehicles_mask, (x1, y1), (x2, y2), 255, -1)
-                
-            # Giao 2 vùng lại (Chỉ lấy phần xe nằm TRONG ROI)
-            overlap_mask = cv2.bitwise_and(vehicles_mask, self._cached_roi_mask)
-            
-            # Đếm số pixel màu trắng
-            occupied_pixel_area = cv2.countNonZero(overlap_mask)
-            
+                bx1 = max(0, min(mw - 1, int(x1 * sx)))
+                by1 = max(0, min(mh - 1, int(y1 * sy)))
+                bx2 = max(bx1 + 1, min(mw, int(round(x2 * sx))))
+                by2 = max(by1 + 1, min(mh, int(round(y2 * sy))))
+                cv2.rectangle(vehicles_mask, (bx1, by1), (bx2, by2), 255, -1)
+
+            # Giao 2 vùng lại vào buffer có sẵn (Không cấp phát RAM mới)
+            cv2.bitwise_and(vehicles_mask, self._cached_roi_mask, dst=self._overlap_mask)
+            occupied_pixel_area = cv2.countNonZero(self._overlap_mask)
+
             if self._cached_roi_pixel_area > 0:
                 occupancy_percent = (occupied_pixel_area / self._cached_roi_pixel_area) * 100.0
 
@@ -221,12 +236,12 @@ class TrafficMonitor:
             # Lấy kích thước text để vẽ nền
             (tw, th), baseline = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, scale, f_thick)
             
-            # Vẽ nền đen bán trong suốt
-            sub_img = frame[curr_y - th - 5 : curr_y + baseline + 5, 30 - 5 : 30 + tw + 5]
+            # Vẽ nền đen bán trong suốt tại chỗ (không cấp phát black_rect mới)
+            ry1 = max(0, curr_y - th - 5)
+            rx1 = 25
+            sub_img = frame[ry1 : curr_y + baseline + 5, rx1 : 30 + tw + 5]
             if sub_img.size > 0:
-                black_rect = np.zeros(sub_img.shape, dtype=np.uint8)
-                res = cv2.addWeighted(sub_img, 0.5, black_rect, 0.5, 1.0)
-                frame[curr_y - th - 5 : curr_y + baseline + 5, 30 - 5 : 30 + tw + 5] = res
+                cv2.convertScaleAbs(sub_img, alpha=0.5, beta=1.0, dst=sub_img)
             
             # Vẽ chữ
             cv2.putText(frame, txt, (30, curr_y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, f_thick)
