@@ -3,13 +3,19 @@
 // ═══════════════════════════════════════════════════════════════
 
 let wanTransmissionMode = "webrtc"; // Global variable for WAN streaming mode
+let enableRtspPush = true;
 
 async function fetchSystemSettings() {
     try {
         const response = await fetch('/api/system/settings');
         const data = await response.json();
-        if (data.ok && data.settings && data.settings.wan_transmission_mode) {
-            wanTransmissionMode = data.settings.wan_transmission_mode;
+        if (data.ok && data.settings) {
+            if (data.settings.wan_transmission_mode) {
+                wanTransmissionMode = data.settings.wan_transmission_mode;
+            }
+            if (data.settings.enable_rtsp_push !== undefined) {
+                enableRtspPush = !["0", "false", "no", "off"].includes(String(data.settings.enable_rtsp_push).trim().toLowerCase());
+            }
         }
     } catch (e) {
         // Bỏ qua lỗi trong môi trường production
@@ -321,7 +327,7 @@ function initMonitoringForm() {
                     const hostname = window.location.hostname || "localhost";
                     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
 
-                    if (!isLocal && wanTransmissionMode === "mjpeg") {
+                    if (!enableRtspPush || (!isLocal && wanTransmissionMode === "mjpeg")) {
                         if (videoEl) videoEl.style.display = 'none';
                         if (imgEl) {
                             imgEl.src = imgEl.dataset.src;

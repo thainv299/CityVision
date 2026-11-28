@@ -26,6 +26,7 @@ from backend.infrastructure.ml.detection_bridge import (
     _probe_stream_metadata,
     _build_label_lookup,
     _load_model,
+    _resolve_rtsp_push_enabled,
     process_video,
 )
 
@@ -258,6 +259,88 @@ class TestPerformanceOptimizations(unittest.TestCase):
             w, h, fps_val, total, is_hevc = _probe_stream_metadata("rtsp://127.0.0.1:554/Streaming/Channels/101")
         self.assertEqual((w, h, total, is_hevc), (1920, 1080, 0, True))
         self.assertAlmostEqual(fps_val, 25.0, places=2)
+
+    def test_09_resolve_rtsp_push_enabled(self):
+        """_resolve_rtsp_push_enabled ưu tiên settings, ENABLE_RTSP_PUSH, và wan_transmission_mode trong DB."""
+        self.assertFalse(_resolve_rtsp_push_enabled({"enable_rtsp_push": False}))
+        self.assertTrue(_resolve_rtsp_push_enabled({"enable_rtsp_push": True}))
+
+        with patch.dict(os.environ, {"ENABLE_RTSP_PUSH": "0"}):
+            self.assertFalse(_resolve_rtsp_push_enabled({}))
+        with patch.dict(os.environ, {"ENABLE_RTSP_PUSH": "1"}):
+            self.assertTrue(_resolve_rtsp_push_enabled({}))
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ENABLE_RTSP_PUSH", None)
+            with patch("backend.database.sqlite_db.get_system_setting", side_effect=lambda k, d="": "mjpeg" if k == "wan_transmission_mode" else d):
+                self.assertFalse(_resolve_rtsp_push_enabled({}))
+            with patch("backend.database.sqlite_db.get_system_setting", side_effect=lambda k, d="": "webrtc" if k == "wan_transmission_mode" else d):
+                self.assertTrue(_resolve_rtsp_push_enabled({}))
+
+    def test_10_mjpeg_preview_delivers_fast_frames_without_rtsp_push(self):
+        """MJPEG không bị rớt frame < 40ms trên RTSP live và không gọi FFmpeg RTSP push khi tắt."""
+        valid_frame = np.full((720, 1280, 3), (60, 120, 180), dtype=np.uint8)
+        cv2.rectangle(valid_frame, (100, 100), (400, 400), (220, 220, 220), -1)
+
+        class _FakeStream:
+            def __init__(self, path, force_single_thread=False, pre_probed=None):
+                self.width, self.height, self.fps, self.total_frames = 1280, 720, 20.0, 0
+                self.draw_w, self.draw_h = 1280, 720
+                self.preview_w, self.preview_h = 1280, 720
+                self._count = 0
+
+            def start(self):
+                return self
+
+            def isOpened(self):
+                return self._count < 30
+
+            def read(self):
+                if self._count >= 30:
+                    return False, None
+                self._count += 1
+                time.sleep(0.012)  # 12ms < 40ms (mô phỏng frame skip / burst RTSP)
+                return True, valid_frame.copy()
+
+            def release(self):
+                pass
+
+        class _FakeEncoder:
+            def encode(self, frame, w, h, q):
+                return b"JPEG_BYTES"
+
+        previews_received = []
+
+        def on_progress(payload):
+            if "preview_jpeg" in payload:
+                previews_received.append(payload["preview_jpeg"])
+            if payload.get("processed_frames", 0) >= 8:
+                return {"abort": True, "viewer_count": 1}
+            return {"viewer_count": 1}
+
+        with patch.dict(os.environ, {"ENABLE_RTSP_PUSH": "0"}), \
+             patch("backend.infrastructure.ml.detection_bridge._probe_stream_metadata", return_value=(1280, 720, 20.0, 0, False)), \
+             patch("backend.infrastructure.ml.detection_bridge.VideoStream", _FakeStream), \
+             patch("backend.infrastructure.ml.detection_bridge.HardwareJPEGEncoder", _FakeEncoder), \
+             patch("backend.infrastructure.ml.detection_bridge.subprocess.Popen") as popen_mock:
+            process_video(
+                input_path="rtsp://127.0.0.1:554/live",
+                settings={
+                    "camera_id": 1,
+                    "model_path": "unused.pt",
+                    "enable_ai": False,
+                    "enable_congestion": False,
+                    "enable_illegal_parking": False,
+                    "enable_license_plate": False,
+                    "enable_weapon_detection": False,
+                    "save_to_db": False,
+                    "telegram_enabled": False,
+                },
+                progress_callback=on_progress,
+            )
+
+        popen_mock.assert_not_called()
+        self.assertGreaterEqual(len(previews_received), 4)
 
 
 if __name__ == "__main__":

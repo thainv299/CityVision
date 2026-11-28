@@ -307,8 +307,8 @@
                         <option value="mjpeg">MJPEG</option>
                     </select>
                     <p style="font-size: 11px; color: #64748B; margin-top: 6px; line-height: 1.4;">
-                        Nếu chọn MJPEG, hệ thống sẽ bỏ qua kết nối thử nghiệm WebRTC để truyền luồng ảnh động nhanh nhất
-                        trên môi trường WAN.
+                        Nếu chọn MJPEG, hệ thống sẽ bỏ qua WebRTC và tắt đẩy luồng RTSP nền (FFmpeg) để giảm tải CPU/GPU
+                        và truyền luồng ảnh động trực tiếp.
                     </p>
                 </div>
             </div>
