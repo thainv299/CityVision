@@ -4,10 +4,11 @@
 
 let wanTransmissionMode = "webrtc"; // Global variable for WAN streaming mode
 let enableRtspPush = true;
+let systemSettingsPromise = null;
 
 async function fetchSystemSettings() {
     try {
-        const response = await fetch('/api/system/settings');
+        const response = await fetch('/api/system/settings', { cache: 'no-store' });
         const data = await response.json();
         if (data.ok && data.settings) {
             if (data.settings.wan_transmission_mode) {
@@ -186,7 +187,7 @@ async function startWebRTCPlayer(videoElement, cameraId) {
 
 function initMonitoringForm() {
     // Tải cấu hình hệ thống bao gồm WAN transmission mode
-    fetchSystemSettings();
+    systemSettingsPromise = fetchSystemSettings();
 
     // ── DOM ELEMENTS ────────────────────────────────────────
     const feedback = document.getElementById("test-job-feedback");
@@ -438,6 +439,9 @@ function initMonitoringForm() {
             console.warn("[CityVision] Slot at index is undefined:", index);
             return;
         }
+
+        // Đảm bảo cấu hình chế độ stream (WebRTC / MJPEG) mới nhất đã được tải
+        await (systemSettingsPromise || fetchSystemSettings());
 
         // Clean up existing job in this slot
         if (slot.jobId) {

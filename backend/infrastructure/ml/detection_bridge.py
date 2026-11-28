@@ -152,7 +152,8 @@ class VideoStream:
     def __init__(self, path, force_single_thread: bool = False, pre_probed: Optional[Tuple[int, int, float, int]] = None):
         self.path = str(path)
         self.stopped = False
-        self.queue = queue.Queue(maxsize=5)
+        is_live_src = "://" in self.path or self.path.startswith("rtsp")
+        self.queue = queue.Queue(maxsize=2 if is_live_src else 5)
         self._is_opened = False
         # FIX #2: Chỉ dùng single-thread khi cần (H.265), H.264 dùng auto-thread
         self._force_single_thread = force_single_thread
@@ -214,7 +215,7 @@ class VideoStream:
                 f"rtspsrc location={self.path} latency=200 ! "
                 f"{depay} ! nvv4l2decoder ! "
                 f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
-                f"appsink drop=True sync=False"
+                f"appsink max-buffers=1 drop=True sync=False"
             )
         else:
             path = self.path
@@ -1178,10 +1179,44 @@ def process_video(
     accumulated_process_time = 0.0
     last_heartbeat_time = started_at
 
-    # Luồng nền nén ảnh JPEG
+    # Luồng nền nén ảnh JPEG & đẩy trực tiếp qua progress_callback ngay khi nén xong
     preview_lock = threading.Lock()
     preview_queue = queue.Queue(maxsize=1)
-    preview_state = {"last_jpeg": None, "jpeg_seq": 0, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
+    preview_state = {
+        "last_jpeg": None,
+        "jpeg_seq": 0,
+        "stop": False,
+        "pw": preview_w,
+        "ph": preview_h,
+        "q": 75,
+        "viewer_count": 0,
+        "force_preview": False,
+        "last_emit_time": 0.0,
+    }
+    progress_cb_lock = threading.Lock()
+    pending_actions_lock = threading.Lock()
+    pending_actions: Dict[str, Any] = {}
+
+    def _emit_progress(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if progress_callback is None:
+            return None
+        with progress_cb_lock:
+            resp = progress_callback(payload)
+        if resp:
+            if "viewer_count" in resp:
+                preview_state["viewer_count"] = resp["viewer_count"]
+            if resp.get("force_preview"):
+                preview_state["force_preview"] = True
+            with pending_actions_lock:
+                if resp.get("abort"):
+                    pending_actions["abort"] = True
+                if "new_quality" in resp:
+                    pending_actions["new_quality"] = resp["new_quality"]
+                if "new_settings" in resp:
+                    merged = dict(pending_actions.get("new_settings") or {})
+                    merged.update(resp["new_settings"])
+                    pending_actions["new_settings"] = merged
+        return resp
 
     # Khởi tạo Hardware JPEG Encoder
     hw_encoder = HardwareJPEGEncoder()
@@ -1192,29 +1227,42 @@ def process_video(
     def preview_encoder_worker():
         while not preview_state["stop"]:
             try:
-                frame_to_encode = preview_queue.get(timeout=0.2)
+                item = preview_queue.get(timeout=0.2)
             except queue.Empty:
                 continue
-            if frame_to_encode is None:
+            if item is None or preview_state["stop"]:
                 break
 
+            frame_to_encode, enc_frame_idx, enc_status = item
+            is_forced = preview_state["force_preview"]
             # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
-            if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
+            if preview_state["viewer_count"] > 0 or is_forced:
                 encoded_jpg = hw_encoder.encode(
                     frame_to_encode,
                     preview_state["pw"],
                     preview_state["ph"],
                     preview_state["q"]
                 )
-                if encoded_jpg:
+                if encoded_jpg and not preview_state["stop"]:
+                    now_enc = time.time()
                     with preview_lock:
                         preview_state["last_jpeg"] = encoded_jpg
                         preview_state["jpeg_seq"] += 1
+                    if progress_callback is not None:
+                        preview_state["last_emit_time"] = now_enc
+                        _emit_progress({
+                            "phase": "running_detection",
+                            "latest_status": enc_status,
+                            "preview_jpeg": encoded_jpg,
+                            "timestamp": now_enc,
+                            "processed_frames": enc_frame_idx,
+                        })
                 # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
-                if preview_state["force_preview"]:
+                if is_forced:
                     preview_state["force_preview"] = False
 
-    threading.Thread(target=preview_encoder_worker, args=(), daemon=True).start()
+    preview_thread = threading.Thread(target=preview_encoder_worker, args=(), daemon=True)
+    preview_thread.start()
 
     # OCR Manager setup
     import logging
@@ -1939,7 +1987,7 @@ def process_video(
                     pass
 
             response = None
-            # 3. Nạp frame mới nhất vào bộ nén JPEG nền & gửi tiến độ lên Web
+            # 3. Nạp frame mới nhất vào bộ nén JPEG nền (nén xong sẽ đẩy tức thì) & đồng bộ trạng thái
             if progress_callback is not None:
                 now_t = time.time()
 
@@ -1950,43 +1998,26 @@ def process_video(
                     except queue.Empty:
                         pass
                     try:
-                        preview_queue.put_nowait(frame)
+                        preview_queue.put_nowait((frame, frame_index, latest_status))
                     except queue.Full:
                         pass
 
-                with preview_lock:
-                    cur_jpeg_seq = preview_state["jpeg_seq"]
-                    cur_jpeg_bytes = preview_state["last_jpeg"]
-                has_new_jpeg = (cur_jpeg_seq != last_sent_jpeg_seq) and (cur_jpeg_bytes is not None)
-
-                if preview_state["viewer_count"] > 0:
-                    # Có JPEG mới là gửi ngay để giữ đúng FPS gốc (~20-30 FPS); chỉ throttle gói status rỗng.
-                    should_send_progress = has_new_jpeg or (now_t - last_progress_time >= 0.2) or (frame_index == 1)
-                else:
-                    should_send_progress = (now_t - last_progress_time >= 0.5) or (frame_index == 1) or has_new_jpeg
-
-                if should_send_progress:
-                    last_progress_time = now_t
-                    progress_payload = {
+                status_interval = 0.25 if preview_state["viewer_count"] > 0 else 0.5
+                if (now_t - preview_state["last_emit_time"] >= status_interval) or (frame_index == 1):
+                    preview_state["last_emit_time"] = now_t
+                    _emit_progress({
                         "phase": "running_detection",
                         "latest_status": latest_status,
                         "timestamp": now_t,
                         "processed_frames": frame_index,
-                    }
-                    if has_new_jpeg:
-                        progress_payload["preview_jpeg"] = cur_jpeg_bytes
-                        last_sent_jpeg_seq = cur_jpeg_seq
+                    })
 
-                    response = progress_callback(progress_payload)
-                    if response and response.get("abort"):
-                        print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng từ hệ thống. Đang dừng luồng xử lý...")
-                        break
-                
-                # Xử lý lệnh từ Manager (ví dụ số lượng viewer, force_preview)
-                if response and "viewer_count" in response:
-                    preview_state["viewer_count"] = response["viewer_count"]
-                if response and "force_preview" in response and response["force_preview"]:
-                    preview_state["force_preview"] = True
+                with pending_actions_lock:
+                    response = dict(pending_actions) if pending_actions else None
+                    pending_actions.clear()
+                if response and response.get("abort"):
+                    print(f"[AI - Camera {camera_id}] Nhận tín hiệu dừng từ hệ thống. Đang dừng luồng xử lý...")
+                    break
 
                 # Xử lý lệnh từ Manager (ví dụ đổi chất lượng)
                 if response and "new_quality" in response:
@@ -2175,6 +2206,10 @@ def process_video(
         try:
             preview_queue.put_nowait(None)
         except queue.Full:
+            pass
+        try:
+            preview_thread.join(timeout=1.0)
+        except Exception:
             pass
         capture.release()
         if enable_license_plate and ocr_manager is not None:

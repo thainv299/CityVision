@@ -299,7 +299,8 @@ class TestPerformanceOptimizations(unittest.TestCase):
                 if self._count >= 30:
                     return False, None
                 self._count += 1
-                time.sleep(0.012)  # 12ms < 40ms (mô phỏng frame skip / burst RTSP)
+                # Mô phỏng RTSP khi frame_skip=2: frame chẵn xử lý lâu (20ms), frame lẻ skip về ngay (3ms)
+                time.sleep(0.020 if (self._count % 2 == 1) else 0.003)
                 return True, valid_frame.copy()
 
             def release(self):
@@ -307,6 +308,9 @@ class TestPerformanceOptimizations(unittest.TestCase):
 
         class _FakeEncoder:
             def encode(self, frame, w, h, q):
+                # Thời gian nén JPEG (10ms) lớn hơn khoảng trễ frame skip (3ms):
+                # trước kia frame chẵn bị frame lẻ ghi đè mất; nay cả 2 đều phải được đẩy ra ngay.
+                time.sleep(0.010)
                 return b"JPEG_BYTES"
 
         previews_received = []
