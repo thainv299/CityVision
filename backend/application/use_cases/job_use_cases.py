@@ -224,7 +224,14 @@ class JobUseCases:
                                 job.latest_frame = preview_jpeg
                                 job.frame_seq += 1
                                 job.frame_condition.notify_all()
-                        
+                        # Luôn wake-up stream_job_frames khi có bất kỳ progress nào
+                        # (kể cả heartbeat không kèm JPEG) để tránh chờ hết timeout.
+                        # _has_unseen_frame() trong stream_job_frames sẽ guard việc
+                        # gửi frame trùng lặp.
+                        elif job.latest_frame:
+                            with job.frame_condition:
+                                job.frame_condition.notify_all()
+
                         # Đồng bộ tiến trình
                         job.progress = data
                         if job.started_at is None:
@@ -632,7 +639,11 @@ class JobUseCases:
                 with job.frame_condition:
                     while job.status not in terminal_statuses and not _has_unseen_frame():
                         job.last_heartbeat = time.time()
-                        wait_s = 0.05 if job.frame_seq == 0 else 1.0
+                        # Dùng timeout ngắn 0.1s thay vì 1.0s để tránh lag hiển thị khi
+                        # notify_all() đến ngay lúc thread vừa thoát khỏi frame_condition.
+                        # Trường hợp frame_seq == 0 (chờ frame đầu tiên) dùng 0.05s để
+                        # phản hồi nhanh ngay khi model load xong.
+                        wait_s = 0.05 if job.frame_seq == 0 else 0.1
                         job.frame_condition.wait(timeout=wait_s)
 
                     is_terminal = job.status in terminal_statuses
