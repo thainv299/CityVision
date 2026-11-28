@@ -17,23 +17,23 @@ if str(BACKEND_DIR) not in sys.path:
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-# Import Clean Architecture Components
-from backend.core.config import SECRET_KEY
-from backend.database.sqlite_db import init_db
-from backend.presentation.container import container, templates
-from backend.presentation.web.auth_views import auth_router
-from backend.presentation.web.camera_views import camera_router
-from backend.presentation.web.dashboard_views import dashboard_router
-from backend.presentation.web.monitoring_views import monitoring_router
-from backend.presentation.web.user_views import user_router
-from backend.presentation.web.vehicle_views import vehicle_router
-from backend.presentation.web.violation_views import violation_router
-from backend.presentation.web.weapon_views import weapon_router
-from backend.presentation.web.congestion_views import congestion_router
-from backend.presentation.web.notification_views import notification_router
-from backend.presentation.web.model_views import model_router
-from backend.presentation.web.report_views import router as report_router
-# from backend.presentation.web.webhook_views import webhook_router
+# Import Clean Architecture Components (luôn dùng package gốc trong backend/ để đồng bộ singleton container)
+from core.config import SECRET_KEY
+from database.sqlite_db import init_db
+from presentation.container import container, templates
+from presentation.web.auth_views import auth_router
+from presentation.web.camera_views import camera_router
+from presentation.web.dashboard_views import dashboard_router
+from presentation.web.monitoring_views import monitoring_router
+from presentation.web.user_views import user_router
+from presentation.web.vehicle_views import vehicle_router
+from presentation.web.violation_views import violation_router
+from presentation.web.weapon_views import weapon_router
+from presentation.web.congestion_views import congestion_router
+from presentation.web.notification_views import notification_router
+from presentation.web.model_views import model_router
+from presentation.web.report_views import router as report_router
+# from presentation.web.webhook_views import webhook_router
 
 def create_app() -> FastAPI:
     # 1. Khởi tạo DB
@@ -128,13 +128,13 @@ def create_app() -> FastAPI:
     async def startup_event():
         # Khởi động dịch vụ MediaMTX
         try:
-            from backend.core.mediamtx_manager import mediamtx
+            from core.mediamtx_manager import mediamtx
             mediamtx.start()
         except Exception as e:
             print(f"[MediaMTX] Không khởi động được dịch vụ: {e}")
 
         # Đóng toàn bộ các sự kiện ùn tắc / vi phạm đỗ xe chưa kết thúc từ lần chạy trước (đề phòng sập nguồn)
-        from backend.database.sqlite_db import close_all_dangling_records
+        from database.sqlite_db import close_all_dangling_records
         try:
             close_all_dangling_records()
             print("[Database] Đã đóng toàn bộ các sự kiện ùn tắc và vi phạm chưa kết thúc từ phiên trước.")
@@ -142,7 +142,7 @@ def create_app() -> FastAPI:
             print(f"[Database] Lỗi khi dọn dẹp các sự kiện chưa kết thúc từ phiên trước: {e}")
 
         # Dọn dẹp CSDL định kỳ
-        from backend.database.sqlite_db import cleanup_old_data, get_system_setting
+        from database.sqlite_db import cleanup_old_data, get_system_setting
         try:
             retention = get_system_setting("log_retention", "30_days")
             days_map = {
@@ -169,7 +169,7 @@ def create_app() -> FastAPI:
 
         # Dừng dịch vụ MediaMTX
         try:
-            from backend.core.mediamtx_manager import mediamtx
+            from core.mediamtx_manager import mediamtx
             mediamtx.stop()
         except Exception as e:
             print(f"[MediaMTX] Lỗi dừng dịch vụ: {e}")

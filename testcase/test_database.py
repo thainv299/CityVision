@@ -137,6 +137,49 @@ class TestDatabaseAndRepositories(unittest.TestCase):
         self.assertTrue(len(plates) > 0)
         print("-> [OK] ALPR license plate log test passed")
 
+    def test_09_alpr_db_guard_no_plate_and_duplicate_image(self):
+        """Kiểm tra DB guard chống ghi đúp 'Không phát hiện biển số xe' và trùng đường dẫn ảnh."""
+        with connect() as conn:
+            conn.execute("DELETE FROM bien_so_phat_hien WHERE id_camera = 998")
+            conn.commit()
+
+        log_detected_license_plate(
+            license_plate="Không phát hiện biển số xe",
+            ngay="2026-11-28",
+            thoi_gian="20:38:39",
+            image_paths="logs/plates/test_noplate_1.jpg",
+            camera_id=998,
+        )
+        # Ghi đúp cùng thời điểm / trong vòng <= 12s -> phải bị chặn
+        log_detected_license_plate(
+            license_plate="Không phát hiện biển số xe",
+            ngay="2026-11-28",
+            thoi_gian="20:38:39",
+            image_paths="logs/plates/test_noplate_1.jpg",
+            camera_id=998,
+        )
+        log_detected_license_plate(
+            license_plate="Không phát hiện biển số xe",
+            ngay="2026-11-28",
+            thoi_gian="20:38:45",
+            image_paths="logs/plates/test_noplate_2.jpg",
+            camera_id=998,
+        )
+        # Quá 12s (xe khác) -> được phép ghi
+        log_detected_license_plate(
+            license_plate="Không phát hiện biển số xe",
+            ngay="2026-11-28",
+            thoi_gian="20:38:57",
+            image_paths="logs/plates/test_noplate_3.jpg",
+            camera_id=998,
+        )
+        rows = get_detected_license_plates(camera_id=998, allowed_camera_ids=[998])
+        with connect() as conn:
+            conn.execute("DELETE FROM bien_so_phat_hien WHERE id_camera = 998")
+            conn.commit()
+        self.assertEqual(len(rows), 2)
+        print("-> [OK] ALPR DB guard (no-plate & image dedup) test passed")
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()

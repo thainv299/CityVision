@@ -42,10 +42,20 @@ class Container:
 
         return templates.TemplateResponse(request=request, name=name, context=full_context)
 
-# Singleton Pattern cho Container và Templates
-container = Container()
-
+import sys as _sys
 from fastapi.templating import Jinja2Templates
 from core.config import PROJECT_ROOT
 
-templates = Jinja2Templates(directory=str(PROJECT_ROOT / "frontend" / "templates"))
+# Đảm bảo singleton Container & Templates dùng chung ngay cả khi import qua cả backend.presentation.container lẫn presentation.container
+_sibling_name = (
+    "presentation.container"
+    if __name__ == "backend.presentation.container"
+    else "backend.presentation.container"
+)
+_existing_mod = _sys.modules.get(_sibling_name)
+if _existing_mod is not None and hasattr(_existing_mod, "container"):
+    container = _existing_mod.container
+    templates = _existing_mod.templates
+else:
+    container = Container()
+    templates = Jinja2Templates(directory=str(PROJECT_ROOT / "frontend" / "templates"))

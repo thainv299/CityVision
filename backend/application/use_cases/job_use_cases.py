@@ -153,6 +153,7 @@ class JobUseCases:
         self.file_storage = file_storage
 
         self.job_lock = threading.Lock()
+        self._submit_lock = threading.RLock()
         self.jobs: Dict[str, Job] = {}
 
         # Khởi tạo ngữ cảnh Multiprocessing an toàn cho cả Windows và Ubuntu
@@ -522,6 +523,16 @@ class JobUseCases:
                 return True
         return False
 
+    def _get_submit_lock(self):
+        lock = getattr(self, "_submit_lock", None)
+        if lock is None:
+            with self.job_lock:
+                lock = getattr(self, "_submit_lock", None)
+                if lock is None:
+                    lock = threading.RLock()
+                    self._submit_lock = lock
+        return lock
+
     def submit_job(self, job_id: str, input_stream: Any, input_path: Optional[str], input_ext: str, settings: Dict[str, Any], delete_after_job: bool = False) -> Job:
         submitted_at = time.time()
         camera_id = settings.get("camera_id")
@@ -529,91 +540,92 @@ class JobUseCases:
         # Đọc dữ liệu BytesIO từ tiến trình chính trước khi chuyển giao (vì BytesIO không thể pickled truyền sang process khác)
         input_stream_bytes = input_stream.getvalue() if input_stream else None
 
-        job = self.set_job(
-            job_id,
-            status="running",
-            message="Đang tải...",
-            error=None,
-            output_filename=None,
-            summary=None,
-            source_video=None,
-            submitted_at=submitted_at,
-            camera_id=camera_id,
-            progress={
-                "phase": "queued",
-                "processed_frames": 0,
-                "source_total_frames": None,
-                "progress_percent": 0.0,
-                "elapsed_seconds": 0.0,
-                "latest_status": "Đang tải...",
-            },
-        )
-
-        # Tạo Event pause đồng bộ
-        if job_id not in self.pause_events:
-            self.pause_events[job_id] = self.mp_manager.Event()
-
-        # Đăng ký thông tin ban đầu vào Shared Dict
-        try:
-            self.shared_jobs_state[job_id] = {
-                "requested_quality": None,
-                "quality_seq": 0,
-                "requested_settings": None,
-                "settings_seq": 0,
-                "requested_force_preview": False,
-                "preview_seq": 0,
-                "viewer_count": 0
-            }
-        except Exception as e:
-            print(f"[System] Lỗi khởi tạo shared state: {e}")
-
-        # Dọn dẹp tiến trình cũ của job_id này nếu còn đang chạy (tránh orphan process sinh 2 tiến trình song song)
-        if job_id in self.processes:
-            old_p = self.processes.get(job_id)
-            if old_p and old_p.is_alive():
-                print(f"[System] Tiến trình cũ của {job_id} vẫn đang chạy (PID: {old_p.pid}). Dọn dẹp trước khi tạo mới...")
-                try:
-                    state = dict(self.shared_jobs_state.get(job_id) or {})
-                    state["aborted"] = True
-                    self.shared_jobs_state[job_id] = state
-                except Exception:
-                    pass
-                self._cleanup_process(job_id)
-
-        # Với background job, đảm bảo không có 2 tiến trình cùng chạy detection trên 1 camera
-        if camera_id is not None and job_id.startswith("background_"):
-            for other_jid, other_job in list(self.jobs.items()):
-                if other_jid != job_id and str(other_job.camera_id) == str(camera_id) and other_job.status in {"queued", "running"}:
-                    if other_jid.startswith("background_"):
-                        print(f"[System] Phát hiện background job cũ {other_jid} cho camera {camera_id}. Dừng job cũ...")
-                        try:
-                            state = dict(self.shared_jobs_state.get(other_jid) or {})
-                            state["aborted"] = True
-                            self.shared_jobs_state[other_jid] = state
-                        except Exception:
-                            pass
-                        self._cleanup_process(other_jid)
-                        other_job.status = "aborted"
-
-        # Khởi chạy Tiến trình con (Process) thay vì Thread
-        process = self.mp_ctx.Process(
-            target=_child_process_run,
-            args=(
+        with self._get_submit_lock():
+            job = self.set_job(
                 job_id,
-                input_stream_bytes,
-                input_path,
-                input_ext,
-                settings,
-                self.progress_queue,
-                self.pause_events[job_id],
-                self.shared_jobs_state
-            ),
-            daemon=True
-        )
-        self.processes[job_id] = process
-        process.start()
+                status="running",
+                message="Đang tải...",
+                error=None,
+                output_filename=None,
+                summary=None,
+                source_video=None,
+                submitted_at=submitted_at,
+                camera_id=camera_id,
+                progress={
+                    "phase": "queued",
+                    "processed_frames": 0,
+                    "source_total_frames": None,
+                    "progress_percent": 0.0,
+                    "elapsed_seconds": 0.0,
+                    "latest_status": "Đang tải...",
+                },
+            )
 
-        return job
+            # Tạo Event pause đồng bộ
+            if job_id not in self.pause_events:
+                self.pause_events[job_id] = self.mp_manager.Event()
+
+            # Đăng ký thông tin ban đầu vào Shared Dict
+            try:
+                self.shared_jobs_state[job_id] = {
+                    "requested_quality": None,
+                    "quality_seq": 0,
+                    "requested_settings": None,
+                    "settings_seq": 0,
+                    "requested_force_preview": False,
+                    "preview_seq": 0,
+                    "viewer_count": 0
+                }
+            except Exception as e:
+                print(f"[System] Lỗi khởi tạo shared state: {e}")
+
+            # Dọn dẹp tiến trình cũ của job_id này nếu còn đang chạy (tránh orphan process sinh 2 tiến trình song song)
+            if job_id in self.processes:
+                old_p = self.processes.get(job_id)
+                if old_p and old_p.is_alive():
+                    print(f"[System] Tiến trình cũ của {job_id} vẫn đang chạy (PID: {old_p.pid}). Dọn dẹp trước khi tạo mới...")
+                    try:
+                        state = dict(self.shared_jobs_state.get(job_id) or {})
+                        state["aborted"] = True
+                        self.shared_jobs_state[job_id] = state
+                    except Exception:
+                        pass
+                    self._cleanup_process(job_id)
+
+            # Với background job, đảm bảo không có 2 tiến trình cùng chạy detection trên 1 camera
+            if camera_id is not None and job_id.startswith("background_"):
+                for other_jid, other_job in list(self.jobs.items()):
+                    if other_jid != job_id and str(other_job.camera_id) == str(camera_id) and other_job.status in {"queued", "running"}:
+                        if other_jid.startswith("background_"):
+                            print(f"[System] Phát hiện background job cũ {other_jid} cho camera {camera_id}. Dừng job cũ...")
+                            try:
+                                state = dict(self.shared_jobs_state.get(other_jid) or {})
+                                state["aborted"] = True
+                                self.shared_jobs_state[other_jid] = state
+                            except Exception:
+                                pass
+                            self._cleanup_process(other_jid)
+                            other_job.status = "aborted"
+
+            # Khởi chạy Tiến trình con (Process) thay vì Thread
+            process = self.mp_ctx.Process(
+                target=_child_process_run,
+                args=(
+                    job_id,
+                    input_stream_bytes,
+                    input_path,
+                    input_ext,
+                    settings,
+                    self.progress_queue,
+                    self.pause_events[job_id],
+                    self.shared_jobs_state
+                ),
+                daemon=True
+            )
+            self.processes[job_id] = process
+            process.start()
+
+            return job
 
     def request_single_preview(self, job_id: str):
         with self.job_lock:
@@ -787,45 +799,47 @@ class JobUseCases:
         """Khởi động tất cả các camera đang hoạt động (is_active=True)"""
         self._camera_use_cases = camera_use_cases
         try:
-            active_cameras = camera_use_cases.list_cameras()
-            for cam in active_cameras:
-                if cam.is_active:
-                    job_id = f"background_{cam.id}"
-                    existing_job = self.get_job(job_id)
-                    if existing_job and existing_job.status in {"queued", "running"}:
-                        continue
+            with self._get_submit_lock():
+                active_cameras = camera_use_cases.list_cameras()
+                for cam in active_cameras:
+                    if cam.is_active:
+                        job_id = f"background_{cam.id}"
+                        existing_job = self.get_job(job_id)
+                        existing_proc = self.processes.get(job_id)
+                        if (existing_job and existing_job.status in {"queued", "running"}) or (existing_proc and existing_proc.is_alive()):
+                            continue
+                            
+                        print(f"[Startup] Đang khởi động giám sát nền cho camera: {cam.name} (ID: {cam.id})")
                         
-                    print(f"[Startup] Đang khởi động giám sát nền cho camera: {cam.name} (ID: {cam.id})")
-                    
-                    from database.sqlite_db import get_camera_settings
-                    cam_settings = get_camera_settings(cam.id)
-                    
-                    settings = {
-                        "camera_id": cam.id,
-                        "roi_points": cam.roi_points,
-                        "roi_meta": cam.roi_meta,
-                        "no_parking_points": cam.no_parking_points,
-                        "no_park_meta": cam.no_park_meta,
-                        "enable_congestion": cam.enable_congestion,
-                        "enable_illegal_parking": cam.enable_illegal_parking,
-                        "enable_license_plate": cam.enable_license_plate,
-                        "enable_ai": cam.enable_ai,
-                        "model_path": cam.model_path,
-                        "confidence_threshold": cam_settings.get("confidence", 0.37),
-                        "process_every_n_frames": cam_settings.get("frame_skip", 2),
-                        "congestion_threshold": cam_settings.get("congestion_threshold", 35),
-                        "stop_seconds": cam_settings.get("parking_violation_time", 30),
-                        "enabled_detect_labels": cam_settings.get("enabled_detect_labels", None),
-                        "save_to_db": True
-                    }
-                    
-                    self.submit_job(
-                        job_id=job_id,
-                        input_stream=None,
-                        input_path=cam.stream_source,
-                        input_ext=".mp4",
-                        settings=settings
-                    )
+                        from database.sqlite_db import get_camera_settings
+                        cam_settings = get_camera_settings(cam.id)
+                        
+                        settings = {
+                            "camera_id": cam.id,
+                            "roi_points": cam.roi_points,
+                            "roi_meta": cam.roi_meta,
+                            "no_parking_points": cam.no_parking_points,
+                            "no_park_meta": cam.no_park_meta,
+                            "enable_congestion": cam.enable_congestion,
+                            "enable_illegal_parking": cam.enable_illegal_parking,
+                            "enable_license_plate": cam.enable_license_plate,
+                            "enable_ai": cam.enable_ai,
+                            "model_path": cam.model_path,
+                            "confidence_threshold": cam_settings.get("confidence", 0.37),
+                            "process_every_n_frames": cam_settings.get("frame_skip", 2),
+                            "congestion_threshold": cam_settings.get("congestion_threshold", 35),
+                            "stop_seconds": cam_settings.get("parking_violation_time", 30),
+                            "enabled_detect_labels": cam_settings.get("enabled_detect_labels", None),
+                            "save_to_db": True
+                        }
+                        
+                        self.submit_job(
+                            job_id=job_id,
+                            input_stream=None,
+                            input_path=cam.stream_source,
+                            input_ext=".mp4",
+                            settings=settings
+                        )
         except Exception as e:
             print(f"[Startup] Lỗi khởi động camera nền: {e}")
 

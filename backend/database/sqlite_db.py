@@ -1550,35 +1550,43 @@ def log_detected_license_plate(license_plate: str, thoi_gian: str = None, ngay: 
         image_paths = image_paths.replace("\\", "/").replace("runtime/license_plates/", "logs/plates/")
     
     with connect() as connection:
-        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp biển số trên cùng camera trong khoảng thời gian ngắn (<= 8 giây)
-        if license_plate and license_plate != "Không phát hiện biển số xe":
-            cursor = connection.execute(
-                """
-                SELECT id, bien_so, thoi_gian_phat_hien FROM bien_so_phat_hien
-                WHERE id_camera = ? AND ngay_phat_hien = ?
-                ORDER BY id DESC LIMIT 5
-                """,
-                (camera_id, detected_date)
-            )
-            recent_rows = cursor.fetchall()
-            for row in recent_rows:
-                prev_plate = row["bien_so"]
-                prev_time_str = row["thoi_gian_phat_hien"]
-                try:
-                    t1 = datetime.strptime(thoi_gian, "%H:%M:%S")
-                    t2 = datetime.strptime(prev_time_str, "%H:%M:%S")
-                    diff_sec = abs((t1 - t2).total_seconds())
-                    if diff_sec <= 8.0:
-                        # 1. Trùng 100% biển số trong vòng 8 giây -> Bỏ qua
-                        if prev_plate == license_plate:
-                            print(f"[ALPR DB Guard] Bỏ qua ghi đúp biển số '{license_plate}' (vừa ghi cách đây {diff_sec:.1f}s)")
-                            return
-                        # 2. Sai khác <= 1 ký tự (ví dụ 15C13863 vs 15C13063) trong vòng 8 giây -> Bỏ qua
-                        if _levenshtein_distance(prev_plate, license_plate) <= 1:
-                            print(f"[ALPR DB Guard] Bỏ qua ghi đúp biến thể OCR '{license_plate}' (tương đồng với '{prev_plate}', cách đây {diff_sec:.1f}s)")
-                            return
-                except Exception:
-                    pass
+        # BẢO VỆ TẦNG DATABASE: Chống ghi đúp trên cùng camera (cả có biển số lẫn Không phát hiện biển số xe)
+        cursor = connection.execute(
+            """
+            SELECT id, bien_so, thoi_gian_phat_hien, duong_dan_anh FROM bien_so_phat_hien
+            WHERE id_camera = ? AND ngay_phat_hien = ?
+            ORDER BY id DESC LIMIT 10
+            """,
+            (camera_id, detected_date)
+        )
+        recent_rows = cursor.fetchall()
+        is_no_plate = (not license_plate) or (license_plate == "Không phát hiện biển số xe")
+        for row in recent_rows:
+            prev_plate = row["bien_so"]
+            prev_time_str = row["thoi_gian_phat_hien"]
+            prev_img = row["duong_dan_anh"]
+            if image_paths and prev_img and prev_img == image_paths:
+                print(f"[ALPR DB Guard] Bỏ qua ghi đúp đường dẫn ảnh '{image_paths}'")
+                return
+            try:
+                t1 = datetime.strptime(thoi_gian, "%H:%M:%S")
+                t2 = datetime.strptime(prev_time_str, "%H:%M:%S")
+                diff_sec = abs((t1 - t2).total_seconds())
+                if is_no_plate:
+                    if prev_plate == "Không phát hiện biển số xe" and diff_sec <= 12.0:
+                        print(f"[ALPR DB Guard] Bỏ qua ghi đúp 'Không phát hiện biển số xe' (vừa ghi cách đây {diff_sec:.1f}s)")
+                        return
+                elif diff_sec <= 8.0 and prev_plate and prev_plate != "Không phát hiện biển số xe":
+                    # 1. Trùng 100% biển số trong vòng 8 giây -> Bỏ qua
+                    if prev_plate == license_plate:
+                        print(f"[ALPR DB Guard] Bỏ qua ghi đúp biển số '{license_plate}' (vừa ghi cách đây {diff_sec:.1f}s)")
+                        return
+                    # 2. Sai khác <= 1 ký tự (ví dụ 15C13863 vs 15C13063) trong vòng 8 giây -> Bỏ qua
+                    if _levenshtein_distance(prev_plate, license_plate) <= 1:
+                        print(f"[ALPR DB Guard] Bỏ qua ghi đúp biến thể OCR '{license_plate}' (tương đồng với '{prev_plate}', cách đây {diff_sec:.1f}s)")
+                        return
+            except Exception:
+                pass
 
         connection.execute(
             """
