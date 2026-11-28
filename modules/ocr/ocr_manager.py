@@ -163,6 +163,10 @@ class OCRManager:
             self.spatial_memory[track_id] = (cx, cy, final_text, frame_count)
             if matched_v_id != -1:
                 self.vehicle_plates[matched_v_id] = final_text
+            if self.alpr_logger:
+                self.alpr_logger.plate_sessions[final_text] = {"last_seen": frame_count}
+                if matched_v_id != -1:
+                    self.alpr_logger.logged_v_tracks.add(matched_v_id)
             
         elif track_id in self.pending_results:
             # Nhận kết quả từ Queue

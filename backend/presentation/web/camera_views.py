@@ -411,9 +411,9 @@ def api_update_camera_settings(camera_id: int, payload: Dict[str, Any], user=Dep
         # Đồng bộ và cập nhật nóng hoặc khởi động lại job
         if model_changed:
             # Thay đổi mô hình AI -> Cần giải phóng và khởi động lại luồng để nạp model mới
+            container.job_use_cases.stop_camera_jobs(camera_id)
             if camera.is_active:
-                container.job_use_cases.stop_camera_job(camera_id)
-                container.job_use_cases.start_camera_job(camera_id)
+                container.job_use_cases.start_active_cameras(container.camera_use_cases)
         else:
             # Chỉ cập nhật các specs AI trong RAM
             container.job_use_cases.update_camera_job_settings(camera_id, payload)

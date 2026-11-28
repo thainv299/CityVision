@@ -68,6 +68,17 @@ class TestWebAPIEndpoints(unittest.TestCase):
         self.assertIn(res.status_code, [200, 401])
         print(f"-> [OK] GET /api/violations status: {res.status_code}")
 
+    def test_06_single_container_singleton_across_imports(self):
+        """Đảm bảo app.py và tất cả web routers dùng chung đúng 1 singleton Container (không chạy 2 tiến trình nền song song)."""
+        import backend.presentation.container as bc
+        import presentation.container as pc
+        import presentation.web.monitoring_views as mv
+        import presentation.web.camera_views as cv
+        self.assertIs(bc.container, pc.container)
+        self.assertIs(bc.container, mv.container)
+        self.assertIs(bc.container, cv.container)
+        print("-> [OK] Single Container singleton across imports passed")
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()

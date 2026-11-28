@@ -1123,6 +1123,7 @@ def process_video(
     weapon_manager = WeaponManager(camera_id=camera_id, camera_name=settings.get("name", "Camera")) if enable_weapon_detection else None
     alpr_logger = ALPRLogger(db_callback=log_detected_license_plate, id_camera=camera_id)
     alpr_logger.io_worker = io_worker
+    alpr_logger.save_to_db = save_to_db
 
     traffic_alert_manager = TrafficAlertManager()
     traffic_alert_manager.io_worker = io_worker

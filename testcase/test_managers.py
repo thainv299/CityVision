@@ -96,6 +96,21 @@ class TestBusinessManagers(unittest.TestCase):
         logger.process_plate("30F-12345", current_frame=100, plate_img=None, full_frame=full_frame, plate_coords=plate_coords, vehicle_bbox=vehicle_bbox)
         print("-> [OK] ALPRLogger text rendering & logging test passed")
 
+    def test_05_ocr_manager_confirmed_plate_keeps_session_and_vtrack_logged(self):
+        """OCRManager giữ trạng thái plate_sessions và logged_v_tracks cho xe đã confirm/kế thừa để tránh ghi đúp."""
+        from modules.ocr.ocr_manager import OCRManager
+        logger = ALPRLogger(id_camera=1)
+        logger.save_to_db = False
+        mgr = OCRManager(reader=None, alpr_logger=logger)
+        mgr.plate_confirmed[10] = "15A12345"
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        clean = frame.copy()
+        valid_vehicles = [(50, 50, 300, 300, 77)]
+        mgr.process_plate(frame, clean, 10, 120, 180, 180, 210, 150, 195, valid_vehicles, 10.0, 2500)
+        self.assertEqual(logger.plate_sessions.get("15A12345", {}).get("last_seen"), 2500)
+        self.assertIn(77, logger.logged_v_tracks)
+        print("-> [OK] OCRManager session & v_track anti-dup test passed")
+
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
