@@ -95,6 +95,26 @@ def _get_preferred_ffmpeg_encoder() -> str:
     return encoder
 
 
+def _resolve_rtsp_push_enabled(settings: Optional[Dict[str, Any]] = None) -> bool:
+    """Xác định có bật đẩy RTSP -> MediaMTX (phục vụ WebRTC) hay không."""
+    if settings and "enable_rtsp_push" in settings and settings["enable_rtsp_push"] is not None:
+        return bool(settings["enable_rtsp_push"])
+    rtsp_env = os.environ.get("ENABLE_RTSP_PUSH", "").strip().lower()
+    if rtsp_env in ("0", "false", "no", "off"):
+        return False
+    if rtsp_env in ("1", "true", "yes", "on"):
+        return True
+    try:
+        from database.sqlite_db import get_system_setting
+        wan_mode = str(get_system_setting("wan_transmission_mode", "webrtc")).strip().lower()
+        if wan_mode == "mjpeg":
+            return False
+        db_val = str(get_system_setting("enable_rtsp_push", "true")).strip().lower()
+        return db_val not in ("0", "false", "no", "off")
+    except Exception:
+        return True
+
+
 def _read_exact_into_ndarray(pipe, shape: Tuple[int, int, int], frame_size: int) -> Optional[np.ndarray]:
     """Đọc thẳng frame raw từ stdout FFmpeg vào ndarray writable, tránh alloc bytes + copy() thừa."""
     buf = np.empty(frame_size, dtype=np.uint8)
@@ -1159,6 +1179,7 @@ def process_video(
     last_heartbeat_time = started_at
 
     # Luồng nền nén ảnh JPEG
+    preview_lock = threading.Lock()
     preview_queue = queue.Queue(maxsize=1)
     preview_state = {"last_jpeg": None, "jpeg_seq": 0, "stop": False, "pw": preview_w, "ph": preview_h, "q": 75, "viewer_count": 0, "force_preview": False}
 
@@ -1172,23 +1193,26 @@ def process_video(
         while not preview_state["stop"]:
             try:
                 frame_to_encode = preview_queue.get(timeout=0.2)
-                
-                # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
-                if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
-                    encoded_jpg = hw_encoder.encode(
-                        frame_to_encode, 
-                        preview_state["pw"], 
-                        preview_state["ph"],
-                        preview_state["q"]
-                    )
-                    if encoded_jpg:
-                        preview_state["last_jpeg"] = encoded_jpg
-                        preview_state["jpeg_seq"] += 1
-                    # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
-                    if preview_state["force_preview"]:
-                        preview_state["force_preview"] = False
             except queue.Empty:
                 continue
+            if frame_to_encode is None:
+                break
+
+            # Chỉ nén ảnh nếu có người xem hoặc có cờ yêu cầu bắt buộc nén
+            if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
+                encoded_jpg = hw_encoder.encode(
+                    frame_to_encode,
+                    preview_state["pw"],
+                    preview_state["ph"],
+                    preview_state["q"]
+                )
+                if encoded_jpg:
+                    with preview_lock:
+                        preview_state["last_jpeg"] = encoded_jpg
+                        preview_state["jpeg_seq"] += 1
+                # Nếu là force_preview thì tắt đi sau khi nén xong để không nén thừa mứa
+                if preview_state["force_preview"]:
+                    preview_state["force_preview"] = False
 
     threading.Thread(target=preview_encoder_worker, args=(), daemon=True).start()
 
@@ -1202,23 +1226,32 @@ def process_video(
         ocr_manager.start_worker()
 
     # Khởi chạy FFmpeg RTSP push process + Worker ghi bất đồng bộ (không block luồng AI)
+    enable_rtsp_push = _resolve_rtsp_push_enabled(settings)
     rtsp_proc = None
     rtsp_lock = threading.RLock()
     rtsp_target = f"rtsp://127.0.0.1:8554/live_camera_{camera_id}"
 
-    encoder_to_use = _get_preferred_ffmpeg_encoder()
-    if encoder_to_use == "h264_nvenc":
-        print(f"[RTSP Push - Camera {camera_id}] Sử dụng GPU NVENC (cache) để nén video!")
-    elif encoder_to_use == "h264_v4l2m2m":
-        print(f"[RTSP Push - Camera {camera_id}] Sử dụng Jetson V4L2 Hardware Encoder (cache)!")
+    encoder_to_use = _get_preferred_ffmpeg_encoder() if enable_rtsp_push else "disabled"
+    if enable_rtsp_push:
+        if encoder_to_use == "h264_nvenc":
+            print(f"[RTSP Push - Camera {camera_id}] Sử dụng GPU NVENC (cache) để nén video!")
+        elif encoder_to_use == "h264_v4l2m2m":
+            print(f"[RTSP Push - Camera {camera_id}] Sử dụng Jetson V4L2 Hardware Encoder (cache)!")
+        else:
+            print(f"[RTSP Push - Camera {camera_id}] Sử dụng CPU encoder (libx264)...")
     else:
-        print(f"[RTSP Push - Camera {camera_id}] Sử dụng CPU encoder (libx264)...")
+        print(f"[RTSP Push - Camera {camera_id}] Đã tắt đẩy RTSP nền (dùng trực tiếp MJPEG).")
     rtsp_start_time = 0.0
 
-    # Kích thước push mặc định (1080p)
-    push_w, push_h = draw_w, draw_h
-    push_bitrate = "3.5M"
-    push_crf = "20"
+    # Kích thước push mặc định giới hạn ở 720p (PREVIEW_WIDTH) để nhẹ CPU/encoder trên Jetson;
+    # có thể tăng lên 1080p khi chọn high/ultra trong menu chất lượng.
+    if draw_w > PREVIEW_WIDTH:
+        push_w = PREVIEW_WIDTH
+        push_h = int(draw_h * (PREVIEW_WIDTH / draw_w))
+    else:
+        push_w, push_h = draw_w, draw_h
+    push_bitrate = "1.8M"
+    push_crf = "23"
     
     # Lấy chất lượng ban đầu nếu có yêu cầu từ settings
     initial_q = settings.get("requested_quality")
@@ -1236,7 +1269,7 @@ def process_video(
     push_w = push_w + (push_w % 2)
     push_h = push_h + (push_h % 2)
 
-    rtsp_state = {"stop": False, "w": push_w, "h": push_h, "bitrate": push_bitrate, "crf": push_crf}
+    rtsp_state = {"stop": not enable_rtsp_push, "w": push_w, "h": push_h, "bitrate": push_bitrate, "crf": push_crf}
     rtsp_queue = queue.Queue(maxsize=1)
 
     def start_rtsp_push(w, h, bitrate, crf):
@@ -1265,12 +1298,16 @@ def process_video(
             ffmpeg_push_cmd = [
                 "ffmpeg", "-y",
                 "-loglevel", "error",
+            ]
+            if is_live:
+                ffmpeg_push_cmd.extend(["-use_wallclock_as_timestamps", "1"])
+            ffmpeg_push_cmd.extend([
                 "-f", "rawvideo",
                 "-pix_fmt", "bgr24",
                 "-s", f"{w}x{h}",
                 "-r", f"{int(fps) if fps > 0 else 25}",
                 "-i", "-",
-            ]
+            ])
             
             gop_size = "15"
             
@@ -1301,13 +1338,13 @@ def process_video(
                     "-c:v", "h264_v4l2m2m",
                     "-b:v", bitrate,
                     "-g", gop_size,
-                    "-num_output_buffers", "16",
+                    "-num_output_buffers", "6",
                 ])
             else:
                 ffmpeg_push_cmd.extend([
                     "-vf", "format=yuv420p",
                     "-c:v", "libx264",
-                    "-preset", "veryfast",
+                    "-preset", "ultrafast",
                     "-tune", "zerolatency",
                     "-crf", crf,
                     "-b:v", bitrate,
@@ -1383,9 +1420,60 @@ def process_video(
                     elif (time.time() - rtsp_start_time) >= 5.0:
                         start_rtsp_push(rtsp_state["w"], rtsp_state["h"], rtsp_state["bitrate"], rtsp_state["crf"])
 
-    start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
-    rtsp_writer_thread = threading.Thread(target=rtsp_writer_worker, args=(), daemon=True)
-    rtsp_writer_thread.start()
+    rtsp_writer_thread = None
+
+    def ensure_rtsp_push_started():
+        nonlocal encoder_to_use, rtsp_writer_thread
+        if encoder_to_use == "disabled":
+            encoder_to_use = _get_preferred_ffmpeg_encoder()
+        while not rtsp_queue.empty():
+            try:
+                rtsp_queue.get_nowait()
+            except queue.Empty:
+                break
+        rtsp_state["stop"] = False
+        start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
+        if rtsp_writer_thread is None or not rtsp_writer_thread.is_alive():
+            rtsp_writer_thread = threading.Thread(target=rtsp_writer_worker, args=(), daemon=True)
+            rtsp_writer_thread.start()
+
+    def stop_rtsp_push():
+        nonlocal rtsp_proc, rtsp_writer_thread
+        rtsp_state["stop"] = True
+        with rtsp_lock:
+            proc_to_stop = rtsp_proc
+            rtsp_proc = None
+        if proc_to_stop:
+            try:
+                proc_to_stop.terminate()
+                proc_to_stop.wait(timeout=1.0)
+            except Exception:
+                try:
+                    proc_to_stop.kill()
+                except Exception:
+                    pass
+        if rtsp_writer_thread is not None:
+            try:
+                rtsp_queue.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                rtsp_queue.put_nowait(None)
+            except queue.Full:
+                pass
+            try:
+                rtsp_writer_thread.join(timeout=2.0)
+            except Exception:
+                pass
+            rtsp_writer_thread = None
+        if proc_to_stop and proc_to_stop.stdin:
+            try:
+                proc_to_stop.stdin.close()
+            except Exception:
+                pass
+
+    if enable_rtsp_push:
+        ensure_rtsp_push_started()
 
     # FIX #4: Tính drawing params 1 lần trước vòng lặp
     f_scale, f_thick, f_offset = _get_drawing_params(draw_w)
@@ -1840,7 +1928,7 @@ def process_video(
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
 
             # Đẩy frame sang RTSP writer thread bất đồng bộ (không block vòng lặp AI)
-            if not rtsp_state["stop"]:
+            if enable_rtsp_push and not rtsp_state["stop"]:
                 try:
                     rtsp_queue.get_nowait()
                 except queue.Empty:
@@ -1851,29 +1939,42 @@ def process_video(
                     pass
 
             response = None
-            # 3. GỬI TIẾN ĐỘ LÊN WEB (Throttle để tránh nghẽn mp.Queue & Manager RPC)
+            # 3. Nạp frame mới nhất vào bộ nén JPEG nền & gửi tiến độ lên Web
             if progress_callback is not None:
                 now_t = time.time()
-                cur_jpeg_seq = preview_state["jpeg_seq"]
-                has_new_jpeg = (cur_jpeg_seq != last_sent_jpeg_seq)
+
+                # Tách việc nạp frame khỏi throttle IPC để không bị bỏ lỡ frame skip / jitter RTSP.
+                if preview_state["viewer_count"] > 0 or preview_state["force_preview"]:
+                    try:
+                        preview_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        preview_queue.put_nowait(frame)
+                    except queue.Full:
+                        pass
+
+                with preview_lock:
+                    cur_jpeg_seq = preview_state["jpeg_seq"]
+                    cur_jpeg_bytes = preview_state["last_jpeg"]
+                has_new_jpeg = (cur_jpeg_seq != last_sent_jpeg_seq) and (cur_jpeg_bytes is not None)
+
                 if preview_state["viewer_count"] > 0:
-                    should_send_progress = (now_t - last_progress_time >= 0.066) or (has_new_jpeg and (now_t - last_progress_time >= 0.04))
+                    # Có JPEG mới là gửi ngay để giữ đúng FPS gốc (~20-30 FPS); chỉ throttle gói status rỗng.
+                    should_send_progress = has_new_jpeg or (now_t - last_progress_time >= 0.2) or (frame_index == 1)
                 else:
                     should_send_progress = (now_t - last_progress_time >= 0.5) or (frame_index == 1) or has_new_jpeg
 
                 if should_send_progress:
                     last_progress_time = now_t
-                    if (preview_state["viewer_count"] > 0 or preview_state["force_preview"]) and preview_queue.empty():
-                        preview_queue.put(frame)
-
                     progress_payload = {
                         "phase": "running_detection",
                         "latest_status": latest_status,
                         "timestamp": now_t,
                         "processed_frames": frame_index,
                     }
-                    if has_new_jpeg and preview_state["last_jpeg"] is not None:
-                        progress_payload["preview_jpeg"] = preview_state["last_jpeg"]
+                    if has_new_jpeg:
+                        progress_payload["preview_jpeg"] = cur_jpeg_bytes
                         last_sent_jpeg_seq = cur_jpeg_seq
 
                     response = progress_callback(progress_payload)
@@ -1917,7 +2018,8 @@ def process_video(
                     
                     push_w = push_w + (push_w % 2)
                     push_h = push_h + (push_h % 2)
-                    start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
+                    if enable_rtsp_push:
+                        start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
                     print(f"[AI] Đã đổi chất lượng sang: {q} ({preview_state['pw']}x{preview_state['ph']}, quality={preview_state['q']})")
                 
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
@@ -2041,6 +2143,17 @@ def process_video(
                     if "show_label" in new_s:
                         show_label = bool(new_s["show_label"])
 
+                    if "enable_rtsp_push" in new_s:
+                        new_rtsp_flag = bool(new_s["enable_rtsp_push"])
+                        if new_rtsp_flag != enable_rtsp_push:
+                            enable_rtsp_push = new_rtsp_flag
+                            if enable_rtsp_push:
+                                ensure_rtsp_push_started()
+                                print(f"[Dynamic Settings - Camera {camera_id}] Đã bật đẩy RTSP nền (WebRTC).")
+                            else:
+                                stop_rtsp_push()
+                                print(f"[Dynamic Settings - Camera {camera_id}] Đã tắt đẩy RTSP nền (MJPEG).")
+
             # 4. THROTTLE & PROFILING
             elapsed = time.time() - frame_start_time
             accumulated_process_time += elapsed
@@ -2052,39 +2165,17 @@ def process_video(
 
     finally:
         # Đặt cờ dừng RTSP writer và chấm dứt FFmpeg push trước để giải phóng ngay nếu đang block stdin.write
-        rtsp_state["stop"] = True
-        with rtsp_lock:
-            proc_to_stop = rtsp_proc
-            rtsp_proc = None
-        if proc_to_stop:
-            try:
-                proc_to_stop.terminate()
-                proc_to_stop.wait(timeout=1.0)
-            except Exception:
-                try:
-                    proc_to_stop.kill()
-                except Exception:
-                    pass
+        stop_rtsp_push()
 
+        preview_state["stop"] = True
         try:
-            rtsp_queue.get_nowait()
+            preview_queue.get_nowait()
         except queue.Empty:
             pass
         try:
-            rtsp_queue.put_nowait(None)
+            preview_queue.put_nowait(None)
         except queue.Full:
             pass
-        try:
-            rtsp_writer_thread.join(timeout=2.0)
-        except Exception:
-            pass
-        if proc_to_stop and proc_to_stop.stdin:
-            try:
-                proc_to_stop.stdin.close()
-            except Exception:
-                pass
-
-        preview_state["stop"] = True
         capture.release()
         if enable_license_plate and ocr_manager is not None:
             ocr_manager.stop_worker()

@@ -432,6 +432,15 @@ def api_get_system_settings(user=Depends(login_required)):
         log_retention = get_system_setting("log_retention", "30_days")
         telegram_notifications = get_system_setting("telegram_notifications", "true")
         wan_transmission_mode = get_system_setting("wan_transmission_mode", "webrtc")
+        rtsp_env = os.environ.get("ENABLE_RTSP_PUSH", "").strip().lower()
+        if rtsp_env in ("0", "false", "no", "off"):
+            enable_rtsp_push = "false"
+        elif rtsp_env in ("1", "true", "yes", "on"):
+            enable_rtsp_push = "true"
+        elif str(wan_transmission_mode).strip().lower() == "mjpeg":
+            enable_rtsp_push = "false"
+        else:
+            enable_rtsp_push = get_system_setting("enable_rtsp_push", "true")
         ocr_voting_threshold = get_system_setting("ocr_voting_threshold", "3")
         ocr_interval = get_system_setting("ocr_interval", "1")
         ocr_preprocess_perspective = get_system_setting("ocr_preprocess_perspective", "true")
@@ -443,6 +452,7 @@ def api_get_system_settings(user=Depends(login_required)):
                 "log_retention": log_retention,
                 "telegram_notifications": telegram_notifications,
                 "wan_transmission_mode": wan_transmission_mode,
+                "enable_rtsp_push": enable_rtsp_push,
                 "ocr_voting_threshold": ocr_voting_threshold,
                 "ocr_interval": ocr_interval,
                 "ocr_preprocess_perspective": ocr_preprocess_perspective,
@@ -470,6 +480,22 @@ def api_update_system_settings(payload: Dict[str, Any], user=Depends(login_requi
         wan_transmission_mode = payload.get("wan_transmission_mode")
         if wan_transmission_mode:
             update_system_setting("wan_transmission_mode", wan_transmission_mode)
+            rtsp_env = os.environ.get("ENABLE_RTSP_PUSH", "").strip().lower()
+            if rtsp_env in ("0", "false", "no", "off"):
+                new_rtsp_enabled = False
+            elif rtsp_env in ("1", "true", "yes", "on"):
+                new_rtsp_enabled = True
+            else:
+                new_rtsp_enabled = str(wan_transmission_mode).strip().lower() != "mjpeg"
+
+            with container.job_use_cases.job_lock:
+                running_cam_ids = {
+                    int(j.camera_id)
+                    for j in container.job_use_cases.jobs.values()
+                    if j.camera_id is not None and j.status in {"queued", "running"}
+                }
+            for cam_id in running_cam_ids:
+                container.job_use_cases.update_camera_job_settings(cam_id, {"enable_rtsp_push": new_rtsp_enabled})
             
         ocr_voting_threshold = payload.get("ocr_voting_threshold")
         if ocr_voting_threshold is not None:
