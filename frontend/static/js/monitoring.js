@@ -240,6 +240,188 @@ function initMonitoringForm() {
         }
     }
 
+    function stopMjpegSlot(slot) {
+        if (!slot) return;
+        if (slot.mjpegController) {
+            try { slot.mjpegController.abort(); } catch (e) { /* ignore */ }
+            slot.mjpegController = null;
+        }
+        if (slot.domElement) {
+            const imgEl = slot.domElement.querySelector('.mv-stream-img');
+            if (imgEl && imgEl._blobUrl) {
+                try { URL.revokeObjectURL(imgEl._blobUrl); } catch (e) { /* ignore */ }
+                imgEl._blobUrl = null;
+            }
+        }
+    }
+
+    function startWindowedMjpegPlayer(slot, imgEl) {
+        if (!slot || !imgEl) return;
+        const streamUrl = imgEl.dataset.src;
+        if (!streamUrl) return;
+
+        stopMjpegSlot(slot);
+        imgEl.style.display = 'block';
+
+        // Fallback về <img> thuần nếu trình duyệt không hỗ trợ fetch ReadableStream hoặc không có jobId
+        if (!window.ReadableStream || !slot.jobId || typeof TextDecoder === 'undefined') {
+            imgEl.src = streamUrl;
+            return;
+        }
+
+        const cid = `s${slot.index}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const controller = new AbortController();
+        slot.mjpegController = controller;
+
+        const sep = streamUrl.includes('?') ? '&' : '?';
+        const urlWithCid = `${streamUrl}${sep}cid=${encodeURIComponent(cid)}`;
+        const B_START = new TextEncoder().encode('--frame\r\n');
+        const B_HDR_END = new TextEncoder().encode('\r\n\r\n');
+        const hdrDec = new TextDecoder('ascii');
+
+        const findBytes = (hay, needle, from = 0) => {
+            outer: for (let i = from; i <= hay.length - needle.length; i++) {
+                for (let j = 0; j < needle.length; j++) {
+                    if (hay[i + j] !== needle[j]) continue outer;
+                }
+                return i;
+            }
+            return -1;
+        };
+
+        let lastAckSent = 0;
+        let pendingAckSeq = 0;
+        let ackInFlight = false;
+        const flushAck = () => {
+            if (ackInFlight || pendingAckSeq <= lastAckSent || controller.signal.aborted) return;
+            const ackSeq = pendingAckSeq;
+            lastAckSent = ackSeq;
+            ackInFlight = true;
+            fetch(`/api/test-jobs/${slot.jobId}/stream-ack?cid=${encodeURIComponent(cid)}&seq=${ackSeq}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                keepalive: true,
+            })
+                .catch(() => { /* ignore transient ack drop */ })
+                .finally(() => {
+                    ackInFlight = false;
+                    if (pendingAckSeq > lastAckSent && !controller.signal.aborted) {
+                        flushAck();
+                    }
+                });
+        };
+
+        let pendingJpg = null;
+        let painting = false;
+        const paintLatest = async () => {
+            if (painting || !pendingJpg || controller.signal.aborted) return;
+            painting = true;
+            try {
+                while (pendingJpg && !controller.signal.aborted) {
+                    const jpgBytes = pendingJpg;
+                    pendingJpg = null;
+                    const blob = new Blob([jpgBytes], { type: 'image/jpeg' });
+                    const objUrl = URL.createObjectURL(blob);
+                    const oldUrl = imgEl._blobUrl;
+                    imgEl._blobUrl = objUrl;
+                    imgEl.src = objUrl;
+                    try {
+                        await imgEl.decode();
+                    } catch (e) { /* ignore aborted decode */ }
+                    if (oldUrl) {
+                        try { URL.revokeObjectURL(oldUrl); } catch (e) { /* ignore */ }
+                    }
+                }
+            } finally {
+                painting = false;
+            }
+        };
+
+        (async () => {
+            let receivedAnyFrame = false;
+            try {
+                const res = await fetch(urlWithCid, {
+                    signal: controller.signal,
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                });
+                if (!res.ok || !res.body) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                const reader = res.body.getReader();
+                let buf = new Uint8Array(0);
+
+                while (!controller.signal.aborted) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    if (!value || value.length === 0) continue;
+
+                    const merged = new Uint8Array(buf.length + value.length);
+                    merged.set(buf);
+                    merged.set(value, buf.length);
+                    buf = merged;
+
+                    let latestJpg = null;
+                    let latestSeq = 0;
+                    let consumedOffset = 0;
+
+                    while (true) {
+                        const s = findBytes(buf, B_START, consumedOffset);
+                        if (s === -1) break;
+                        const he = findBytes(buf, B_HDR_END, s + B_START.length);
+                        if (he === -1) break;
+                        const hdrTxt = hdrDec.decode(buf.subarray(s, he));
+                        const mLen = /Content-Length:\s*(\d+)/i.exec(hdrTxt);
+                        if (!mLen) {
+                            consumedOffset = he + 4;
+                            continue;
+                        }
+                        const cl = parseInt(mLen[1], 10);
+                        const bodyStart = he + 4;
+                        if (buf.length < bodyStart + cl + 2) break;
+
+                        latestJpg = buf.slice(bodyStart, bodyStart + cl);
+                        const mSeq = /X-Frame-Seq:\s*(\d+)/i.exec(hdrTxt);
+                        if (mSeq) {
+                            latestSeq = parseInt(mSeq[1], 10);
+                        }
+                        consumedOffset = bodyStart + cl + 2;
+                    }
+
+                    if (consumedOffset > 0) {
+                        buf = buf.slice(consumedOffset);
+                    }
+                    if (latestJpg) {
+                        receivedAnyFrame = true;
+                        if (latestSeq > pendingAckSeq) {
+                            pendingAckSeq = latestSeq;
+                            flushAck();
+                        }
+                        pendingJpg = latestJpg;
+                        paintLatest();
+                    }
+                }
+            } catch (err) {
+                if (!controller.signal.aborted && !receivedAnyFrame) {
+                    console.warn('[MJPEG] Fallback về <img> thuần do lỗi stream fetch:', err.message);
+                    imgEl.src = streamUrl;
+                    return;
+                }
+            }
+            // Nếu kết nối bị ngắt bất ngờ (ví dụ proxy WAN đóng idle stream) khi vẫn đang xem, tự nối lại
+            if (!controller.signal.aborted && slot.state === 'streaming') {
+                setTimeout(() => {
+                    if (!controller.signal.aborted && slot.state === 'streaming' && slot.domElement) {
+                        const currentImg = slot.domElement.querySelector('.mv-stream-img');
+                        if (currentImg === imgEl) {
+                            startWindowedMjpegPlayer(slot, imgEl);
+                        }
+                    }
+                }, 1000);
+            }
+        })();
+    }
+
     // ── RENDER SLOTS ───────────────────────────────────────
     function renderSlots() {
         if (!multiviewGrid) return;
@@ -331,8 +513,7 @@ function initMonitoringForm() {
                     if (!enableRtspPush || (!isLocal && wanTransmissionMode === "mjpeg")) {
                         if (videoEl) videoEl.style.display = 'none';
                         if (imgEl) {
-                            imgEl.src = imgEl.dataset.src;
-                            imgEl.style.display = 'block';
+                            startWindowedMjpegPlayer(slot, imgEl);
                         }
                         if (badgeEl) {
                             badgeEl.textContent = 'MJPEG';
@@ -368,8 +549,7 @@ function initMonitoringForm() {
                                     console.log(`[WebRTC] Hết lượt thử (${maxRetries}). Lỗi: ${err.message}. Dự phòng về MJPEG Stream...`);
                                     if (videoEl) videoEl.style.display = 'none';
                                     if (imgEl) {
-                                        imgEl.src = imgEl.dataset.src; // Nạp luồng MJPEG thực tế khi thực sự có nhu cầu fallback
-                                        imgEl.style.display = 'block';
+                                        startWindowedMjpegPlayer(slot, imgEl);
                                     }
                                     if (badgeEl) {
                                         badgeEl.textContent = 'MJPEG';
@@ -524,7 +704,8 @@ function initMonitoringForm() {
         if (!slot || !slot.jobId) return;
 
         try {
-            const data = await window.portalApi.get(`/api/test-jobs/${slot.jobId}`);
+            const previewQuery = slot.state === 'streaming' ? '?include_preview=0' : '';
+            const data = await window.portalApi.get(`/api/test-jobs/${slot.jobId}${previewQuery}`);
             const job = data.job;
 
             // Log detailed job status to browser console
@@ -581,6 +762,8 @@ function initMonitoringForm() {
     async function stopSlotJob(slotIndex) {
         const slot = slots[slotIndex];
         if (!slot) return;
+
+        stopMjpegSlot(slot);
 
         if (slot.webRtcRetryTimeoutId) {
             clearTimeout(slot.webRtcRetryTimeoutId);

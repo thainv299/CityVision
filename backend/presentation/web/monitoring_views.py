@@ -520,15 +520,14 @@ async def api_create_test_job(
 
     if job.latest_frame:
         import base64
-        if "progress" not in payload:
-            payload["progress"] = {}
+        payload["progress"] = dict(payload.get("progress") or {})
         payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
 
     return JSONResponse(status_code=200, content={"ok": True, "job": payload})
 
 
 @monitoring_router.get("/api/test-jobs/{job_id}")
-def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)):
+def api_get_test_job(request: Request, job_id: str, include_preview: int = 1, user=Depends(login_required)):
     job = container.job_use_cases.get_job(job_id)
     if job is None:
         return JSONResponse(status_code=404, content={"ok": False, "error": "Không tìm thấy job kiểm tra."})
@@ -541,11 +540,12 @@ def api_get_test_job(request: Request, job_id: str, user=Depends(login_required)
     payload["stream_url"] = str(request.url_for("monitoring.serve_test_job_stream", job_id=job.id))
     payload["queue_position"] = container.job_use_cases.get_queue_position(job.id)
 
-    if job.latest_frame:
+    payload["progress"] = dict(payload.get("progress") or {})
+    if include_preview and job.latest_frame:
         import base64
-        if "progress" not in payload:
-            payload["progress"] = {}
         payload["progress"]["preview_base64"] = base64.b64encode(job.latest_frame).decode("utf-8")
+    elif not include_preview:
+        payload["progress"].pop("preview_base64", None)
 
     return {"ok": True, "job": payload}
 @monitoring_router.post("/api/test-jobs/{job_id}/pause")
@@ -607,11 +607,21 @@ def api_update_job_settings(job_id: str, settings: Dict[str, Any] = Body(...), u
 
 
 @monitoring_router.get("/api/test-jobs/{job_id}/stream", name="monitoring.serve_test_job_stream")
-async def serve_test_job_stream(job_id: str, user=Depends(login_required)):
+async def serve_test_job_stream(job_id: str, cid: Optional[str] = None, user=Depends(login_required)):
     return StreamingResponse(
-        container.job_use_cases.stream_job_frames(job_id), 
-        media_type="multipart/x-mixed-replace; boundary=frame"
+        container.job_use_cases.stream_job_frames(job_id, client_id=cid),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "X-Accel-Buffering": "no",
+        },
     )
+
+
+@monitoring_router.post("/api/test-jobs/{job_id}/stream-ack")
+async def api_ack_test_job_stream(job_id: str, cid: str, seq: int, user=Depends(login_required)):
+    ok = container.job_use_cases.ack_stream_frame(job_id, cid, seq)
+    return {"ok": ok}
 
 
 @monitoring_router.post("/api/monitoring/extract-frame")

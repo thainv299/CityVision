@@ -380,6 +380,96 @@ class TestPerformanceOptimizations(unittest.TestCase):
         self.assertEqual(job.progress.get("processed_frames"), 20)
         self.assertTrue(uc.progress_queue.empty())
 
+    def test_12_stream_job_frames_content_length_and_windowed_ack(self):
+        """stream_job_frames gửi Content-Length, X-Frame-Seq và giữ tối đa 3 frame chưa ACK trên WAN."""
+        from backend.application.use_cases.job_use_cases import JobUseCases
+        from backend.domain.entities.job import Job
+
+        uc = JobUseCases.__new__(JobUseCases)
+        uc.job_lock = threading.RLock()
+        uc.jobs = {}
+        uc.shared_jobs_state = {}
+        uc.processes = {}
+        uc.pause_events = {}
+
+        job = Job(id="background_ack", status="running", camera_id=1)
+        uc.jobs[job.id] = job
+
+        gen = uc.stream_job_frames(job.id, client_id="c1")
+        received = []
+        done_ev = threading.Event()
+
+        def reader():
+            for chunk in gen:
+                received.append(chunk)
+                if len(received) >= 4:
+                    break
+            done_ev.set()
+
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+
+        # Đẩy 3 frame đầu: không cần ACK vẫn nhận đủ với Content-Length & X-Frame-Seq
+        for seq in (1, 2, 3):
+            with job.frame_condition:
+                job.latest_frame = f"JPG_{seq}".encode("ascii")
+                job.frame_seq = seq
+                job.frame_condition.notify_all()
+            time.sleep(0.02)
+
+        deadline = time.time() + 1.5
+        while time.time() < deadline and len(received) < 3:
+            time.sleep(0.01)
+        self.assertEqual(len(received), 3)
+        for idx, seq in enumerate((1, 2, 3)):
+            self.assertIn(f"Content-Length: {len(f'JPG_{seq}')}\r\n".encode("ascii"), received[idx])
+            self.assertIn(f"X-Frame-Seq: {seq}\r\n".encode("ascii"), received[idx])
+
+        # Đẩy frame 4 và 5 khi client chưa ACK: cửa sổ max_inflight=3 phải giữ chưa đẩy ngay
+        for seq in (4, 5):
+            with job.frame_condition:
+                job.latest_frame = f"JPG_{seq}".encode("ascii")
+                job.frame_seq = seq
+                job.frame_condition.notify_all()
+            time.sleep(0.02)
+        time.sleep(0.08)
+        self.assertEqual(len(received), 3)
+
+        # Gửi ACK cho seq=3 -> mở khóa cửa sổ và nhảy thẳng tới frame mới nhất JPG_5
+        self.assertTrue(uc.ack_stream_frame(job.id, "c1", 3))
+        self.assertTrue(done_ev.wait(timeout=1.5))
+        self.assertIn(b"X-Frame-Seq: 5\r\n", received[3])
+        self.assertIn(b"JPG_5", received[3])
+        gen.close()
+
+    def test_13_api_get_test_job_include_preview_flag(self):
+        """api_get_test_job bỏ qua encode preview_base64 khi include_preview=0."""
+        from backend.presentation.web import monitoring_views as mv
+        from backend.domain.entities.job import Job
+
+        job = Job(id="background_99", status="running", camera_id=99, latest_frame=b"\xff\xd8\xffRAW")
+
+        class _FakeRequest:
+            def url_for(self, name, **kwargs):
+                return f"http://localhost/api/test-jobs/{kwargs['job_id']}/stream"
+
+        class _FakeContainer:
+            class job_use_cases:
+                @staticmethod
+                def get_job(jid):
+                    return job if jid == job.id else None
+
+                @staticmethod
+                def get_queue_position(jid):
+                    return None
+
+        with patch.object(mv, "container", _FakeContainer()):
+            res_with = mv.api_get_test_job(_FakeRequest(), job.id, include_preview=1, user=object())
+            self.assertIn("preview_base64", res_with["job"]["progress"])
+
+            res_without = mv.api_get_test_job(_FakeRequest(), job.id, include_preview=0, user=object())
+            self.assertNotIn("preview_base64", res_without["job"]["progress"])
+
 
 if __name__ == "__main__":
     unittest.main()
