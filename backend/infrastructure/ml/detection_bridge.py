@@ -1,6 +1,7 @@
 from __future__ import annotations
 from database.sqlite_db import broadcast_notification
 import os
+import re
 import sys
 import time
 import threading
@@ -49,9 +50,13 @@ TRAFFIC_LABELS = {"person", "bicycle", "car", "motorcycle", "bus", "truck"}
 VEHICLE_LABELS = {"car", "motorcycle", "bus", "truck"}
 PARKING_LABELS = {"car", "bus", "truck"}
 WEAPON_LABELS = {"knife", "pistol", "sword"}
+EXTRA_LABELS = {"helmet", "mask", "backpack"}
 LICENSE_PLATE_LABELS = {"license_plate", "licenseplate", "number_plate", "licence_plate"}
-DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS | WEAPON_LABELS
-SMALL_OBJECT_LABELS = {"person", "motorcycle", "bicycle", "car", "knife", "pistol", "sword"}
+DETECTABLE_LABELS = TRAFFIC_LABELS | LICENSE_PLATE_LABELS | WEAPON_LABELS | EXTRA_LABELS
+SMALL_OBJECT_LABELS = {
+    "person", "motorcycle", "bicycle", "car",
+    "knife", "pistol", "sword", "helmet", "mask", "backpack",
+}
 
 # Ánh xạ tên mức độ ùn tắc cho tên thư mục ảnh
 TRAFFIC_LEVEL_NAMES = {
@@ -68,7 +73,7 @@ PIPE_WIDTH = 1920
 PREVIEW_WIDTH = 1280
 
 # Cache khả năng hỗ trợ phần cứng một lần để không probe lặp lại mỗi khi mở camera
-_OPENCV_HAS_GSTREAMER = "GStreamer:                   YES" in cv2.getBuildInformation()
+_OPENCV_HAS_GSTREAMER = bool(re.search(r"GStreamer:\s+YES", cv2.getBuildInformation()))
 _CACHED_FFMPEG_ENCODER: Optional[str] = None
 
 
@@ -102,7 +107,7 @@ def _read_exact_into_ndarray(pipe, shape: Tuple[int, int, int], frame_size: int)
         offset += n
     return buf.reshape(shape)
 
-# Màu sắc cho các loại phương tiện
+# Màu sắc cho các loại phương tiện và đối tượng nhận diện
 BOX_COLORS = {
     "person": (0, 255, 0),
     "bicycle": (255, 127, 0),
@@ -111,6 +116,12 @@ BOX_COLORS = {
     "bus": (0, 165, 255),
     "truck": (255, 0, 255),
     "license_plate": (255, 105, 180),
+    "knife": (0, 0, 255),
+    "pistol": (0, 0, 220),
+    "sword": (0, 69, 255),
+    "helmet": (255, 200, 0),
+    "mask": (200, 180, 255),
+    "backpack": (180, 130, 70),
 }
 
 
@@ -530,19 +541,27 @@ def _probe_stream_metadata(path: Any) -> Tuple[int, int, float, int, bool]:
             ])
             probe = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             info = json.loads(probe.stdout)
-            stream_info = info.get("streams", [{}])[0]
+            streams = info.get("streams") or [{}]
+            stream_info = streams[0] if isinstance(streams, list) and streams else {}
             width = int(stream_info.get("width") or 1280)
             height = int(stream_info.get("height") or 720)
 
-            fps_str = stream_info.get("r_frame_rate", "25/1")
-            if "/" in fps_str:
-                num, den = fps_str.split("/")
-                raw_fps = float(num) / float(den) if float(den) > 0 else 25.0
-            else:
-                raw_fps = float(fps_str)
+            fps_str = str(stream_info.get("r_frame_rate") or "25/1").strip()
+            try:
+                if "/" in fps_str:
+                    num, den = fps_str.split("/", 1)
+                    raw_fps = float(num) / float(den) if float(den) > 0 else 25.0
+                else:
+                    raw_fps = float(fps_str)
+            except (ValueError, ZeroDivisionError):
+                raw_fps = 25.0
             fps = raw_fps if raw_fps > 0 else 25.0
 
-            total_frames = int(stream_info.get("nb_frames", 0) or 0)
+            raw_nb_frames = stream_info.get("nb_frames")
+            try:
+                total_frames = int(raw_nb_frames) if raw_nb_frames not in (None, "", "N/A") else 0
+            except (ValueError, TypeError):
+                total_frames = 0
             codec_name = str(stream_info.get("codec_name", "")).strip().lower()
             is_hevc = codec_name in ("hevc", "h265")
             return width, height, fps, total_frames, is_hevc
@@ -567,23 +586,81 @@ def _is_hevc(path: Any) -> bool:
     return is_hevc
 
 
+_DEFAULT_ENGINE_CLASS_NAMES: Dict[int, str] = {
+    0: "person",
+    1: "bicycle",
+    2: "car",
+    3: "motorcycle",
+    4: "license_plate",
+    5: "bus",
+    6: "truck",
+    7: "knife",
+    8: "pistol",
+    9: "sword",
+    10: "helmet",
+    11: "mask",
+    12: "backpack",
+}
+
+
+def _normalize_names_dict(raw_names: Any) -> Optional[Dict[int, str]]:
+    """Chuẩn hóa bảng tên class (dict hoặc list/tuple) sang Dict[int, str]."""
+    if isinstance(raw_names, dict):
+        parsed: Dict[int, str] = {}
+        for k, v in raw_names.items():
+            try:
+                parsed[int(k)] = str(v)
+            except (ValueError, TypeError):
+                continue
+        return parsed or None
+    if isinstance(raw_names, (list, tuple)) and raw_names:
+        return {idx: str(v) for idx, v in enumerate(raw_names)}
+    return None
+
+
+def _is_valid_detectable_names(names_dict: Optional[Dict[int, str]]) -> bool:
+    """Kiểm tra bảng tên class có phải nhãn thật (không phải placeholder class0/class1...)."""
+    if not names_dict:
+        return False
+    return any(_canonical_label(v) in DETECTABLE_LABELS for v in names_dict.values())
+
+
+def _read_engine_names_metadata(model_path: str) -> Optional[Dict[int, str]]:
+    """Đọc metadata names nhúng ở đầu file TensorRT .engine (nếu export từ Ultralytics)."""
+    try:
+        with open(model_path, "rb") as f:
+            header = f.read(4)
+            if len(header) < 4:
+                return None
+            meta_len = int.from_bytes(header, byteorder="little", signed=False)
+            if meta_len <= 2 or meta_len > 1_000_000:
+                return None
+            meta_bytes = f.read(meta_len)
+            if len(meta_bytes) != meta_len:
+                return None
+        metadata = json.loads(meta_bytes.decode("utf-8"))
+        if not isinstance(metadata, dict):
+            return None
+        parsed = _normalize_names_dict(metadata.get("names"))
+        return parsed if _is_valid_detectable_names(parsed) else None
+    except Exception:
+        return None
+
+
 def _build_label_lookup(model: Optional[YOLO]) -> Tuple[Dict[int, str], Dict[int, str]]:
     """Tạo bảng ánh xạ cls_id -> (canonical_label, display_label) một lần sau khi tải model."""
     if model is None:
         return {}, {}
-    raw_names = getattr(model, "custom_names", None) or getattr(model, "names", None) or {}
+    raw_names = getattr(model, "custom_names", None)
+    if not raw_names:
+        raw_names = getattr(model, "names", None)
+    normalized = _normalize_names_dict(raw_names) or {}
     canon_map: Dict[int, str] = {}
     disp_map: Dict[int, str] = {}
-    if isinstance(raw_names, dict):
-        for k, v in raw_names.items():
-            c_lbl = _canonical_label(v)
-            canon_map[int(k)] = c_lbl
-            disp_map[int(k)] = _display_label(c_lbl)
-    elif isinstance(raw_names, (list, tuple)):
-        for k, v in enumerate(raw_names):
-            c_lbl = _canonical_label(v)
-            canon_map[k] = c_lbl
-            disp_map[k] = _display_label(c_lbl)
+    for k, v in normalized.items():
+        c_lbl = _canonical_label(v)
+        canon_map[k] = c_lbl
+        disp_map[k] = _display_label(c_lbl)
     return canon_map, disp_map
 
 
@@ -850,10 +927,10 @@ def _load_model(model_path: Path) -> YOLO:
     model_str = str(model_path)
     if model_str.lower().endswith(".engine"):
         model = YOLO(model_str, task="detect")
-        # Chỉ fallback nếu TensorRT .engine không tự nạp được metadata names
-        existing_names = getattr(model, "names", None)
-        if not isinstance(existing_names, dict) or not existing_names:
-            model.custom_names = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'license_plate', 5: 'bus', 6: 'truck'}
+        # Đọc metadata names trực tiếp từ header .engine (nếu export từ Ultralytics) để tránh
+        # kích hoạt lazy setup_model sớm và tránh nhận nhầm placeholder class0..class998 của trtexec.
+        meta_names = _read_engine_names_metadata(model_str)
+        model.custom_names = meta_names if meta_names else dict(_DEFAULT_ENGINE_CLASS_NAMES)
         return model
 
     model = YOLO(model_str)
@@ -1272,7 +1349,12 @@ def process_video(
             if frame_ref is None:
                 break
 
-            pw, ph = rtsp_state["w"], rtsp_state["h"]
+            with rtsp_lock:
+                proc = rtsp_proc
+                pw, ph = rtsp_state["w"], rtsp_state["h"]
+            if not proc or not proc.stdin or rtsp_state["stop"]:
+                continue
+
             if frame_ref.shape[1] != pw or frame_ref.shape[0] != ph:
                 push_frame = cv2.resize(frame_ref, (pw, ph))
             else:
@@ -1280,11 +1362,6 @@ def process_video(
             if not push_frame.flags["C_CONTIGUOUS"]:
                 push_frame = np.ascontiguousarray(push_frame)
             mv = memoryview(push_frame.ravel())
-
-            with rtsp_lock:
-                proc = rtsp_proc
-            if not proc or not proc.stdin or rtsp_state["stop"]:
-                continue
 
             try:
                 proc.stdin.write(mv)
@@ -1449,7 +1526,15 @@ def process_video(
                         c_id = int(cls_arr[b_idx])
                         lbl = canon_names_map.get(c_id)
                         if lbl is None:
-                            lbl_name = getattr(model, "custom_names", model.names)[c_id]
+                            names_src = getattr(model, "custom_names", None)
+                            if not names_src:
+                                names_src = getattr(model, "names", None) or {}
+                            if isinstance(names_src, dict):
+                                lbl_name = names_src.get(c_id, c_id)
+                            elif isinstance(names_src, (list, tuple)) and 0 <= c_id < len(names_src):
+                                lbl_name = names_src[c_id]
+                            else:
+                                lbl_name = c_id
                             lbl = _canonical_label(lbl_name)
                             canon_names_map[c_id] = lbl
                             disp_names_map[c_id] = _display_label(lbl)

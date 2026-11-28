@@ -20,10 +20,12 @@ if str(BACKEND_ROOT) not in sys.path:
 from modules.traffic.traffic_monitor import TrafficMonitor
 from modules.parking.tracking_stabilizer import StationaryVehicleStabilizer
 from modules.ocr.ocr_manager import OCRManager
+from unittest.mock import patch
 from backend.infrastructure.ml.detection_bridge import (
     _read_exact_into_ndarray,
     _probe_stream_metadata,
     _build_label_lookup,
+    _load_model,
     process_video,
 )
 
@@ -194,6 +196,68 @@ class TestPerformanceOptimizations(unittest.TestCase):
         self.assertEqual(len(chunks), 2)
         self.assertIn(b"JPEG_1", chunks[0])
         self.assertIn(b"JPEG_2", chunks[1])
+
+    def test_07_load_engine_model_handles_trtexec_and_metadata_headers(self):
+        """_load_model gán custom_names chuẩn cho .engine build từ trtexec (không bị dính class0..class998)."""
+        class _FakeTrtexecYOLO:
+            def __init__(self, model_path, task=None):
+                self.model_path = model_path
+                self.task = task
+
+            @property
+            def names(self):
+                return {i: f"class{i}" for i in range(999)}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            trtexec_engine = Path(tmpdir) / "trtexec.engine"
+            trtexec_engine.write_bytes(b"\x00\x01\x02\x03raw_tensorrt_plan_bytes")
+
+            meta_engine = Path(tmpdir) / "ultralytics.engine"
+            meta_json = json.dumps({
+                "names": {"0": "person", "1": "car", "2": "knife"}
+            }).encode("utf-8")
+            meta_engine.write_bytes(len(meta_json).to_bytes(4, "little") + meta_json + b"TRT_PLAN")
+
+            from backend.infrastructure.ml.detection_bridge import DETECTABLE_LABELS
+
+            with patch("backend.infrastructure.ml.detection_bridge.YOLO", _FakeTrtexecYOLO):
+                m_trt = _load_model(trtexec_engine)
+                canon_trt, _ = _build_label_lookup(m_trt)
+                self.assertEqual(canon_trt.get(0), "person")
+                self.assertEqual(canon_trt.get(2), "car")
+                self.assertEqual(canon_trt.get(4), "license_plate")
+                self.assertEqual(canon_trt.get(7), "knife")
+                self.assertEqual(canon_trt.get(8), "pistol")
+                self.assertEqual(canon_trt.get(9), "sword")
+                self.assertEqual(canon_trt.get(10), "helmet")
+                self.assertEqual(canon_trt.get(11), "mask")
+                self.assertEqual(canon_trt.get(12), "backpack")
+                for lbl in (
+                    "person", "bicycle", "car", "motorcycle", "license_plate",
+                    "bus", "truck", "knife", "pistol", "sword", "helmet", "mask", "backpack",
+                ):
+                    self.assertIn(lbl, DETECTABLE_LABELS)
+
+                m_meta = _load_model(meta_engine)
+                canon_meta, _ = _build_label_lookup(m_meta)
+                self.assertEqual(canon_meta, {0: "person", 1: "car", 2: "knife"})
+
+    def test_08_probe_stream_metadata_rtsp_na_nb_frames(self):
+        """_probe_stream_metadata không bị fallback mất HEVC/1080p khi ffprobe trả nb_frames='N/A' trên RTSP."""
+        fake_stdout = json.dumps({
+            "streams": [{
+                "codec_name": "hevc",
+                "width": 1920,
+                "height": 1080,
+                "r_frame_rate": "25/1",
+                "nb_frames": "N/A",
+            }]
+        })
+        fake_res = type("_Res", (), {"stdout": fake_stdout})()
+        with patch("backend.infrastructure.ml.detection_bridge.subprocess.run", return_value=fake_res):
+            w, h, fps_val, total, is_hevc = _probe_stream_metadata("rtsp://127.0.0.1:554/Streaming/Channels/101")
+        self.assertEqual((w, h, total, is_hevc), (1920, 1080, 0, True))
+        self.assertAlmostEqual(fps_val, 25.0, places=2)
 
 
 if __name__ == "__main__":
