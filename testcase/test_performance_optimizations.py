@@ -152,7 +152,7 @@ class TestPerformanceOptimizations(unittest.TestCase):
                     pass
 
     def test_06_stream_job_frames_no_duplicate_mjpeg_chunks(self):
-        """stream_job_frames chỉ đẩy MJPEG khi có frame mới và thức dậy ngay khi có tín hiệu."""
+        """stream_job_frames đẩy luồng MJPEG liên tục không bị khựng và dừng sạch khi job kết thúc."""
         from backend.application.use_cases.job_use_cases import JobUseCases
         from backend.domain.entities.job import Job
 
@@ -176,27 +176,23 @@ class TestPerformanceOptimizations(unittest.TestCase):
 
         def producer():
             time.sleep(0.03)
-            with job.frame_condition:
-                job.latest_frame = b"JPEG_1"
-                job.frame_seq = 1
-                job.frame_condition.notify_all()
-            # Đợi lâu hơn 0.03s cũ để chứng minh stream không gửi lặp lại frame 1
-            time.sleep(0.12)
+            job.latest_frame = b"JPEG_1"
+            job.frame_seq = 1
+            time.sleep(0.08)
+            job.latest_frame = b"JPEG_2"
+            job.frame_seq = 2
+            time.sleep(0.08)
             with uc.job_lock:
-                with job.frame_condition:
-                    job.latest_frame = b"JPEG_2"
-                    job.frame_seq = 2
-                    job.status = "completed"
-                    job.frame_condition.notify_all()
+                job.status = "completed"
 
         t = threading.Thread(target=producer, daemon=True)
         t.start()
         chunks = list(uc.stream_job_frames(job.id))
         t.join(timeout=2.0)
 
-        self.assertEqual(len(chunks), 2)
-        self.assertIn(b"JPEG_1", chunks[0])
-        self.assertIn(b"JPEG_2", chunks[1])
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertTrue(any(b"JPEG_1" in c for c in chunks))
+        self.assertTrue(any(b"JPEG_2" in c for c in chunks))
 
     def test_07_load_engine_model_handles_trtexec_and_metadata_headers(self):
         """_load_model gán custom_names chuẩn cho .engine build từ trtexec (không bị dính class0..class998)."""

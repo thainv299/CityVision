@@ -202,9 +202,9 @@ class JobUseCases:
             try:
                 first_msg = self.progress_queue.get(timeout=1.0)
                 batch = [first_msg] if first_msg else []
-                # Rút sạch các gói đang tồn trong queue (tối đa 64 gói/nhịp) để gộp frame mới nhất,
+                # Rút sạch các gói đang tồn trong queue (tối đa 256 gói/nhịp) để gộp frame mới nhất,
                 # tránh tình trạng progress_queue bị ùn ứ khiến stream phát chậm (slow-motion).
-                for _ in range(64):
+                for _ in range(256):
                     try:
                         extra_msg = self.progress_queue.get_nowait()
                         if extra_msg:
@@ -647,49 +647,38 @@ class JobUseCases:
             except Exception:
                 pass
 
-        last_sent_seq = 0
-        last_sent_frame_id = None
-
-        def _has_unseen_frame() -> bool:
-            if not job.latest_frame:
-                return False
-            if job.frame_seq != last_sent_seq:
-                return True
-            return job.frame_seq == 0 and id(job.latest_frame) != last_sent_frame_id
+        last_diag_time = time.time()
+        sent_chunks = 0
+        seen_seqs = set()
 
         try:
             while True:
-                frame_bytes = None
-                is_terminal = False
-                with job.frame_condition:
-                    while job.status not in terminal_statuses and not _has_unseen_frame():
-                        job.last_heartbeat = time.time()
-                        # Dùng timeout ngắn 0.1s thay vì 1.0s để tránh lag hiển thị khi
-                        # notify_all() đến ngay lúc thread vừa thoát khỏi frame_condition.
-                        # Trường hợp frame_seq == 0 (chờ frame đầu tiên) dùng 0.05s để
-                        # phản hồi nhanh ngay khi model load xong.
-                        wait_s = 0.05 if job.frame_seq == 0 else 0.1
-                        job.frame_condition.wait(timeout=wait_s)
-
-                    is_terminal = job.status in terminal_statuses
-                    if _has_unseen_frame():
-                        frame_bytes = job.latest_frame
-                        last_sent_seq = job.frame_seq
-                        last_sent_frame_id = id(frame_bytes)
-                        job.last_heartbeat = time.time()
-                    elif is_terminal:
-                        break
-
-                if frame_bytes:
-                    yield (
-                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                        + str(len(frame_bytes)).encode("ascii")
-                        + b"\r\n\r\n"
-                        + frame_bytes
-                        + b"\r\n"
-                    )
-                if is_terminal:
+                if job.status in terminal_statuses:
                     break
+
+                # Cập nhật heartbeat khi đang đẩy stream MJPEG
+                job.last_heartbeat = time.time()
+
+                frame_bytes = job.latest_frame
+                if frame_bytes:
+                    sent_chunks += 1
+                    seen_seqs.add(job.frame_seq)
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+
+                now_diag = time.time()
+                if now_diag - last_diag_time >= 10.0:
+                    elapsed_diag = now_diag - last_diag_time
+                    print(
+                        f"[MJPEG Diag - {job_id}] "
+                        f"send_fps={sent_chunks / elapsed_diag:.1f} | "
+                        f"unique_frames={len(seen_seqs)}/{elapsed_diag:.1f}s | "
+                        f"viewer_count={job.viewer_count}"
+                    )
+                    last_diag_time = now_diag
+                    sent_chunks = 0
+                    seen_seqs.clear()
+
+                time.sleep(0.03)  # Tránh nghẽn băng thông & giữ nhịp MJPEG ổn định như trước commit f4bb2c5
         finally:
             with self.job_lock:
                 if job.status in ("queued", "running"):

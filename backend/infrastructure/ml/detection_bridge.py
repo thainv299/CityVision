@@ -152,8 +152,7 @@ class VideoStream:
     def __init__(self, path, force_single_thread: bool = False, pre_probed: Optional[Tuple[int, int, float, int]] = None):
         self.path = str(path)
         self.stopped = False
-        is_live_src = "://" in self.path or self.path.startswith("rtsp")
-        self.queue = queue.Queue(maxsize=2 if is_live_src else 5)
+        self.queue = queue.Queue(maxsize=5)
         self._is_opened = False
         # FIX #2: Chỉ dùng single-thread khi cần (H.265), H.264 dùng auto-thread
         self._force_single_thread = force_single_thread
@@ -215,7 +214,7 @@ class VideoStream:
                 f"rtspsrc location={self.path} latency=200 ! "
                 f"{depay} ! nvv4l2decoder ! "
                 f"nvvidconv ! video/x-raw, width={width}, height={height}, format=BGRx ! "
-                f"appsink max-buffers=1 drop=True sync=False"
+                f"appsink drop=True sync=False"
             )
         else:
             path = self.path
@@ -278,17 +277,16 @@ class VideoStream:
             self._cap.release()
 
     def _build_ffmpeg_cmd(self) -> list:
-        """Xây dựng lệnh FFmpeg tối ưu (giảm trễ RTSP và bỏ cấp phát dư)."""
+        """Xây dựng lệnh FFmpeg giải mã video/RTSP (giữ hành vi ổn định như trước commit f4bb2c5)."""
         cmd = [
             "ffmpeg", "-loglevel", "error",
             "-threads", "0"
         ]
 
         path_str = str(self.path)
-        if path_str.lower().startswith("rtsp://"):
-            cmd.extend(["-rtsp_transport", "tcp", "-fflags", "nobuffer", "-flags", "low_delay"])
-        elif path_str.lower().startswith(("http://", "https://", "rtmp://")):
-            cmd.extend(["-fflags", "nobuffer", "-flags", "low_delay"])
+        rtsp_transport = os.environ.get("RTSP_TRANSPORT", "").strip().lower()
+        if path_str.lower().startswith("rtsp://") and rtsp_transport in ("tcp", "udp", "udp_multicast", "http"):
+            cmd.extend(["-rtsp_transport", rtsp_transport])
 
         # Hỗ trợ giải mã phần cứng trên Jetson (NVDEC / V4L2)
         use_nvdec = os.environ.get("USE_JETSON_NVDEC", "0") == "1"
@@ -309,12 +307,14 @@ class VideoStream:
         self._using_gstreamer = False
         frame_size = self.draw_w * self.draw_h * 3
         shape = (self.draw_h, self.draw_w, 3)
+        pipe_bufsize = max(frame_size * 2, 1024 * 1024)
         is_url = "://" in self.path or self.path.startswith("rtsp")
 
         self._proc = subprocess.Popen(
             self._build_ffmpeg_cmd(),
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            bufsize=pipe_bufsize,
         )
 
         while not self.stopped:
@@ -332,7 +332,8 @@ class VideoStream:
                     self._proc = subprocess.Popen(
                         self._build_ffmpeg_cmd(),
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.DEVNULL
+                        stderr=subprocess.DEVNULL,
+                        bufsize=pipe_bufsize,
                     )
                     continue
 
@@ -1178,6 +1179,7 @@ def process_video(
     current_fps = 0.0
     accumulated_process_time = 0.0
     last_heartbeat_time = started_at
+    diag_prev_time = started_at
 
     # Luồng nền nén ảnh JPEG & đẩy trực tiếp qua progress_callback ngay khi nén xong
     preview_lock = threading.Lock()
@@ -1185,6 +1187,7 @@ def process_video(
     preview_state = {
         "last_jpeg": None,
         "jpeg_seq": 0,
+        "enc_count": 0,
         "stop": False,
         "pw": preview_w,
         "ph": preview_h,
@@ -1248,6 +1251,7 @@ def process_video(
                     with preview_lock:
                         preview_state["last_jpeg"] = encoded_jpg
                         preview_state["jpeg_seq"] += 1
+                        preview_state["enc_count"] += 1
                     if progress_callback is not None:
                         preview_state["last_emit_time"] = now_enc
                         _emit_progress({
@@ -1971,6 +1975,18 @@ def process_video(
                 fps_prev_time = fps_now
                 fps_frame_count = 0
                 accumulated_process_time = 0.0
+            if preview_state["viewer_count"] > 0 and (fps_now - diag_prev_time >= 10.0):
+                diag_elapsed = fps_now - diag_prev_time
+                with preview_lock:
+                    enc_cnt = preview_state["enc_count"]
+                    preview_state["enc_count"] = 0
+                backend_name = "GStreamer" if getattr(capture, "_using_gstreamer", False) else "FFmpeg"
+                print(
+                    f"[Stream Diag - Cam {camera_id}] backend={backend_name} | "
+                    f"loop_fps={current_fps:.1f} | enc_fps={enc_cnt / diag_elapsed:.1f} | "
+                    f"viewers={preview_state['viewer_count']} | rtsp_push={enable_rtsp_push}"
+                )
+                diag_prev_time = fps_now
             if show_fps:
                 cv2.putText(frame, f"FPS: {int(current_fps)}", (30, draw_h - 40),
                             cv2.FONT_HERSHEY_SIMPLEX, f_scale, (0, 255, 255), f_thick)
