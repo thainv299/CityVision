@@ -346,6 +346,44 @@ class TestPerformanceOptimizations(unittest.TestCase):
         popen_mock.assert_not_called()
         self.assertGreaterEqual(len(previews_received), 4)
 
+    def test_11_queue_listener_coalesces_progress_backlog(self):
+        """_queue_listener phải gộp các frame tồn đọng trong queue về frame mới nhất thay vì phát chậm từng frame cũ."""
+        import queue as std_queue
+        from backend.application.use_cases.job_use_cases import JobUseCases
+        from backend.domain.entities.job import Job
+
+        uc = JobUseCases.__new__(JobUseCases)
+        uc.job_lock = threading.RLock()
+        uc.jobs = {}
+        uc.shared_jobs_state = {}
+        uc.processes = {}
+        uc.pause_events = {}
+        uc.progress_queue = std_queue.Queue()
+
+        job = Job(id="background_1", status="running", camera_id=1)
+        uc.jobs[job.id] = job
+
+        for idx in range(1, 21):
+            uc.progress_queue.put({
+                "job_id": "background_1",
+                "type": "progress",
+                "data": {"processed_frames": idx, "preview_jpeg": f"JPEG_{idx}".encode("ascii")},
+            })
+
+        # Chạy _queue_listener trong thread nền rồi dừng qua job_lock khi đã rút hết queue
+        t = threading.Thread(target=uc._queue_listener, daemon=True)
+        t.start()
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if job.latest_frame == b"JPEG_20":
+                break
+            time.sleep(0.01)
+
+        self.assertEqual(job.latest_frame, b"JPEG_20")
+        self.assertEqual(job.progress.get("processed_frames"), 20)
+        self.assertTrue(uc.progress_queue.empty())
+
 
 if __name__ == "__main__":
     unittest.main()

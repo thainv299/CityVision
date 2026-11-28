@@ -200,66 +200,91 @@ class JobUseCases:
                     print(f"[System] Lỗi khi auto-heal camera nền: {e}")
 
             try:
-                msg = self.progress_queue.get(timeout=1.0)
-                if not msg:
+                first_msg = self.progress_queue.get(timeout=1.0)
+                batch = [first_msg] if first_msg else []
+                # Rút sạch các gói đang tồn trong queue (tối đa 64 gói/nhịp) để gộp frame mới nhất,
+                # tránh tình trạng progress_queue bị ùn ứ khiến stream phát chậm (slow-motion).
+                for _ in range(64):
+                    try:
+                        extra_msg = self.progress_queue.get_nowait()
+                        if extra_msg:
+                            batch.append(extra_msg)
+                    except queue.Empty:
+                        break
+
+                if not batch:
                     continue
 
-                job_id = msg.get("job_id")
-                msg_type = msg.get("type")
-
-                with self.job_lock:
-                    job = self.jobs.get(job_id)
-                    if not job:
-                        continue
-                    
-                    # Nếu Job đã kết thúc (aborted, completed, failed), bỏ qua các gói tiến độ cũ còn sót lại trong Queue
-                    if job.status in {"completed", "failed", "aborted"}:
-                        continue
-
-                    if msg_type == "progress":
-                        data = msg.get("data")
-                        preview_jpeg = data.pop("preview_jpeg", None)
-                        if preview_jpeg:
-                            with job.frame_condition:
-                                job.latest_frame = preview_jpeg
-                                job.frame_seq += 1
-                                job.frame_condition.notify_all()
-                        # Luôn wake-up stream_job_frames khi có bất kỳ progress nào
-                        # (kể cả heartbeat không kèm JPEG) để tránh chờ hết timeout.
-                        # _has_unseen_frame() trong stream_job_frames sẽ guard việc
-                        # gửi frame trùng lặp.
-                        elif job.latest_frame:
-                            with job.frame_condition:
-                                job.frame_condition.notify_all()
-
-                        # Đồng bộ tiến trình
-                        job.progress = data
-                        if job.started_at is None:
-                            job.started_at = time.time()
-                            
-                        # Đảm bảo cập nhật message trạng thái về UI
-                        phase = data.get("phase")
-                        processed_frames = data.get("processed_frames")
-                        if phase == "loading_model":
-                            job.message = "Đang tải..."
-                        elif phase == "finalizing_output":
-                            job.message = "Đang hoàn tất video kết quả..."
-                        elif processed_frames is not None:
-                            job.message = "Hệ thống đang hoạt động..."
+                latest_progress_by_job: Dict[str, tuple] = {}
+                ordered_events = []
+                for item in batch:
+                    jid = item.get("job_id")
+                    mtype = item.get("type")
+                    if mtype == "progress" and jid:
+                        pdata = item.get("data") or {}
+                        pjpeg = pdata.pop("preview_jpeg", None)
+                        prev = latest_progress_by_job.get(jid)
+                        if prev is None:
+                            latest_progress_by_job[jid] = (pdata, pjpeg)
+                            ordered_events.append(("progress", jid))
                         else:
-                            job.message = "Đang xử lý video..."
+                            latest_progress_by_job[jid] = (pdata, pjpeg if pjpeg else prev[1])
+                    else:
+                        ordered_events.append(("raw", item))
 
-                    elif msg_type == "status":
-                        status = msg.get("status")
-                        job.status = status
-                        job.message = msg.get("message")
-                        job.error = msg.get("error")
-                        job.summary = msg.get("summary")
-                        job.finished_at = time.time()
+                for ev_kind, ev_payload in ordered_events:
+                    if ev_kind == "progress":
+                        job_id = ev_payload
+                        data, preview_jpeg = latest_progress_by_job[job_id]
+                        with self.job_lock:
+                            job = self.jobs.get(job_id)
+                            if not job or job.status in {"completed", "failed", "aborted"}:
+                                continue
 
-                        # Thu hồi tài nguyên tiến trình con khi kết thúc
-                        if status in {"completed", "failed", "aborted"}:
-                            self._cleanup_process(job_id)
+                            if preview_jpeg:
+                                with job.frame_condition:
+                                    job.latest_frame = preview_jpeg
+                                    job.frame_seq += 1
+                                    job.frame_condition.notify_all()
+                            elif job.latest_frame:
+                                with job.frame_condition:
+                                    job.frame_condition.notify_all()
+
+                            # Đồng bộ tiến trình
+                            job.progress = data
+                            if job.started_at is None:
+                                job.started_at = time.time()
+
+                            # Đảm bảo cập nhật message trạng thái về UI
+                            phase = data.get("phase")
+                            processed_frames = data.get("processed_frames")
+                            if phase == "loading_model":
+                                job.message = "Đang tải..."
+                            elif phase == "finalizing_output":
+                                job.message = "Đang hoàn tất video kết quả..."
+                            elif processed_frames is not None:
+                                job.message = "Hệ thống đang hoạt động..."
+                            else:
+                                job.message = "Đang xử lý video..."
+                    else:
+                        msg = ev_payload
+                        job_id = msg.get("job_id")
+                        msg_type = msg.get("type")
+                        with self.job_lock:
+                            job = self.jobs.get(job_id)
+                            if not job or job.status in {"completed", "failed", "aborted"}:
+                                continue
+                            if msg_type == "status":
+                                status = msg.get("status")
+                                job.status = status
+                                job.message = msg.get("message")
+                                job.error = msg.get("error")
+                                job.summary = msg.get("summary")
+                                job.finished_at = time.time()
+
+                                # Thu hồi tài nguyên tiến trình con khi kết thúc
+                                if status in {"completed", "failed", "aborted"}:
+                                    self._cleanup_process(job_id)
 
             except queue.Empty:
                 continue
