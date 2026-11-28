@@ -645,7 +645,13 @@ class JobUseCases:
                         break
 
                 if frame_bytes:
-                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                    yield (
+                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                        + str(len(frame_bytes)).encode("ascii")
+                        + b"\r\n\r\n"
+                        + frame_bytes
+                        + b"\r\n"
+                    )
                 if is_terminal:
                     break
         finally:
