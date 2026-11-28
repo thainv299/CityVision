@@ -632,7 +632,32 @@ class JobUseCases:
                 except Exception:
                     pass
 
-    def stream_job_frames(self, job_id: str):
+    def _get_stream_acks(self) -> Dict[Any, Dict[str, Any]]:
+        """Lấy map theo dõi ACK từng client stream, khởi tạo lười để tương thích với __new__."""
+        acks = getattr(self, "_stream_acks", None)
+        if acks is None:
+            with self.job_lock:
+                acks = getattr(self, "_stream_acks", None)
+                if acks is None:
+                    acks = {}
+                    self._stream_acks = acks
+        return acks
+
+    def ack_stream_frame(self, job_id: str, client_id: str, seq: int) -> bool:
+        """Cập nhật frame_seq cuối cùng mà trình duyệt đã nhận để giới hạn bufferbloat trên WAN."""
+        if not client_id:
+            return False
+        acks = self._get_stream_acks()
+        entry = acks.get((job_id, client_id))
+        if not entry:
+            return False
+        seq_val = int(seq)
+        if seq_val > entry["ack"]:
+            entry["ack"] = seq_val
+        entry["ev"].set()
+        return True
+
+    def stream_job_frames(self, job_id: str, client_id: Optional[str] = None):
         terminal_statuses = ("completed", "failed", "aborted")
         with self.job_lock:
             job = self.jobs.get(job_id)
@@ -647,9 +672,17 @@ class JobUseCases:
             except Exception:
                 pass
 
+        ack_entry = None
+        acks = None
+        if client_id:
+            acks = self._get_stream_acks()
+            ack_entry = {"ack": 0, "ev": threading.Event()}
+            acks[(job_id, client_id)] = ack_entry
+
         last_diag_time = time.time()
         sent_chunks = 0
-        seen_seqs = set()
+        skipped_frames = 0
+        last_seq = -1
 
         try:
             while True:
@@ -659,11 +692,46 @@ class JobUseCases:
                 # Cập nhật heartbeat khi đang đẩy stream MJPEG
                 job.last_heartbeat = time.time()
 
-                frame_bytes = job.latest_frame
-                if frame_bytes:
+                # Nếu client dùng cơ chế cửa sổ ACK (WAN/Cloudflare), không đẩy vượt quá 3 frame chưa ACK
+                if ack_entry is not None and last_seq >= 0:
+                    stall_deadline = time.time() + 2.5
+                    while (
+                        job.status not in terminal_statuses
+                        and (last_seq - ack_entry["ack"]) >= 3
+                        and time.time() < stall_deadline
+                    ):
+                        ack_entry["ev"].wait(timeout=0.05)
+                        ack_entry["ev"].clear()
+                        job.last_heartbeat = time.time()
+                    if job.status in terminal_statuses:
+                        break
+
+                with job.frame_condition:
+                    while (
+                        job.status not in terminal_statuses
+                        and (job.latest_frame is None or job.frame_seq == last_seq)
+                    ):
+                        job.frame_condition.wait(timeout=0.04)
+                    if job.status in terminal_statuses:
+                        break
+                    frame_bytes = job.latest_frame
+                    seq = job.frame_seq
+
+                job.last_heartbeat = time.time()
+
+                if frame_bytes and seq != last_seq:
+                    if last_seq >= 0 and seq > last_seq + 1:
+                        skipped_frames += (seq - last_seq - 1)
+                    last_seq = seq
                     sent_chunks += 1
-                    seen_seqs.add(job.frame_seq)
-                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                    meta_seq = f"\r\nX-Frame-Seq: {seq}".encode("ascii") if client_id else b""
+                    header = (
+                        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                        + str(len(frame_bytes)).encode("ascii")
+                        + meta_seq
+                        + b"\r\n\r\n"
+                    )
+                    yield header + frame_bytes + b"\r\n"
 
                 now_diag = time.time()
                 if now_diag - last_diag_time >= 10.0:
@@ -671,15 +739,16 @@ class JobUseCases:
                     print(
                         f"[MJPEG Diag - {job_id}] "
                         f"send_fps={sent_chunks / elapsed_diag:.1f} | "
-                        f"unique_frames={len(seen_seqs)}/{elapsed_diag:.1f}s | "
+                        f"unique_frames={sent_chunks}/{elapsed_diag:.1f}s | "
+                        f"skipped={skipped_frames} | "
                         f"viewer_count={job.viewer_count}"
                     )
                     last_diag_time = now_diag
                     sent_chunks = 0
-                    seen_seqs.clear()
-
-                time.sleep(0.03)  # Tránh nghẽn băng thông & giữ nhịp MJPEG ổn định như trước commit f4bb2c5
+                    skipped_frames = 0
         finally:
+            if acks is not None and client_id:
+                acks.pop((job_id, client_id), None)
             with self.job_lock:
                 if job.status in ("queued", "running"):
                     job.viewer_count = max(0, job.viewer_count - 1)

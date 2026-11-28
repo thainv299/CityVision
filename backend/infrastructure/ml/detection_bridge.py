@@ -1182,6 +1182,20 @@ def process_video(
     diag_prev_time = started_at
 
     # Luồng nền nén ảnh JPEG & đẩy trực tiếp qua progress_callback ngay khi nén xong
+    _stream_quality_profiles = {
+        "low": (854, 480, 40, 854, 480, "800K", "28"),
+        "medium": (1280, 720, 70, 1280, 720, "1.8M", "23"),
+        # Giữ nguyên độ phân giải 1080p cho high, q=75 giảm ~25% byte MJPEG và ~32% CPU nén
+        "high": (1920, 1080, 75, 1920, 1080, "3.5M", "20"),
+        "ultra": (1920, 1080, 88, 1920, 1080, "6M", "16"),
+    }
+    _init_profile = _stream_quality_profiles.get(settings.get("requested_quality"))
+    _init_pw, _init_ph, _init_q = (
+        (_init_profile[0], _init_profile[1], _init_profile[2])
+        if _init_profile
+        else (preview_w, preview_h, 75)
+    )
+
     preview_lock = threading.Lock()
     preview_queue = queue.Queue(maxsize=1)
     preview_state = {
@@ -1189,12 +1203,13 @@ def process_video(
         "jpeg_seq": 0,
         "enc_count": 0,
         "stop": False,
-        "pw": preview_w,
-        "ph": preview_h,
-        "q": 75,
+        "pw": _init_pw,
+        "ph": _init_ph,
+        "q": _init_q,
         "viewer_count": 0,
         "force_preview": False,
         "last_emit_time": 0.0,
+        "mp4_next_deadline": None,
     }
     progress_cb_lock = threading.Lock()
     pending_actions_lock = threading.Lock()
@@ -2038,36 +2053,16 @@ def process_video(
                 # Xử lý lệnh từ Manager (ví dụ đổi chất lượng)
                 if response and "new_quality" in response:
                     q = response["new_quality"]
-                    if q == "low":
-                        preview_state["pw"], preview_state["ph"] = 854, 480
-                        preview_state["q"] = 40
-                        push_w, push_h = 854, 480
-                        push_bitrate = "800K"
-                        push_crf = "28"
-                    elif q == "medium":
-                        preview_state["pw"], preview_state["ph"] = 1280, 720
-                        preview_state["q"] = 70
-                        push_w, push_h = 1280, 720
-                        push_bitrate = "1.8M"
-                        push_crf = "23"
-                    elif q == "high":
-                        preview_state["pw"], preview_state["ph"] = 1920, 1080
-                        preview_state["q"] = 85
-                        push_w, push_h = 1920, 1080
-                        push_bitrate = "3.5M"
-                        push_crf = "20"
-                    elif q == "ultra":
-                        preview_state["pw"], preview_state["ph"] = 1920, 1080
-                        preview_state["q"] = 98
-                        push_w, push_h = 1920, 1080
-                        push_bitrate = "6M"
-                        push_crf = "16"
-                    
-                    push_w = push_w + (push_w % 2)
-                    push_h = push_h + (push_h % 2)
-                    if enable_rtsp_push:
-                        start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
-                    print(f"[AI] Đã đổi chất lượng sang: {q} ({preview_state['pw']}x{preview_state['ph']}, quality={preview_state['q']})")
+                    profile = _stream_quality_profiles.get(q)
+                    if profile:
+                        pw, ph, pq, push_w, push_h, push_bitrate, push_crf = profile
+                        preview_state["pw"], preview_state["ph"] = pw, ph
+                        preview_state["q"] = pq
+                        push_w = push_w + (push_w % 2)
+                        push_h = push_h + (push_h % 2)
+                        if enable_rtsp_push:
+                            start_rtsp_push(push_w, push_h, push_bitrate, push_crf)
+                        print(f"[AI] Đã đổi chất lượng sang: {q} ({preview_state['pw']}x{preview_state['ph']}, quality={preview_state['q']})")
                 
                 # Xử lý lệnh từ Manager (đổi cài đặt cấu hình AI từ Front-end)
                 if response and "new_settings" in response:
@@ -2202,13 +2197,21 @@ def process_video(
                                 print(f"[Dynamic Settings - Camera {camera_id}] Đã tắt đẩy RTSP nền (MJPEG).")
 
             # 4. THROTTLE & PROFILING
-            elapsed = time.time() - frame_start_time
+            now_pace = time.time()
+            elapsed = now_pace - frame_start_time
             accumulated_process_time += elapsed
-            
-            # Chỉ áp dụng hãm tốc độ (Throttle) cho file video cục bộ.
-            # Đối với camera/live stream (is_live = True), xử lý nhanh nhất có thể.
-            if not is_live and elapsed < ideal_frame_time:
-                time.sleep(ideal_frame_time - elapsed)
+
+            # Chỉ áp dụng hãm tốc độ (Throttle) cho file video cục bộ theo deadline tích lũy
+            # để tránh stride > 1 làm tụt FPS thực khi khung hình có suy luận nặng hơn ideal_frame_time.
+            if not is_live and ideal_frame_time > 0:
+                next_dl = preview_state["mp4_next_deadline"]
+                next_dl = (frame_start_time + ideal_frame_time) if next_dl is None else (next_dl + ideal_frame_time)
+                sleep_for = next_dl - now_pace
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                elif sleep_for < -ideal_frame_time * 2.0:
+                    next_dl = now_pace
+                preview_state["mp4_next_deadline"] = next_dl
 
     finally:
         # Đặt cờ dừng RTSP writer và chấm dứt FFmpeg push trước để giải phóng ngay nếu đang block stdin.write

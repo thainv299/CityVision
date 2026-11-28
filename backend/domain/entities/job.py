@@ -36,7 +36,7 @@ class Job:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "summary": self.summary,
-            "progress": self.progress,
+            "progress": dict(self.progress) if self.progress else {},
             "is_paused": self.is_paused,
             "camera_id": self.camera_id,
             "viewer_count": self.viewer_count,
